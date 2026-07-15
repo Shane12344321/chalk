@@ -46,7 +46,7 @@ Non-goals: accounts, authentication, persistence, deployment, mobile, multi-user
 | Product brief | Complete | `chalk-build-plan.md` |
 | Audited agent guidance | Complete | `AGENTS.md` |
 | Architecture baseline | Complete, unimplemented | `ARCHITECTURE.md` |
-| Git repository | Pending until initial planning commit | No `.git` directory before this plan |
+| Git repository | Initialized; planning baseline committed | Commit `97128fe` on `main` |
 | Frontend scaffold | Not started | No `frontend/` directory |
 | Backend scaffold | Not started | No `backend/` directory |
 | Shared schema | Not started | No `shared/schema/` directory |
@@ -60,8 +60,8 @@ Non-goals: accounts, authentication, persistence, deployment, mobile, multi-user
 
 | ID | Milestone | Exit condition | Status |
 |---|---|---|---|
-| M0 | Planning and repository baseline | Planning documents committed on a clean repository | In progress |
-| M1 | Scaffold and Realtime vertical slice | Browser voice loop, five successful interruptions, dummy tool round trip | Pending |
+| M0 | Planning and repository baseline | Planning documents committed on a clean repository | Complete |
+| M1 | Scaffold and Realtime vertical slice | Browser voice loop, five successful interruptions, dummy tool round trip | Ready |
 | M2 | Deterministic board and fixed sync | Hardcoded projectile lesson speaks and draws concurrently without crashes | Pending |
 | M3 | Live lesson generation | Validated NDJSON streams; 8/10 golden topics pass the rubric | Pending |
 | M4 | Full interruption and grounding loop | Three consecutive cached MVP rehearsals pass | Pending |
@@ -81,9 +81,9 @@ Objective: establish a versioned, internally consistent starting point before ap
 - [x] Create `AGENTS.md` with durable implementation and validation rules.
 - [x] Create `ARCHITECTURE.md` with boundaries, flows, fallbacks, and spike labels.
 - [x] Create this living execution plan.
-- [ ] Initialize Git in `/Users/shanesarosh/Desktop/chalk` without initializing a parent directory.
-- [ ] Commit the four planning documents as the repository baseline.
-- [ ] Confirm the post-commit worktree is clean.
+- [x] Initialize Git in `/Users/shanesarosh/Desktop/chalk` without initializing a parent directory.
+- [x] Commit the four planning documents as the repository baseline.
+- [x] Confirm the post-commit worktree is clean.
 
 ### Validation
 
@@ -377,6 +377,7 @@ Append validation evidence; do not replace failed entries.
 | 2026-07-15 | M0 | Planning files exist | `ls -la` and `wc` | Pass | Build plan, `AGENTS.md`, and `ARCHITECTURE.md` existed before this plan |
 | 2026-07-15 | M0 | `AGENTS.md` instruction size | `wc -c AGENTS.md` | Pass | 18,911 bytes, below 32 KiB |
 | 2026-07-15 | M0 | Architecture Markdown fences | Count lines beginning with triple backticks | Pass | 20 fence lines, balanced |
+| 2026-07-15 | M0 | Planning baseline checked in | `git log -1 --oneline --decorate` and `git status --short --branch` | Pass | Commit `97128fe` on `main`; worktree was clean immediately after commit |
 
 Future command baseline, to be finalized in M1 after scaffolding:
 
@@ -396,6 +397,7 @@ Do not mark these commands as passing until they exist and were run successfully
 | 2026-07-15 | M0 | Audited build plan and created agent guidance | Create architecture baseline | None |
 | 2026-07-15 | M0 | Created architecture baseline with spike gates and ADRs | Create living execution plan | None |
 | 2026-07-15 | M0 | Created `PLANS.md` with milestones, registers, validation, and rollback | Initialize Git and commit planning baseline | None |
+| 2026-07-15 | M0 | Initialized Git and committed the four-document planning baseline as `97128fe` | Commit this evidence update, then begin M1 | None |
 
 ## Discoveries and surprises
 
