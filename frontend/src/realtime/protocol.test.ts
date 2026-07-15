@@ -1,0 +1,172 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  CLIENT_EVENTS,
+  createFunctionCallOutput,
+  createResponseAfterTool,
+  createSessionRequest,
+  createSessionUpdate,
+  extractFunctionCalls,
+  getResponseUsage,
+  parseServerEvent,
+  parseSessionCredential,
+  SERVER_EVENTS,
+} from "./protocol";
+
+describe("Realtime protocol builders", () => {
+  it("builds the current GA audio + server VAD session shape", () => {
+    const event = createSessionUpdate("gpt-realtime-2.1-mini", "marin");
+
+    expect(event).toMatchObject({
+      type: CLIENT_EVENTS.SESSION_UPDATE,
+      session: {
+        type: "realtime",
+        model: "gpt-realtime-2.1-mini",
+        output_modalities: ["audio"],
+        max_output_tokens: 256,
+        audio: {
+          input: {
+            turn_detection: {
+              type: "server_vad",
+              create_response: true,
+              interrupt_response: true,
+            },
+          },
+          output: { voice: "marin" },
+        },
+        tools: [{ type: "function", name: "debug_echo" }],
+        tool_choice: "auto",
+        truncation: {
+          type: "retention_ratio",
+          retention_ratio: 0.8,
+          token_limits: { post_instructions: 4_000 },
+        },
+      },
+    });
+  });
+
+  it("requires the normalized session contract and matching request ID", () => {
+    const normalized = {
+      request_id: "req-1",
+      client_secret: "ephemeral-secret",
+      expires_at: 123,
+      model: "gpt-realtime-2.1-mini",
+      voice: "marin",
+    };
+    expect(parseSessionCredential(normalized, "req-1")).toEqual(normalized);
+    expect(() => parseSessionCredential(normalized, "req-stale")).toThrow(
+      /stale or mismatched/i,
+    );
+    expect(() =>
+      parseSessionCredential({ value: "raw-upstream-token" }, "req-1"),
+    ).toThrow(/invalid request_id/i);
+  });
+
+  it("creates a fresh request ID per session mint", () => {
+    const randomUUID = vi
+      .spyOn(crypto, "randomUUID")
+      .mockReturnValueOnce("00000000-0000-4000-8000-000000000001")
+      .mockReturnValueOnce("00000000-0000-4000-8000-000000000002");
+    expect(createSessionRequest("client").request_id).not.toBe(
+      createSessionRequest("client").request_id,
+    );
+    randomUUID.mockRestore();
+  });
+
+  it("decodes complete tool calls from response.done only", () => {
+    const event = parseServerEvent(
+      JSON.stringify({
+        type: SERVER_EVENTS.RESPONSE_DONE,
+        response: {
+          id: "resp_1",
+          output: [
+            {
+              type: "function_call",
+              call_id: "call_1",
+              name: "debug_echo",
+              arguments: '{"message":"hello"}',
+            },
+          ],
+        },
+      }),
+    );
+    expect(event && extractFunctionCalls(event)).toEqual([
+      {
+        callId: "call_1",
+        name: "debug_echo",
+        argumentsJson: '{"message":"hello"}',
+      },
+    ]);
+    expect(extractFunctionCalls({ type: "response.created" })).toEqual([]);
+  });
+
+  it("rejects oversized function-call identifiers before routing", () => {
+    expect(
+      extractFunctionCalls({
+        type: SERVER_EVENTS.RESPONSE_DONE,
+        response: {
+          output: [
+            {
+              type: "function_call",
+              call_id: "x".repeat(257),
+              name: "debug_echo",
+              arguments: '{"message":"hello"}',
+            },
+          ],
+        },
+      }),
+    ).toEqual([]);
+  });
+
+  it("builds the documented function output followed by response.create", () => {
+    expect(createFunctionCallOutput("call_1", { ok: true })).toEqual({
+      type: "conversation.item.create",
+      item: {
+        type: "function_call_output",
+        call_id: "call_1",
+        output: '{"ok":true}',
+      },
+    });
+    expect(createResponseAfterTool()).toEqual({
+      type: "response.create",
+      response: { output_modalities: ["audio"] },
+    });
+  });
+
+  it("rejects malformed or oversized server events", () => {
+    expect(parseServerEvent("{")) .toBeNull();
+    expect(parseServerEvent(JSON.stringify({ no_type: true }))).toBeNull();
+    expect(parseServerEvent("x".repeat(256_001))).toBeNull();
+  });
+
+  it("extracts only bounded numeric response usage", () => {
+    expect(
+      getResponseUsage({
+        type: SERVER_EVENTS.RESPONSE_DONE,
+        response: {
+          usage: {
+            total_tokens: 125,
+            input_tokens: 100,
+            output_tokens: 25,
+            input_token_details: { cached_tokens: 60, audio_tokens: 30 },
+            output_token_details: { audio_tokens: 20 },
+          },
+        },
+      }),
+    ).toEqual({
+      total_tokens: 125,
+      input_tokens: 100,
+      output_tokens: 25,
+      cached_input_tokens: 60,
+      input_audio_tokens: 30,
+      output_audio_tokens: 20,
+    });
+    expect(
+      getResponseUsage({
+        type: SERVER_EVENTS.RESPONSE_DONE,
+        response: {
+          usage: { total_tokens: "125", input_tokens: 100, output_tokens: 25 },
+        },
+      }),
+    ).toBeUndefined();
+  });
+});

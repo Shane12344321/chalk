@@ -1,0 +1,106 @@
+{
+  "schema": "chalk.m1-realtime-acceptance.v1",
+  "recorded_date": "2026-07-15",
+  "browser": "Chrome 150.0.0.0 on macOS",
+  "session": {
+    "model": "gpt-realtime-2.1-mini",
+    "voice": "marin",
+    "output_modalities": [
+      "audio"
+    ],
+    "max_output_tokens": 256,
+    "turn_detection": {
+      "type": "server_vad",
+      "threshold": 0.5,
+      "prefix_padding_ms": 300,
+      "silence_duration_ms": 500,
+      "create_response": true,
+      "interrupt_response": true
+    },
+    "truncation": {
+      "type": "retention_ratio",
+      "retention_ratio": 0.8,
+      "post_instructions_tokens": 4000
+    },
+    "input_transcription": "disabled",
+    "connection_token_budget": 20000
+  },
+  "tool_round_trip": {
+    "result": "pass",
+    "observed": [
+      "response.function_call_arguments.done",
+      "conversation.item.create",
+      "tool.output_sent",
+      "response.create",
+      "tool.round_trip_confirmed"
+    ],
+    "source_trace": {
+      "generated_at": "2026-07-15T16:59:24.053Z",
+      "sha256": "2a1ea82de35002a3a1b061696ceac67e2b3e543dff52785db59f06de0407bb01"
+    }
+  },
+  "five_interruption_gate": {
+    "result": "pass",
+    "playback_backed_interruptions": 5,
+    "successful_settlements": 5,
+    "output_buffer_clears": 5,
+    "conversation_item_truncations": 5,
+    "stale_output_events": 0,
+    "local_handler_stop_latency_ms": [
+      0,
+      0,
+      0.1,
+      0,
+      0
+    ],
+    "settled_after_ms": [
+      0.6,
+      0.2,
+      0.3,
+      0.4,
+      0.6
+    ],
+    "perceived_behavior": {
+      "source": "owner message after the five-interruption run",
+      "value": "Wonderful. Worked well.",
+      "trace_dropdown_values": "not-recorded"
+    },
+    "source_trace": {
+      "generated_at": "2026-07-15T17:31:10.193Z",
+      "sha256": "a76ed240056b112047cc7a672a45a8f145c893c893fd6e2c79871ac9cd626979",
+      "entries": 297,
+      "duration_ms": 45744.7
+    }
+  },
+  "usage": {
+    "total_tokens": 5378,
+    "input_tokens": 4008,
+    "output_tokens": 1370,
+    "cached_input_tokens": 3200,
+    "input_audio_tokens": 354,
+    "output_audio_tokens": 888,
+    "connection_budget_fraction": 0.2689
+  },
+  "privacy_audit": {
+    "result": "pass",
+    "unexpected_top_level_keys": 0,
+    "unexpected_trace_keys": 0,
+    "unexpected_interruption_keys": 0,
+    "forbidden_content_or_secret_key_paths": 0
+  },
+  "deterministic_validation": {
+    "run_at": "2026-07-15T23:05:22+05:30",
+    "frontend_tests_passed": 64,
+    "backend_tests_passed": 38,
+    "frontend_lint": "pass",
+    "backend_lint_and_format": "pass",
+    "typescript_and_vite_build": "pass",
+    "python_compileall": "pass",
+    "git_diff_check": "pass"
+  },
+  "notes": [
+    "The checked-in artifact is an aggregate, ID-free evidence summary rather than the full event trace.",
+    "Raw utterances, transcripts, audio, tool arguments, credentials, authorization values, session IDs, response IDs, event IDs, item IDs, call IDs, and client identifiers are omitted.",
+    "The subjective judgment is recorded separately from measured handler-state and settlement timings."
+  ]
+}

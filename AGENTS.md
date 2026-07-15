@@ -185,6 +185,8 @@ Do not advance phases on code inspection alone.
 
 Live API checks require `OPENAI_API_KEY` and never run in default CI. Record results rather than snapshotting nondeterministic model text.
 
+Live API usage is a scarce, explicitly controlled test resource. Use `gpt-realtime-2.1-mini`, short synthetic prompts, short responses, and the minimum number of calls needed for the active acceptance gate. Never run credentialed tests in loops, retries, broad topic matrices, or default automation. Disconnect as soon as the required observation is captured. A failed handshake or access error stops the live run for diagnosis; do not burn tokens retrying automatically. Switching to a larger model, running lesson-evaluation batches, or materially extending a live session requires the project owner's explicit approval.
+
 - Realtime smoke: connect, converse, interrupt five times, execute a dummy tool, and confirm the observed event sequence.
 - Lesson evaluation: run all ten golden topics; retain raw generated NDJSON, validator results, render screenshots, time-to-first-valid-step, and a human pass/fail rubric.
 - MVP rehearsal: complete three uninterrupted full loops on a cached lesson: ask, generate/load, speak with ink, interrupt mid-stroke, use deixis, answer, resume, finish.

@@ -1,6 +1,6 @@
 # CHALK architecture
 
-Status: implementation baseline; no application code exists yet  
+Status: M1 scaffold implemented; live Realtime protocol gate pending
 Last reviewed: 2026-07-15  
 Companion documents: `chalk-build-plan.md`, `AGENTS.md`
 
@@ -187,6 +187,20 @@ All endpoints bind to localhost for the demo and accept explicit size limits.
 
 Every mutating/generating request carries a browser-generated `request_id`. The backend echoes it in logs and responses. It must not log raw audio, image data URLs, authorization headers, client secrets, or raw student utterances.
 
+The M1 `POST /session` request is capped at 4 KiB before JSON parsing. It accepts only canonical UUIDv4 identifiers:
+
+```json
+{"request_id":"<uuid-v4>","client_id":"<uuid-v4>"}
+```
+
+On success it returns a deliberately narrow projection rather than the raw upstream payload:
+
+```json
+{"request_id":"<uuid-v4>","client_secret":"<ephemeral-value>","expires_at":1800000000,"model":"gpt-realtime-2.1-mini","voice":"marin"}
+```
+
+`expires_at` is omitted when the upstream response does not provide it. Validated operational failures echo `request_id`; pre-parse size failures and schema failures cannot safely promise correlation. The browser rejects a response whose `request_id` does not match its active mint request.
+
 ### Lesson stream protocol
 
 **DECIDED:** the board model may emit step objects as JSONL internally, but the backend-to-browser stream uses typed envelopes. This allows clean terminal and warning states without confusing them with DSL steps.
@@ -214,14 +228,18 @@ The following is the official-documentation baseline as of 2026-07-15:
 - **VERIFIED-DOC:** output transcript progress is available through `response.output_audio_transcript.delta`.
 - **VERIFIED-DOC:** `response.done` reports response completion.
 - **VERIFIED-DOC:** WebRTC sessions with VAD interruption enabled automatically cancel the active response and truncate unplayed audio when the user interrupts.
+- **VERIFIED-DOC:** `response.done.response.usage` reports billed input/output totals and modality details; input transcription, when enabled, is billed separately.
+- **VERIFIED-DOC:** `session.max_output_tokens` can cap each assistant response, and retention-ratio truncation with `token_limits.post_instructions` can bound the rolling conversation input.
 
 Official references:
 
 - <https://developers.openai.com/api/docs/guides/realtime-webrtc>
 - <https://developers.openai.com/api/docs/guides/realtime-conversations>
 - <https://developers.openai.com/api/docs/guides/realtime-vad>
+- <https://developers.openai.com/api/docs/guides/realtime-costs>
+- <https://developers.openai.com/api/reference/resources/realtime>
 
-**SPIKE:** capture the actual event trace for connect, tool call, narration, interruption, and resume with the selected model and browser. Update this section if observed behavior differs.
+**OBSERVED-LIVE (2026-07-15, Chrome 150):** the metadata-only traces captured connect, narration, dummy-tool output and explicit follow-up `response.create`, resumed audio, cost configuration/usage, and multiple interruptions. Genuine audible interruptions emitted `output_audio_buffer.cleared` immediately after `input_audio_buffer.speech_started`, followed by `conversation.item.truncated`. Crucially, `response.done` can precede the end of audible WebRTC playout by several seconds, while `response.created` can also be cancelled before any output begins. Client teaching state therefore follows matching `output_audio_buffer.started`, `.stopped`, and `.cleared` events: generation completion does not end audible state, and pre-playback cancellation does not count as audible barge-in. After correcting both boundaries, five consecutive playback-backed interruptions passed with zero stale output; the aggregate evidence is checked in under `artifacts/evidence/`.
 
 ## Primary flows
 
@@ -466,10 +484,15 @@ Primary performance measurements:
 
 Do not claim perceived audio interruption latency from the animation-freeze measurement.
 
+## Live API test budget
+
+Credentialed API checks are narrow acceptance probes, not load tests. Default automated tests use deterministic fakes and fixtures. Live Realtime validation stays on `gpt-realtime-2.1-mini`, uses brief synthetic speech and bounded responses, and disconnects immediately after the required handshake, tool, or interruption evidence is captured. There are no automatic live retries or credentialed test loops. M1 caps each response at 256 output tokens, bounds the post-instruction conversation window at 4,000 tokens with 0.8 retention, leaves input transcription disabled, displays cumulative billed usage, and auto-disconnects a connection at 20,000 total response tokens. Reconnecting resets that local counter, so it is not an account-wide budget. A larger model, a batch of generated topics, or an extended live session requires explicit owner approval and a recorded reason in `PROGRESS.md`.
+
 ## Security and privacy
 
 - Standard OpenAI API keys exist only in backend environment variables.
-- Client-secret minting includes a non-PII safety identifier.
+- Client-secret minting is pinned to the official HTTPS endpoint with redirects and environment-derived proxy routing disabled.
+- The browser persists a random UUIDv4; the backend sends only `SHA-256(SAFETY_IDENTIFIER_SALT + ":" + client_id)` as the non-PII safety identifier.
 - CORS allows only the explicit local frontend origin.
 - Logs redact secrets, authorization headers, audio, image data URLs, and raw student utterances.
 - Student context, audio, and sketches remain in memory and are not persisted.
@@ -486,6 +509,7 @@ OPENAI_API_KEY=
 REALTIME_MODEL=gpt-realtime-2.1-mini
 BOARD_MODEL=gpt-5.6-terra
 REALTIME_VOICE=marin
+SAFETY_IDENTIFIER_SALT=chalk-local-development-v1
 SYNC_MODE=fixed
 DRAWBACK_MODE=vision
 FRONTEND_ORIGIN=http://localhost:5173
@@ -499,12 +523,12 @@ Client-visible configuration must contain only non-secret feature flags. Never e
 
 ### Day 1 protocol spike
 
-- [ ] Mint a client secret and complete the WebRTC handshake.
-- [ ] Capture the actual session-created/update acknowledgement events.
-- [ ] Confirm voice output and the selected transcript-delta event.
-- [ ] Confirm a dummy tool-call round trip and required response trigger.
-- [ ] Interrupt five responses and capture cancellation/truncation behavior.
-- [ ] Record observed event names and payload fixtures with secrets and content redacted.
+- [x] Mint a client secret and complete the WebRTC handshake.
+- [x] Capture the actual session-created/update acknowledgement events.
+- [x] Confirm voice output and the selected transcript-delta event.
+- [x] Confirm a dummy tool-call round trip and required response trigger.
+- [x] Interrupt five responses and capture cancellation/truncation behavior.
+- [x] Record observed event names and payload fixtures with secrets and content redacted.
 
 ### Day 2 board/sync spike
 
@@ -541,6 +565,7 @@ Client-visible configuration must contain only non-secret feature flags. Never e
 | ADR-006 | 2026-07-15 | Fixed concurrent sync is the stable fallback | Sequential ink-then-voice contradicts the product promise |
 | ADR-007 | 2026-07-15 | Board context publishes through replaceable session instructions | Avoids undocumented system-role conversation items and context growth |
 | ADR-008 | 2026-07-15 | Demo lessons are cached and live generation is shown once | Reduces recording risk without hiding the live capability |
+| ADR-009 | 2026-07-15 | Layer per-response, rolling-context, and per-connection Realtime token limits | A single post-response ceiling cannot prevent one long answer from overshooting; visible usage and independent bounds make development spend predictable without removing the live path |
 
 ## Open spike decisions
 

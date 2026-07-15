@@ -45,12 +45,12 @@ Non-goals: accounts, authentication, persistence, deployment, mobile, multi-user
 |---|---|---|
 | Product brief | Complete | `chalk-build-plan.md` |
 | Audited agent guidance | Complete | `AGENTS.md` |
-| Architecture baseline | Complete, unimplemented | `ARCHITECTURE.md` |
-| Git repository | Initialized; planning baseline committed | Commit `97128fe` on `main` |
-| Frontend scaffold | Not started | No `frontend/` directory |
-| Backend scaffold | Not started | No `backend/` directory |
+| Architecture baseline | Complete; M1 live assumptions resolved | `ARCHITECTURE.md`, M1 source/tests, and checked-in acceptance summary |
+| Git repository | M0 baseline and accepted M1 implementation checked in with this plan revision | Commit `97128fe`; branch `codex/m1-realtime-scaffold` |
+| Frontend scaffold | Complete for M1 | 64 tests, lint, production build, local browser smoke, and live acceptance |
+| Backend scaffold | Complete for M1 | 38 tests, lint/format, compile, health, CORS, safe failures, and live client-secret minting |
 | Shared schema | Not started | No `shared/schema/` directory |
-| Realtime API smoke test | Not run | No event trace or live-test record |
+| Realtime API smoke test | Complete | Mint, WebRTC, voice, dummy-tool continuation, live cost controls, and five consecutive playback-backed interruptions passed on 2026-07-15 |
 | Board renderer | Not started | No application code |
 | Live lesson generation | Not started | No application code |
 | Cached demo lessons | Not started | No `demo/cached_lessons/` directory |
@@ -61,7 +61,7 @@ Non-goals: accounts, authentication, persistence, deployment, mobile, multi-user
 | ID | Milestone | Exit condition | Status |
 |---|---|---|---|
 | M0 | Planning and repository baseline | Planning documents committed on a clean repository | Complete |
-| M1 | Scaffold and Realtime vertical slice | Browser voice loop, five successful interruptions, dummy tool round trip | Ready |
+| M1 | Scaffold and Realtime vertical slice | Browser voice loop, five successful interruptions, dummy tool round trip | Complete |
 | M2 | Deterministic board and fixed sync | Hardcoded projectile lesson speaks and draws concurrently without crashes | Pending |
 | M3 | Live lesson generation | Validated NDJSON streams; 8/10 golden topics pass the rubric | Pending |
 | M4 | Full interruption and grounding loop | Three consecutive cached MVP rehearsals pass | Pending |
@@ -102,18 +102,18 @@ Objective: prove the riskiest external dependency before building the board engi
 
 ### Work
 
-- [ ] Scaffold React 18 + Vite + TypeScript in `frontend/`.
-- [ ] Scaffold Python 3.12 + FastAPI in `backend/`.
-- [ ] Add root developer commands or a short README section for starting both services.
-- [ ] Add `.gitignore`, `.env.example`, and explicit localhost CORS.
-- [ ] Implement `GET /health` without exposing secret values.
-- [ ] Implement `POST /session` with server-only `OPENAI_API_KEY`.
-- [ ] Send a non-PII `OpenAI-Safety-Identifier` when minting the client secret.
-- [ ] Complete the browser WebRTC handshake using `REALTIME_MODEL`.
-- [ ] Centralize Realtime payloads and event strings under `frontend/src/realtime/`.
-- [ ] Configure tutor instructions, VAD, voice, and one dummy tool.
-- [ ] Capture a redacted event trace for connect, response, tool call, and interruption.
-- [ ] Exercise five interruptions and record perceived and measured behavior separately.
+- [x] Scaffold React 18 + Vite + TypeScript in `frontend/`.
+- [x] Scaffold Python 3.12 + FastAPI in `backend/`.
+- [x] Add root developer commands or a short README section for starting both services.
+- [x] Add `.gitignore`, `.env.example`, and explicit localhost CORS.
+- [x] Implement `GET /health` without exposing secret values.
+- [x] Implement `POST /session` with server-only `OPENAI_API_KEY`.
+- [x] Send a non-PII `OpenAI-Safety-Identifier` when minting the client secret.
+- [x] Complete the browser WebRTC handshake using `REALTIME_MODEL`.
+- [x] Centralize Realtime payloads and event strings under `frontend/src/realtime/`.
+- [x] Configure tutor instructions, VAD, voice, and one dummy tool.
+- [x] Capture a redacted event trace for connect, response, tool call, and interruption.
+- [x] Exercise five interruptions and record perceived and measured behavior separately.
 
 ### Exit gate
 
@@ -126,12 +126,17 @@ Objective: prove the riskiest external dependency before building the board engi
 
 ### Validation record
 
-Not run. Planned evidence:
+Deterministic validation passed on 2026-07-15. A partial live API check also passed: the backend minted a client secret with HTTP 201, the browser reached `connected` only after its `session.updated` acknowledgement, and a complete assistant audio response produced live response and transcript metadata. Evidence collected:
 
-- backend unit tests for `/health`, session error redaction, and configuration;
-- frontend tests for protocol decoding and response coordination;
-- live browser event trace with sensitive content removed;
-- five-run interruption table.
+- root `make install`, `make test`, `make lint`, and `make build` from the repository root;
+- 38 backend tests for health, strict session contracts, request caps, CORS, safety identifiers, exact credential routing, allowlisted public configuration, and redacted failures;
+- 64 frontend tests for protocol decoding, UUID identity, session acknowledgement, media cleanup, localhost-only routing, tool routing, bounded trace redaction, playback-aware interruption settlement and ordering races, stale-output rejection, token accounting, budget enforcement, and the five-success interruption streak/reset;
+- local service smoke for health, explicit CORS, missing-key correlation, oversized-body rejection, and the rendered browser UI;
+- production bundle and source scans for standard-key values, test secret values, raw test content, and console logging.
+
+The first supplied metadata-only trace proved the `debug_echo` continuation and one real server-side barge-in (`output_audio_buffer.cleared` followed by `conversation.item.truncated`) in Chrome 150. It exposed that `response.done` can precede the end of audible playback, and a second trace exposed that `response.created` can be cancelled before playback starts. Both false-negative/false-positive boundaries were corrected and covered. The final trace then captured five consecutive playback-backed interruptions: five output-buffer clears, five conversation-item truncations, five successful settlements, zero stale-output events, and 0–0.1 ms measured local handler-state stop latency. The owner separately judged the run “Wonderful. Worked well.” The trace used 5,378 of the 20,000 session-token guardrail and passed the metadata allowlist audit. Aggregate, ID-free evidence is checked in at `artifacts/evidence/m1-realtime-acceptance-summary.json`.
+
+Live budget policy remains in force for future reruns: use `gpt-realtime-2.1-mini`, keep responses short, disconnect after evidence, and do not automatically retry. The client caps each response at 256 output tokens, truncates post-instruction conversation history at 4,000 tokens with a 0.8 retention ratio, leaves separately billed input transcription disabled, displays cumulative `response.done` usage, and auto-disconnects at 20,000 session tokens. Any larger-model run, extended conversation, or topic batch needs explicit owner approval.
 
 ### Rollback
 
@@ -344,9 +349,9 @@ If a stretch beat fails during recording, remove that beat and use the last pass
 
 | ID | Assumption | Status | Validation / consequence |
 |---|---|---|---|
-| A-001 | An OpenAI API key with access to the selected Realtime and GPT-5.6 models is available | Unverified | Validate before M1; model-access failure blocks live milestones but not deterministic board work |
-| A-002 | `gpt-realtime-2.1-mini`, `gpt-realtime-2.1`, and `gpt-5.6-terra` remain valid model IDs | Verified in official docs on 2026-07-15; account access unverified | Recheck before wiring and recording |
-| A-003 | The recording browser permits microphone capture and stable WebRTC localhost use | Unverified | Validate in the M1 spike |
+| A-001 | An OpenAI API key with access to the selected Realtime and GPT-5.6 models is available | Partially verified | Realtime mini-model access passed on 2026-07-15; GPT-5.6 board-model access remains unverified until M3 |
+| A-002 | `gpt-realtime-2.1-mini`, `gpt-realtime-2.1`, and `gpt-5.6-terra` remain valid model IDs | Verified in official docs; mini account access passed on 2026-07-15 | Recheck larger Realtime and board-model account access before wiring or recording |
+| A-003 | The recording browser permits microphone capture and stable WebRTC localhost use | Verified for Chrome 150 in-app; recording setup still separate | Voice, tools, and five interruptions passed in the current browser; test the eventual OBS/recording configuration before M7 |
 | A-004 | React 18 and Python 3.12 are acceptable locked foundations | Accepted | Revisit only for a concrete dependency incompatibility |
 | A-005 | Fixed transcript/word-count synchronization will look convincing enough | Unverified | Three-run perceptual gate in M2 |
 | A-006 | Session instruction replacement is timely enough for board manifests | Unverified | Measure and resolve in M4 |
@@ -367,6 +372,9 @@ Architecture decisions ADR-001 through ADR-008 live in `ARCHITECTURE.md`. Execut
 | E-003 | 2026-07-15 | M5 and M6 are optional; M7 cannot absorb feature work | The demo and submission are the deliverable | Only if the submission deadline changes |
 | E-004 | 2026-07-15 | Live API validation is opt-in and recorded, not default CI | It is nondeterministic, credentialed, and potentially costly | A stable mocked or recorded harness exists |
 | E-005 | 2026-07-15 | Roll back with feature flags or `git revert`, not destructive resets | Preserves evidence and user work | Never |
+| E-006 | 2026-07-15 | Keep the audited raw Realtime adapter through the M1 live gate; evaluate OpenAI's Agents SDK after M1 | The open-source SDK now covers WebRTC, media, interruptions, tools, and raw events, but migrating after 57 adapter-specific tests would delay the riskiest live check and would not remove CHALK's custom evidence requirements | The live gate exposes adapter defects, protocol maintenance becomes material, or M2 needs SDK handoffs/guardrails |
+| E-007 | 2026-07-15 | Treat credentialed API usage as a minimal, owner-controlled acceptance budget | Live calls consume tokens and audio usage; deterministic tests already cover routine behavior | The owner explicitly approves a larger model, extended session, or batch evaluation |
+| E-008 | 2026-07-15 | Enforce layered Realtime token controls in the client | A post-response session ceiling alone can overshoot; per-response output, rolling input context, usage visibility, and a hard disconnect bound different cost drivers | A measured lesson cannot fit within the limits, in which case adjust one bound with recorded evidence rather than disabling all controls |
 
 ## Validation ledger
 
@@ -378,17 +386,28 @@ Append validation evidence; do not replace failed entries.
 | 2026-07-15 | M0 | `AGENTS.md` instruction size | `wc -c AGENTS.md` | Pass | 18,911 bytes, below 32 KiB |
 | 2026-07-15 | M0 | Architecture Markdown fences | Count lines beginning with triple backticks | Pass | 20 fence lines, balanced |
 | 2026-07-15 | M0 | Planning baseline checked in | `git log -1 --oneline --decorate` and `git status --short --branch` | Pass | Commit `97128fe` on `main`; worktree was clean immediately after commit |
+| 2026-07-15T22:11+0530 | M1 | Deterministic test suite | `make test` | Pass | 57 frontend tests and 38 backend tests passed; backend emitted one upstream Starlette TestClient deprecation warning |
+| 2026-07-15T22:11+0530 | M1 | Lint, format, and production build | `make lint`; `make build` | Pass | ESLint, Ruff lint/format, TypeScript, Vite production build, and Python compileall passed |
+| 2026-07-15T22:13+0530 | M1 | Dependency and bundle audit | `npm --prefix frontend audit --omit=dev`; scan production bundle for standard-key and test-secret patterns | Pass | npm reported 0 vulnerabilities; no scanned credential or private-content values were present in `frontend/dist` |
+| 2026-07-15T22:16+0530 | M1 | Requirement-level completion audit | Reconcile every M1 work item and exit condition against current source/evidence; rerun root tests, lint, build, diff, secret, and credential checks | Deterministic pass; live gate pending | All implementable work is present and deterministic checks pass. No local key is configured, so the browser voice loop, tool continuation, five interruptions, and live trace cannot yet be proven |
+| 2026-07-15T22:20+0530 | M1 | Live mint and WebRTC handshake | Configure ignored root `.env`; start documented services; connect in the Codex in-app browser; inspect metadata-only UI and backend access log | Partial pass | `/health` reported configured mini model and `marin`; `/session` returned 201; browser reached connected and observed a completed assistant audio response. Tool, five interruptions, perceived audio judgments, full trace, and exact browser version remain pending |
+| 2026-07-15T22:39+0530 | M1 | Supplied live trace audit | Parse the metadata-only `chalk.realtime-trace.v1` export and reconcile event ordering with the acceptance claims | Partial pass; defect found | Chrome 150 trace contained 258 entries over 47.8 s, five completed responses, a confirmed dummy-tool round trip, four user speech turns, and one real interruption with output clear/truncation. Local interruption markers were empty because response generation completed before audible playback ended |
+| 2026-07-15T22:46+0530 | M1 | Playback accounting and cost-control regression suite | Add playback-buffer lifecycle tracking, completion/clear ordering coverage, late-stale invalidation, numeric usage accounting, a 256-token response cap, 4,000-token history window, and 20,000-token auto-disconnect; run root tests, lint, build, and diff check | Pass | 64 frontend and 38 backend tests passed; ESLint, Ruff, TypeScript, Vite, compileall, and `git diff --check` passed |
+| 2026-07-15T22:45+0530 | M1 | Updated dashboard smoke | Inspect the disconnected localhost UI and browser console without connecting the microphone | Pass | Four metrics render cleanly including `0 / 20,000` session usage; no browser warnings or errors; no Realtime call was made |
+| 2026-07-15T22:57+0530 | M1 | Second supplied live trace audit | Reconcile all five markers against response creation, output-buffer playback, clear/truncation, stale events, and numeric usage | Partial pass; false positive rejected | Cost controls were present and 3,507 / 20,000 tokens were used. Four markers followed audible playback and server clear/truncation with zero stale output. Marker 3 preceded playback, cancelled a zero-token response, and does not satisfy an audible interruption gate. Counter/UI semantics were tightened; 64 frontend and 38 backend tests plus lint/build/diff checks pass |
+| 2026-07-15T23:01+0530 | M1 | Final live acceptance trace | Audit every marker against prior output playback, server clear/truncation, settlement, stale output, usage, configuration, privacy allowlists, and the owner's separate perception report | Pass | Five playback-backed interruptions each cleared and truncated successfully with no stale output; local handler-state stop was 0–0.1 ms; owner reported “Wonderful. Worked well.”; usage was 5,378 / 20,000 tokens; checked-in ID-free summary records source hashes and aggregate evidence |
+| 2026-07-15T23:05+0530 | M1 | Final clean milestone gate | Validate checked-in evidence JSON; run `make test`, `make lint`, `make build`, and `git diff --check` | Pass | 64 frontend and 38 backend tests passed; ESLint, Ruff lint/format, TypeScript, Vite, Python compileall, evidence JSON parsing, and diff checks passed |
 
-Future command baseline, to be finalized in M1 after scaffolding:
+Current deterministic command baseline:
 
 ```bash
-npm --prefix frontend run lint
-npm --prefix frontend run test
-npm --prefix frontend run build
-python -m pytest backend/tests
+make install
+make test
+make lint
+make build
 ```
 
-Do not mark these commands as passing until they exist and were run successfully.
+The native commands are documented in `README.md`. Passing deterministic commands do not satisfy the live M1 gate.
 
 ## Progress ledger
 
@@ -398,6 +417,11 @@ Do not mark these commands as passing until they exist and were run successfully
 | 2026-07-15 | M0 | Created architecture baseline with spike gates and ADRs | Create living execution plan | None |
 | 2026-07-15 | M0 | Created `PLANS.md` with milestones, registers, validation, and rollback | Initialize Git and commit planning baseline | None |
 | 2026-07-15 | M0 | Initialized Git and committed the four-document planning baseline as `97128fe` | Commit this evidence update, then begin M1 | None |
+| 2026-07-15T22:13+0530 | M1 | Implemented and audited the deterministic Realtime vertical slice; root tests, lint, and build pass | Configure a local key and run the live browser/tool/interruption gate | Local `OPENAI_API_KEY` and microphone-assisted human validation |
+| 2026-07-15T22:20+0530 | M1 | Live client-secret minting, WebRTC connection, session acknowledgement, and assistant response passed | Speak the debug tool prompt and complete five interruptions | Human voice participation and perceived audio-stop judgments |
+| 2026-07-15T22:39+0530 | M1 | Audited the supplied trace, confirmed the dummy tool and one immediate server-side interruption, fixed playback-aware instrumentation, and added layered token controls | Run five brief interruptions on the corrected build and export the updated trace | Human voice participation and perceived audio-stop judgments |
+| 2026-07-15T22:57+0530 | M1 | Audited the second trace: four genuine audible interruptions passed, one pre-playback cancellation was rejected, and the counter now requires confirmed audio playback | Run one clean five-audible-interruption session and record perceived stop in the UI | Human voice participation and perceived audio-stop judgments |
+| 2026-07-15T23:01+0530 | M1 | Final five-interruption run, privacy audit, cost controls, tool evidence, deterministic suites, and owner perception all passed; M1 complete | Begin M2 only when explicitly requested | None |
 
 ## Discoveries and surprises
 
@@ -406,6 +430,14 @@ Do not mark these commands as passing until they exist and were run successfully
 - Transcript deltas and `response.done` do not prove remote audio playout position, so synchronization and step advancement require perceptual calibration.
 - Dropping an invalid generated step can invalidate later references; accepted-ID state must exclude dropped IDs.
 - The project directory initially contained planning files only and was not a Git repository.
+- The official open-source `@openai/agents` Realtime SDK can now replace much of the raw browser transport, media, interruption, and tool plumbing. It is the preferred starting point for a new implementation, but a migration is deferred because the current M1 adapter is already acceptance-specific and fully covered by deterministic tests.
+- Selecting a uv project does not change the command working directory; root backend commands require `--app-dir backend`, and root pytest requires an explicit backend config/path.
+- Framework field limits do not cap bytes before request parsing. The session endpoint therefore has an ASGI-level 4 KiB body cap in addition to strict schema validation.
+- A configurable upstream API base could route a server key to an unintended host. M1 pins the exact OpenAI client-secret endpoint, rejects redirects, and ignores proxy environment variables.
+- Local browser smoke testing caught an unbound native `fetch` call (`Illegal invocation`); the adapter now stores a bound function and has a regression test.
+- A proposed `httpx2` install was rejected: it was only suggested by an upstream Starlette TestClient deprecation warning and was not an understood production dependency.
+- `response.done` marks generation completion, not necessarily the end of WebRTC playout. The first live trace showed audio continuing for seconds after `response.done`; interruption instrumentation must therefore follow `output_audio_buffer.started`, `.stopped`, and `.cleared` rather than clearing active teaching state on generation completion alone.
+- `response.created` alone is also insufficient evidence of an audible barge-in. The second trace included a response created only 0.2 ms before new speech and cancelled before output playback or token generation; the acceptance counter now requires matching `output_audio_buffer.started` state.
 
 ## Project-wide rollback policy
 

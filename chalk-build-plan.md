@@ -311,7 +311,7 @@ Record with OBS: screen + mic + system audio on separate tracks, 3+ full takes, 
 | GPT-5.6 malformed programs | Per-line validate + 2-attempt repair + drop-step + defensive renderer |
 | Layout overlap ugliness | Region-stacking resolver (no model-chosen pixels) + overlap detector + rough.js aesthetic hides residual imprecision |
 | Realtime API surface drift | All `VERIFY:` items checked against live docs before wiring |
-| Realtime cost during dev | `gpt-realtime-2.1-mini` for dev; 2.1 only for final recording |
+| Realtime cost during dev | `gpt-realtime-2.1-mini`; short synthetic prompts/responses; no live loops or automatic retries; disconnect after required evidence; larger-model or extended runs require explicit owner approval |
 | Recording-day flake | 3 cached lessons load from disk; fresh generation shown once |
 
 ## 13. Out of scope (do not build)

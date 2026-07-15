@@ -1,0 +1,37 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+frontend/.env.local
+frontend/.env.*.local
+backend/.env
+
+# JavaScript / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/.vite/
+*.tsbuildinfo
+
+# Python / uv
+backend/.venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local diagnostics and private media
+*.log
+logs/
+recordings/
+artifacts/raw/
+artifacts/private/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
