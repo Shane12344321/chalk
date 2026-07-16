@@ -96,9 +96,9 @@ The production frontend build is a static validation artifact only; deployment i
 
 The board program is checked in at `demo/cached_lessons/projectile-range.lesson.json`. It is decoded through `shared/schema/lesson.schema.json`; no board-model request is made in M2.
 
-1. Start both services, open the app, and connect the microphone using the mini Realtime model.
+1. Start both services, open the app, and connect the microphone using the mini Realtime model. The media track remains muted until you click **Speak**.
 2. Click **Start lesson**. Confirm the first moving ink begins on the first narration activity rather than before the voice or after it finishes.
-3. During a visibly incomplete stroke, speak. Confirm the stroke freezes where it is and remains visible while the app is in `QA`.
+3. During a visibly incomplete stroke, click **Speak** and ask a short question. Confirm the stroke freezes where it is and remains visible while the app is in `QA`; the microphone should pause automatically when the speech turn ends.
 4. After the answer finishes, click **Resume frozen step**. Narration restarts for that step while ink continues from its retained progress.
 5. Let all four steps finish. Confirm the counter increments only when the last step clears animation, generation, audio-stop, and drain gates.
 6. Repeat until the UI shows **3 / 3 completed runs**. Confirm no next-step narration audibly overlaps the prior step.
@@ -110,10 +110,10 @@ The deterministic suite covers schema failures, unsafe expressions and equations
 
 Use the default demo mode and keep the run to one short mini-model session.
 
-1. Connect, start the cached projectile lesson, and confirm the cannon strokes reveal one after another.
-2. Optionally interrupt one moving stroke, ask a short question about visible content, then use **Resume frozen step** after the answer.
+1. Connect, start the cached projectile lesson, and confirm the cannon strokes reveal one after another. The microphone should remain paused while Chalk speaks.
+2. Optionally click **Speak** during one moving stroke, ask a short question about visible content, then use **Resume frozen step** after the answer.
 3. After the range curve finishes, confirm Chalk asks “Where does the curve peak?” without a presenter action.
-4. Answer “45 degrees” and confirm Chalk gives one brief acknowledgement or correction, does not mention Resume, and advances to the formula step only after its feedback audio settles.
+4. Click **Speak**, answer “45 degrees,” and confirm the control automatically returns to **Speak** when your turn ends. Chalk should give one brief acknowledgement or correction, not mention Resume, and advance to the formula step only after its feedback audio settles.
 5. Confirm the demo contains no diagnostic metrics or debug-tool prompt. Disconnect immediately after the observation.
 
 Resume deliberately retains the accepted M2 behavior: ink continues from its frozen progress while the full current script restarts. Word-count slicing, direct transcript-driven pacing, and duration-only false-freeze recovery are deferred in the active execution plan because the available signals do not justify those heuristics yet.
@@ -136,7 +136,7 @@ With both services running and a configured API key:
 
 Keep any rerun deliberately light: use `gpt-realtime-2.1-mini`, short synthetic phrases, and brief responses. Perform only the required handshake and five short interruption trials, then disconnect. Do not run live checks in loops or retry configuration/access failures automatically. Do not use the full Realtime model or extend the session without explicit owner approval.
 
-1. Open the app, click **Connect**, and allow microphone access.
+1. Start the frontend in diagnostics mode, open the app, click **Connect microphone**, and allow access. Click **Speak** only for each deliberate test utterance; the input auto-mutes at the VAD speech-turn boundary.
 2. Confirm the UI reaches its connected state and two-way voice works.
 3. Start a response long enough to interrupt. Wait until the UI explicitly says **Chalk is speaking**, then speak and confirm the marker appears, local teaching state stops immediately, and no stale response continues afterward. A response that is merely created but has not started audio playback does not count.
 4. Repeat step 3 five consecutive times. Record each run in `PROGRESS.md`; measure detected-speech-start to local-state stop separately from the subjective audio-stop judgment.

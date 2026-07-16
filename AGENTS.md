@@ -130,6 +130,7 @@ The client parser must tolerate arbitrary network chunk boundaries, blank lines,
 - Mint ephemeral credentials on the server. Keep the standard API key server-only.
 - Configure the session from environment-backed model and voice values. Audition `marin` and `cedar`, but do not hardcode a choice in multiple files.
 - Default to product-facing `demo` mode, which exposes no diagnostic tool or evidence dashboard. Use `VITE_CHALK_MODE=diagnostics` only for deliberate evidence collection; never place a credential in a `VITE_*` variable.
+- Keep the captured microphone track muted by default. A deliberate **Speak** action may enable it for one user turn; `input_audio_buffer.speech_stopped` and assistant playback must disable it again so speaker feedback cannot create self-responses. Do not replace this turn boundary with a duration guess.
 - Use server VAD with interruption enabled for the demo unless a measured browser test shows semantic VAD is better. Log the exact VAD settings used for the final take.
 - With WebRTC and VAD interruption enabled, expect the service to cancel the active response and truncate unplayed audio. On `input_audio_buffer.speech_started`, immediately freeze the local animator and transition to QA. Do not issue redundant cancel events unless the app created a manual response that VAD did not cancel.
 - Tools must return a function-call output and then explicitly trigger the next response when required by the current API flow.

@@ -203,3 +203,11 @@ Status: **deterministic implementation complete; one minimal live rehearsal pend
 | 2026-07-16T14:58+0530 | Disconnected browser smoke | Reload the existing localhost in-app browser tab after starting Vite | Blocked by browser policy | The browser-control surface rejected the localhost reload by URL policy. No workaround or credentialed API call was attempted; the human browser and live checkpoint/perception gate remain pending. |
 
 The deterministic M4 slice was committed as `232a828` on `codex/m4-cached-interaction-loop`. M1 (`e6822f5`) and M2 (`4f3d9ed`) remain preserved as rollback points. Documentation was then reconciled across the repository; historical audit reports and the original product brief retain their original dated content with explicit status notices rather than rewritten history.
+
+## 2026-07-16 — M4 microphone feedback hardening
+
+The first owner rehearsal visibly froze in `QA` during step 1 and the tutor appeared to answer itself. The state evidence confirms a VAD speech-start event—not a checkpoint transition—so the most credible cause is the continuously enabled microphone capturing speaker output or ambient audio. Browser echo cancellation is retained, but is not treated as a sufficient demo-control boundary.
+
+Commit `c0d6f48` implements deliberate one-turn input gating. The captured track remains muted after connection; **Speak** enables it; `input_audio_buffer.speech_stopped` automatically mutes it at the documented end of the user turn; assistant playback also force-mutes as a safety backstop. This preserves intentional barge-in without using the rejected sub-400 ms false-alarm heuristic.
+
+At 2026-07-16T15:37+0530, `make test`, `make lint`, `make build`, `npm --prefix frontend audit --omit=dev`, and `git diff --check` passed: 116 frontend and 38 backend tests, zero production vulnerabilities, and the existing non-blocking Vite chunk warning. Live confirmation that self-triggering is gone remains pending.

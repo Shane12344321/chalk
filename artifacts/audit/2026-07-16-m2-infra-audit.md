@@ -1,6 +1,6 @@
 # CHALK infrastructure audit — 2026-07-16
 
-> Historical audit status: this report describes the pre-checkpoint M2 worktree and preserves its original line references and test baseline. The confirmed M2-critical findings were resolved before accepted commit `4f3d9ed`. The later response-purpose coordinator, visible manifest, demo/diagnostic split, sequential sketch reveal, and checkpoint loop are checkpointed at `232a828`; full-script resume remains a deliberate fixed-sync fallback pending rehearsal evidence.
+> Historical audit status: this report describes the pre-checkpoint M2 worktree and preserves its original line references and test baseline. The confirmed M2-critical findings were resolved before accepted commit `4f3d9ed`. The later response-purpose coordinator, visible manifest, demo/diagnostic split, sequential sketch reveal, and checkpoint loop are checkpointed at `232a828`; microphone feedback hardening is at `c0d6f48`; full-script resume remains a deliberate fixed-sync fallback pending rehearsal evidence.
 
 Scope: the committed M1 realtime slice plus the uncommitted M2 deterministic-board work on
 `codex/m2-deterministic-board`. Every file under `backend/app`, `frontend/src`, `shared/schema`,

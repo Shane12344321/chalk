@@ -83,6 +83,7 @@ Owns the `RTCPeerConnection`, remote audio element/stream, data channel, session
 - It exposes typed semantic events such as `student.speech_started`, `narration.*`, and `checkpoint.*` to the sync engine while keeping raw protocol names inside the adapter.
 - It does not own lesson state or render board elements.
 - Demo mode uses product tutor instructions and no diagnostic tool; diagnostics mode restores the evidence UI and `debug_echo` without changing the transport.
+- The captured microphone track is muted after connection. The user opens it with **Speak** for one turn; `input_audio_buffer.speech_stopped` and assistant playback close it again to prevent acoustic feedback from becoming a new VAD turn.
 
 #### `RealtimeResponseCoordinator`
 

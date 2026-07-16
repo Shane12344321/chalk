@@ -47,7 +47,7 @@ Non-goals: accounts, authentication, persistence, deployment, mobile, multi-user
 | Audited agent guidance | Complete | `AGENTS.md` |
 | Architecture baseline | Current through the deterministic M4 interaction slice | `ARCHITECTURE.md`, ADR-010/011, and the active M4 execution plan |
 | Git repository | M1 and M2 checkpoints preserved; deterministic M4 slice checkpointed | M1 `e6822f5`; M2 `4f3d9ed`; M4 slice `232a828` on `codex/m4-cached-interaction-loop` |
-| Frontend application | M4 deterministic slice implemented | 115 tests, product/diagnostic modes, sequential sketches, visible manifest, response coordinator, and checkpoint state machine |
+| Frontend application | M4 deterministic slice implemented and feedback-hardened | 116 tests, product/diagnostic modes, turn-gated microphone, sequential sketches, visible manifest, response coordinator, and checkpoint state machine |
 | Backend scaffold | Complete for M1 | 38 tests, lint/format, compile, health, CORS, safe failures, and live client-secret minting |
 | Shared schema | Implemented for the M2 five-op contract | JSON Schema, generated TypeScript types, fixtures, and decoder tests |
 | Realtime API smoke test | Complete | Mint, WebRTC, voice, dummy-tool continuation, live cost controls, and five consecutive playback-backed interruptions passed on 2026-07-15 |
@@ -247,6 +247,7 @@ Active implementation slice: `docs/exec-plans/active/m4-cached-interaction-loop.
 - [ ] Validate all deixis IDs against committed or deliberately partial visible state.
 - [ ] Implement bounded `POST /annotate` with overlay-only output.
 - [x] Complete the `TEACHING -> FROZEN -> QA -> TEACHING` path and add one checkpoint asking/listening/feedback loop.
+- [x] Gate microphone input behind **Speak** and auto-mute at `speech_stopped`/assistant playback to prevent self-response loops.
 - [ ] Decide, from rehearsal evidence, whether resume continues frozen ink or replays the current step.
 - [ ] Implement `SYNC_MODE=paced` only after the fixed path remains passing.
 - [ ] Cache projectile, derivative, and unit-circle lessons through the same validation path.
@@ -267,7 +268,7 @@ The last acknowledged manifest must match the visible committed board. The three
 
 ### Validation record
 
-Deterministic slice passed on 2026-07-16: 115 frontend and 38 backend tests, lint/format, TypeScript/Vite build, Python compileall, zero production npm vulnerabilities, and clean diff hygiene. The implementation is checkpointed at `232a828`. A localhost serving check passed, but automated in-app browser navigation was policy-blocked. One minimal human checkpoint/grounding rehearsal and the broader three-run M4 exit gate remain pending. Retain rehearsal checklists, a redacted Realtime event trace, manifest snapshots, and the runtime-flag set used.
+Deterministic slice passed on 2026-07-16 and the first live attempt exposed an always-open-microphone feedback loop. Commit `c0d6f48` now keeps input muted until **Speak** and auto-mutes at the documented VAD turn boundary or assistant playback. The post-fix gate passes 116 frontend and 38 backend tests, lint/format, TypeScript/Vite build, Python compileall, zero production npm vulnerabilities, and clean diff hygiene. A localhost serving check passed, but automated in-app browser navigation was policy-blocked. One minimal human checkpoint/grounding rehearsal and the broader three-run M4 exit gate remain pending. Retain rehearsal checklists, a redacted Realtime event trace, manifest snapshots, and the runtime-flag set used.
 
 ### Rollback
 
@@ -384,6 +385,7 @@ Architecture decisions ADR-001 through ADR-008 live in `ARCHITECTURE.md`. Execut
 | E-009 | 2026-07-15 | Reuse rough.js, KaTeX, mathjs, and Ajv for M2 while keeping CHALK-specific validation and orchestration local | Rebuilding seeded sketch geometry, TeX layout, expression ASTs, or JSON Schema validation would add risk without differentiating the product; model expressions still pass a narrower CHALK allowlist before mathjs compilation | A dependency cannot meet determinism, safety, or bundle constraints in measured use |
 | E-010 | 2026-07-16 | Correlate manual lesson responses with bounded Realtime response metadata and start fixed ink on output-buffer playback start | Official Realtime guidance recommends metadata for disambiguating simultaneous responses; transcript deltas prove generation but not playout | A live browser trace contradicts metadata echoing or shows playback-start arrives too late for convincing concurrency |
 | E-011 | 2026-07-16 | Ship visible-only manifest grounding, response-purpose coordination, sequential sketch strokes, and one checkpoint before broader M4 overlays | These changes are visible, bounded, and testable on the accepted cached lesson; word slicing, transcript-clock pacing, and duration-only VAD recovery rely on signals that do not prove the behavior they infer | A minimal rehearsal shows full-script resume is confusing, fixed pacing visibly drifts, or a measured false-freeze classifier becomes available |
+| E-012 | 2026-07-16 | Gate the microphone to one deliberate speech turn | The first M4 rehearsal entered `QA` from an unintended VAD detection and appeared to answer itself; using **Speak** plus the documented `speech_stopped` boundary prevents speaker feedback without guessing whether a short utterance is noise | A headset-only recording setup proves continuous input is stable and materially improves the interaction |
 
 ## Validation ledger
 
@@ -412,6 +414,7 @@ Append validation evidence; do not replace failed entries.
 | 2026-07-16T13:45+0530 | M2 | Owner perceptual acceptance | Record whether ink felt concurrent and whether consecutive narration overlapped | Pass | Owner confirmed that ink felt concurrent and consecutive narration did not overlap; all M2 exit conditions are now satisfied |
 | 2026-07-16T13:52+0530 | M2 | Final checkpoint gate | Run tests, lint/format, build/compile, production dependency audit, evidence parsing, secret scan, and diff hygiene | Pass | 100 frontend and 38 backend tests passed; all lint/build checks passed; npm reported zero production vulnerabilities; evidence JSON and diff/secret hygiene checks passed; only the documented non-blocking Vite chunk-size warning remains |
 | 2026-07-16T14:58+0530 | M4 | Cached interaction deterministic gate | Run root tests, lint/format, production build, production dependency audit, diff hygiene, and attempt a disconnected browser reload | Deterministic pass; browser/live pending | 115 frontend and 38 backend tests passed; lint, format, TypeScript, Vite, compileall, audit, and diff checks passed. The Vite server responded on localhost, but the in-app browser URL policy blocked the automated reload; no credentialed call was made. |
+| 2026-07-16T15:37+0530 | M4 | Turn-gated microphone regression gate | Add explicit input gating and VAD-boundary auto-mute; run root tests, lint/format, build/compile, production audit, and diff hygiene | Pass; live retest pending | 116 frontend and 38 backend tests passed; the microphone remains muted after connection, opens only through **Speak**, and deterministically closes on `input_audio_buffer.speech_stopped` or assistant playback. |
 
 Current deterministic command baseline:
 
@@ -442,6 +445,7 @@ The native commands are documented in `README.md`. Passing deterministic command
 | 2026-07-16T13:02+0530 | M2 | Audited and fixed live-seam failures: request rejection recovery, disconnect reset, metadata correlation, shared script cap, playback-start gating, curve clipping/validation, and bounded dense layout | Rotate the disclosed key, then run three short browser lessons with one mid-stroke interruption | Rotated live key and human microphone/perceptual participation |
 | 2026-07-16T13:45+0530 | M2 | Recorded the owner's perceptual pass and closed every M2 exit condition | Create the passing M2 checkpoint, then allow owner fine-tuning from that recoverable baseline | None |
 | 2026-07-16T14:58+0530 | M4 | Implemented product/diagnostic modes, sequential sketch reveal, visible manifest publication, response-purpose coordination, and one tutor-initiated checkpoint | Complete one short cached-lesson browser rehearsal and record manifest/checkpoint behavior | Automated in-app browser navigation was blocked by URL policy; human microphone/perceptual participation remains required for the live gate |
+| 2026-07-16T15:37+0530 | M4 | Diagnosed the first rehearsal freeze as unintended VAD input from an always-open microphone and checkpointed one-turn **Speak** gating at `c0d6f48` | Reload, reconnect, and repeat one short checkpoint run using **Speak** for deliberate turns | Human confirmation that Chalk no longer self-triggers and the checkpoint advances |
 
 ## Discoveries and surprises
 
