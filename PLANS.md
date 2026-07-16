@@ -46,7 +46,7 @@ Non-goals: accounts, authentication, persistence, deployment, mobile, multi-user
 | Product brief | Complete | `chalk-build-plan.md` |
 | Audited agent guidance | Complete | `AGENTS.md` |
 | Architecture baseline | Complete; M1 live assumptions resolved | `ARCHITECTURE.md`, M1 source/tests, and checked-in acceptance summary |
-| Git repository | M1 checkpoint preserved; passing M2 checkpoint isolated on its own branch | M1 commit `e6822f5`; branch `codex/m2-deterministic-board` |
+| Git repository | M1 and M2 checkpoints preserved; M4 interaction work isolated | M1 `e6822f5`; M2 `4f3d9ed`; branch `codex/m4-cached-interaction-loop` |
 | Frontend scaffold | Complete for M1 | 64 tests, lint, production build, local browser smoke, and live acceptance |
 | Backend scaffold | Complete for M1 | 38 tests, lint/format, compile, health, CORS, safe failures, and live client-secret minting |
 | Shared schema | Implemented for the M2 five-op contract | JSON Schema, generated TypeScript types, fixtures, and decoder tests |
@@ -64,7 +64,7 @@ Non-goals: accounts, authentication, persistence, deployment, mobile, multi-user
 | M1 | Scaffold and Realtime vertical slice | Browser voice loop, five successful interruptions, dummy tool round trip | Complete |
 | M2 | Deterministic board and fixed sync | Hardcoded projectile lesson speaks and draws concurrently without crashes | Complete |
 | M3 | Live lesson generation | Validated NDJSON streams; 8/10 golden topics pass the rubric | Pending |
-| M4 | Full interruption and grounding loop | Three consecutive cached MVP rehearsals pass | Pending |
+| M4 | Full interruption and grounding loop | Three consecutive cached MVP rehearsals pass | Active (`docs/exec-plans/active/m4-cached-interaction-loop.md`) |
 | M5 | Optional widget spectacle | Projectile widget and reactive tutor moment pass, or milestone is explicitly cut | Pending |
 | M6 | Optional student draw-back and freeze | Fallback critique passes, or milestone is explicitly cut; features frozen | Pending |
 | M7 | Demo, documentation, and submission | Final video, uncut proof take, README, and submission complete | Pending |
@@ -234,15 +234,17 @@ Not run. Record model, prompt version/hash, per-topic outcome, first-step latenc
 
 Objective: pass the MVP demo gate.
 
+Active implementation slice: `docs/exec-plans/active/m4-cached-interaction-loop.md`.
+
 ### Work
 
-- [ ] Implement visible-state-derived board manifests under the token budget.
-- [ ] Publish versioned manifest state through `BoardContextPublisher`.
+- [x] Implement visible-state-derived board manifests under the token budget.
+- [x] Publish manifest state through `BoardContextPublisher`.
 - [ ] Confirm publication acknowledgement and timing with `session.updated`.
 - [ ] Implement `point_at`, `circle_el`, `underline`, and `flash` as local overlay tools.
 - [ ] Validate all deixis IDs against committed or deliberately partial visible state.
 - [ ] Implement bounded `POST /annotate` with overlay-only output.
-- [ ] Complete the `TEACHING -> FROZEN -> QA -> TEACHING` path.
+- [x] Complete the `TEACHING -> FROZEN -> QA -> TEACHING` path and add one checkpoint asking/listening/feedback loop.
 - [ ] Decide, from rehearsal evidence, whether resume continues frozen ink or replays the current step.
 - [ ] Implement `SYNC_MODE=paced` only after the fixed path remains passing.
 - [ ] Cache projectile, derivative, and unit-circle lessons through the same validation path.
@@ -379,6 +381,7 @@ Architecture decisions ADR-001 through ADR-008 live in `ARCHITECTURE.md`. Execut
 | E-008 | 2026-07-15 | Enforce layered Realtime token controls in the client | A post-response session ceiling alone can overshoot; per-response output, rolling input context, usage visibility, and a hard disconnect bound different cost drivers | A measured lesson cannot fit within the limits, in which case adjust one bound with recorded evidence rather than disabling all controls |
 | E-009 | 2026-07-15 | Reuse rough.js, KaTeX, mathjs, and Ajv for M2 while keeping CHALK-specific validation and orchestration local | Rebuilding seeded sketch geometry, TeX layout, expression ASTs, or JSON Schema validation would add risk without differentiating the product; model expressions still pass a narrower CHALK allowlist before mathjs compilation | A dependency cannot meet determinism, safety, or bundle constraints in measured use |
 | E-010 | 2026-07-16 | Correlate manual lesson responses with bounded Realtime response metadata and start fixed ink on output-buffer playback start | Official Realtime guidance recommends metadata for disambiguating simultaneous responses; transcript deltas prove generation but not playout | A live browser trace contradicts metadata echoing or shows playback-start arrives too late for convincing concurrency |
+| E-011 | 2026-07-16 | Ship visible-only manifest grounding, response-purpose coordination, sequential sketch strokes, and one checkpoint before broader M4 overlays | These changes are visible, bounded, and testable on the accepted cached lesson; word slicing, transcript-clock pacing, and duration-only VAD recovery rely on signals that do not prove the behavior they infer | A minimal rehearsal shows full-script resume is confusing, fixed pacing visibly drifts, or a measured false-freeze classifier becomes available |
 
 ## Validation ledger
 
@@ -406,6 +409,7 @@ Append validation evidence; do not replace failed entries.
 | 2026-07-16T13:22+0530 | M2 | Three-run live cached-lesson gate | Complete three four-step projectile lessons, exercise mid-stroke freeze/resume, verify playback serialization, and retain ID-free evidence | Machine pass; owner perception pending | `DONE 3 / 3`; partial ink retained at 19%; three final-session interruptions settled with zero stale output; final session used 13,589 / 20,000 tokens and disconnected; owner must still confirm concurrency and audible non-overlap |
 | 2026-07-16T13:45+0530 | M2 | Owner perceptual acceptance | Record whether ink felt concurrent and whether consecutive narration overlapped | Pass | Owner confirmed that ink felt concurrent and consecutive narration did not overlap; all M2 exit conditions are now satisfied |
 | 2026-07-16T13:52+0530 | M2 | Final checkpoint gate | Run tests, lint/format, build/compile, production dependency audit, evidence parsing, secret scan, and diff hygiene | Pass | 100 frontend and 38 backend tests passed; all lint/build checks passed; npm reported zero production vulnerabilities; evidence JSON and diff/secret hygiene checks passed; only the documented non-blocking Vite chunk-size warning remains |
+| 2026-07-16T14:58+0530 | M4 | Cached interaction deterministic gate | Run root tests, lint/format, production build, production dependency audit, diff hygiene, and attempt a disconnected browser reload | Deterministic pass; browser/live pending | 115 frontend and 38 backend tests passed; lint, format, TypeScript, Vite, compileall, audit, and diff checks passed. The Vite server responded on localhost, but the in-app browser URL policy blocked the automated reload; no credentialed call was made. |
 
 Current deterministic command baseline:
 
@@ -435,6 +439,7 @@ The native commands are documented in `README.md`. Passing deterministic command
 | 2026-07-15T23:34+0530 | M2 | Implemented and deterministically validated the five-op projectile board, fixed sync, semantic Realtime correlation, partial freeze, and three-run counter | Run three short browser lessons with one human mid-stroke interruption and record concurrency/non-overlap judgments | Rotated live key and human microphone/perceptual participation |
 | 2026-07-16T13:02+0530 | M2 | Audited and fixed live-seam failures: request rejection recovery, disconnect reset, metadata correlation, shared script cap, playback-start gating, curve clipping/validation, and bounded dense layout | Rotate the disclosed key, then run three short browser lessons with one mid-stroke interruption | Rotated live key and human microphone/perceptual participation |
 | 2026-07-16T13:45+0530 | M2 | Recorded the owner's perceptual pass and closed every M2 exit condition | Create the passing M2 checkpoint, then allow owner fine-tuning from that recoverable baseline | None |
+| 2026-07-16T14:58+0530 | M4 | Implemented product/diagnostic modes, sequential sketch reveal, visible manifest publication, response-purpose coordination, and one tutor-initiated checkpoint | Complete one short cached-lesson browser rehearsal and record manifest/checkpoint behavior | Automated in-app browser navigation was blocked by URL policy; human microphone/perceptual participation remains required for the live gate |
 
 ## Discoveries and surprises
 

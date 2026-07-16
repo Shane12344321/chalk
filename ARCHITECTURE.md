@@ -1,7 +1,7 @@
 # CHALK architecture
 
-Status: M1 accepted; M2 deterministic board and fixed-sync implementation active
-Last reviewed: 2026-07-15  
+Status: M1 and M2 accepted; M4 cached interaction slice active
+Last reviewed: 2026-07-16
 Companion documents: `chalk-build-plan.md`, `AGENTS.md`
 
 ## Purpose and authority
@@ -82,10 +82,11 @@ Owns the `RTCPeerConnection`, remote audio element/stream, data channel, session
 - Protocol event strings stay inside `frontend/src/realtime/`.
 - It exposes semantic events such as `studentSpeechStarted`, `responseCompleted`, `transcriptDelta`, and `toolCallCompleted` to the rest of the app.
 - It does not own lesson state or render board elements.
+- Demo mode uses product tutor instructions and no diagnostic tool; diagnostics mode restores the evidence UI and `debug_echo` without changing the transport.
 
 #### `RealtimeResponseCoordinator`
 
-Serializes default-conversation responses so filler speech, lesson narration, and Q&A do not overlap. It records the active response ID, purpose, request ID, and completion status.
+Serializes and identifies lesson narration, checkpoint prompts, VAD-created Q&A/feedback, and diagnostic continuations so unrelated `response.created` events cannot claim the wrong lifecycle. It records bounded response purpose, request/step/cycle correlation, and generation/playback settlement.
 
 `response.done` means generation/sending completed; it is not treated as proof that the remote audio buffer is silent.
 
@@ -389,6 +390,11 @@ stateDiagram-v2
     FROZEN --> QA: interruption committed
     QA --> TEACHING: resume_lesson
     QA --> GENERATING: new topic
+    TEACHING --> CHECKPOINT_ASKING: checkpoint step settles
+    CHECKPOINT_ASKING --> CHECKPOINT_LISTENING: prompt generation + audio + drain settle
+    CHECKPOINT_ASKING --> CHECKPOINT_FEEDBACK: student answers early
+    CHECKPOINT_LISTENING --> CHECKPOINT_FEEDBACK: student answers
+    CHECKPOINT_FEEDBACK --> TEACHING: feedback generation + audio + drain settle
     TEACHING --> DONE: terminal stream + final step complete
     DONE --> IDLE: close/reset
 ```
@@ -568,6 +574,8 @@ Client-visible configuration must contain only non-secret feature flags. Never e
 | ADR-007 | 2026-07-15 | Board context publishes through replaceable session instructions | Avoids undocumented system-role conversation items and context growth |
 | ADR-008 | 2026-07-15 | Demo lessons are cached and live generation is shown once | Reduces recording risk without hiding the live capability |
 | ADR-009 | 2026-07-15 | Layer per-response, rolling-context, and per-connection Realtime token limits | A single post-response ceiling cannot prevent one long answer from overshooting; visible usage and independent bounds make development spend predictable without removing the live path |
+| ADR-010 | 2026-07-16 | Publish only successfully rendered, fully revealed geometry in the tutor manifest | Prevents future or failed elements from becoming model-visible claims while preserving a compact replaceable context |
+| ADR-011 | 2026-07-16 | Coordinate responses by explicit purpose and use three checkpoint phases | Keeps manual narration, VAD answers, checkpoint prompts, and feedback from stealing each other's lifecycle events or advancing the lesson early |
 
 ## Open spike decisions
 

@@ -62,6 +62,43 @@ describe("fixed lesson sync reducer", () => {
     }
   });
 
+  it("asks one checkpoint, listens, gives feedback, then advances", () => {
+    let state = startState("request-1", ["s2"]);
+    state = finishCurrentStep(state);
+    expect(state.stepIds[state.currentStepIndex]).toBe("s2");
+    state = finishCurrentStep(state);
+    expect(state).toMatchObject({
+      phase: "CHECKPOINT_ASKING",
+      currentStepIndex: 1,
+    });
+
+    state = send(state, { type: "CHECKPOINT_PROMPT_ACTIVITY" });
+    state = send(state, { type: "CHECKPOINT_PROMPT_DONE" });
+    state = send(state, { type: "CHECKPOINT_PROMPT_AUDIO_STOPPED" });
+    state = send(state, { type: "CHECKPOINT_PROMPT_DRAIN_ELAPSED" });
+    expect(state.phase).toBe("CHECKPOINT_LISTENING");
+
+    state = send(state, { type: "CHECKPOINT_STUDENT_SPEECH_STARTED" });
+    expect(state.phase).toBe("CHECKPOINT_FEEDBACK");
+    state = send(state, { type: "CHECKPOINT_FEEDBACK_ACTIVITY" });
+    state = send(state, { type: "CHECKPOINT_FEEDBACK_DONE" });
+    state = send(state, { type: "CHECKPOINT_FEEDBACK_AUDIO_STOPPED" });
+    state = send(state, { type: "CHECKPOINT_FEEDBACK_DRAIN_ELAPSED" });
+    expect(state).toMatchObject({
+      phase: "TEACHING",
+      currentStepIndex: 2,
+      completedCheckpointStepIds: ["s2"],
+    });
+  });
+
+  it("accepts an answer that starts before the checkpoint prompt fully settles", () => {
+    let state = startState("request-1", ["s1"]);
+    state = finishCurrentStep(state);
+    expect(state.phase).toBe("CHECKPOINT_ASKING");
+    state = send(state, { type: "CHECKPOINT_STUDENT_SPEECH_STARTED" });
+    expect(state.phase).toBe("CHECKPOINT_FEEDBACK");
+  });
+
   it("ignores stale request and step events", () => {
     const state = startState();
     const stale = fixedSyncReducer(state, {
@@ -75,8 +112,16 @@ describe("fixed lesson sync reducer", () => {
   });
 });
 
-function startState(requestId = "request-1"): FixedSyncState {
-  const loaded = fixedSyncReducer(EMPTY_SYNC_STATE, { type: "LOAD", requestId, stepIds: STEP_IDS });
+function startState(
+  requestId = "request-1",
+  checkpointStepIds: string[] = [],
+): FixedSyncState {
+  const loaded = fixedSyncReducer(EMPTY_SYNC_STATE, {
+    type: "LOAD",
+    requestId,
+    stepIds: STEP_IDS,
+    checkpointStepIds,
+  });
   return fixedSyncReducer(loaded, { type: "START", requestId });
 }
 

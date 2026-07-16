@@ -1,12 +1,12 @@
 # CHALK
 
-CHALK is a localhost hackathon prototype for a math and physics tutor that talks while drawing and stops when the student interrupts. Milestone M1 proves the browser-to-OpenAI Realtime WebRTC voice foundation. M2 adds a deterministic SVG whiteboard, a schema-validated hardcoded projectile lesson, and fixed concurrent voice/ink synchronization.
+CHALK is a localhost hackathon prototype for a math and physics tutor that talks while drawing and stops when the student interrupts. Milestone M1 proves the browser-to-OpenAI Realtime WebRTC voice foundation. M2 adds a deterministic SVG whiteboard, a schema-validated hardcoded projectile lesson, and fixed concurrent voice/ink synchronization. The active M4 slice adds visible-board grounding and a tutor-initiated checkpoint to that cached lesson.
 
 This is not a production service and is not suitable for unsupervised use by children. It has no authentication, persistence, deployment hardening, or production privacy controls.
 
 ## Current status
 
-M1 is complete: deterministic checks, live voice, the dummy-tool continuation, layered token controls, and five consecutive playback-backed interruptions passed. M2 is also complete: the deterministic whiteboard, three live four-step runs, partial-stroke interruption/resume, concurrent voice and ink, and audible narration serialization passed. Automated checks do not call the live API or require a key. See `PROGRESS.md` for evidence actually collected.
+M1 and M2 are complete. The current M4 cached-interaction implementation passes deterministic tests and awaits its minimal live rehearsal: product-facing demo mode, sequential sketch strokes, a renderer-derived visible-board manifest, response-purpose coordination, and the existing step-2 checkpoint. Automated checks do not call the live API or require a key. See `PROGRESS.md` for evidence actually collected.
 
 ## Local setup
 
@@ -56,6 +56,14 @@ make dev-frontend
 
 Then open [http://localhost:5173](http://localhost:5173). The backend binds to `127.0.0.1:8000`, and CORS permits exactly `http://localhost:5173`. Do not expose either service to a LAN or the public internet. The frontend uses `VITE_API_BASE_URL=http://127.0.0.1:8000` by default; a non-default value must still be a trusted localhost URL for this prototype.
 
+The default frontend mode is the product-facing demo. It hides the evidence dashboard and does not expose the `debug_echo` tool. Start the diagnostic UI only when collecting protocol evidence:
+
+```bash
+VITE_CHALK_MODE=diagnostics make dev-frontend
+```
+
+`VITE_*` variables are browser-visible. Never place a credential in one.
+
 The health endpoint does not require a key and must not reveal its value:
 
 ```bash
@@ -97,6 +105,18 @@ The board program is checked in at `demo/cached_lessons/projectile-range.lesson.
 7. Disconnect immediately after recording the result to conserve credits.
 
 The deterministic suite covers schema failures, unsafe expressions and equations, dangling references, region/anchor layout, stable rough paths, partial-stroke retention, response/audio event-order races, stale request/cycle rejection, and three full reducer runs. The deliberately human M2 gate also passed: the owner confirmed that voice and ink felt concurrent and consecutive narration did not overlap in the recording browser.
+
+## Reproducing the cached M4 interaction check
+
+Use the default demo mode and keep the run to one short mini-model session.
+
+1. Connect, start the cached projectile lesson, and confirm the cannon strokes reveal one after another.
+2. Optionally interrupt one moving stroke, ask a short question about visible content, then use **Resume frozen step** after the answer.
+3. After the range curve finishes, confirm Chalk asks “Where does the curve peak?” without a presenter action.
+4. Answer “45 degrees” and confirm Chalk gives one brief acknowledgement or correction, does not mention Resume, and advances to the formula step only after its feedback audio settles.
+5. Confirm the demo contains no diagnostic metrics or debug-tool prompt. Disconnect immediately after the observation.
+
+Resume deliberately retains the accepted M2 behavior: ink continues from its frozen progress while the full current script restarts. Word-count slicing, direct transcript-driven pacing, and duration-only false-freeze recovery are deferred in the active execution plan because the available signals do not justify those heuristics yet.
 
 ## Realtime cost controls
 

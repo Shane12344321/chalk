@@ -180,3 +180,24 @@ ID-free machine evidence is checked in at `artifacts/evidence/m2-deterministic-b
 ## 2026-07-16 — M2 accepted
 
 M2 is complete. The deterministic five-op whiteboard, validated renderer, fixed concurrent synchronization, response correlation, partial-stroke freeze/resume, disconnect/rejection recovery, three consecutive live four-step runs, and owner perceptual gate all pass. A final local checkpoint gate then passed with 100 frontend and 38 backend tests, lint/format, TypeScript/Vite build, Python compileall, zero production npm audit findings, valid evidence JSON, secret-pattern scanning, and clean diff hygiene. The passing checkpoint is the baseline for subsequent visual or pacing fine-tuning; response-coordinator, VAD-policy, out-of-band narration, manifests, live generation, and paced-sync changes remain deliberately outside this checkpoint.
+
+## 2026-07-16 — M4 cached interaction slice
+
+Status: **deterministic implementation complete; one minimal live rehearsal pending**.
+
+### Scope and decisions
+
+- Default demo mode now uses a product tutor prompt, hides protocol evidence panels, and exposes no diagnostic tool. `VITE_CHALK_MODE=diagnostics` retains the M1/M2 evidence workflow and `debug_echo`.
+- Sketch source strokes reveal sequentially by deterministic path-length weight; rough variants of one source stroke remain concurrent.
+- A bounded response coordinator assigns manual narration/checkpoint prompts by metadata and VAD-created answers by an explicitly armed purpose. Resume clears a matching unbound Q&A reservation so a false detection cannot poison a later checkpoint.
+- The tutor receives a compact manifest built only from successfully rendered, fully revealed geometry. Context and temporary checkpoint guidance replace session instructions serially and wait for `session.updated` before a dependent scripted response.
+- Step 2 now has explicit checkpoint asking, listening, and feedback phases. Early student speech safely moves directly from asking to feedback, and advancement still requires generation, playback-stop, and drain settlement.
+- Full-script resume remains the accepted M2 fallback. Word slicing was rejected because board progress is not spoken-word alignment. Transcript-delta pacing and duration-only false-freeze auto-resume remain deferred until measurement provides a reliable correction/classifier. Static whole-lesson context was rejected because it exposes future board state.
+
+### Validation evidence
+
+| Date/time (Asia/Kolkata) | Check | Command/procedure | Result | Notes/evidence |
+|---|---|---|---|---|
+| 2026-07-16T14:58+0530 | M4 deterministic implementation gate | `make test`; `make lint`; `make build`; `npm --prefix frontend audit --omit=dev`; `git diff --check` | Pass | 115 frontend tests in 16 files and 38 backend tests passed; ESLint, Ruff lint/format, TypeScript, Vite, Python compileall, production audit, and diff hygiene passed. The known non-blocking ~996 kB uncompressed Vite chunk warning remains. |
+| 2026-07-16T14:58+0530 | Local serving check | Start Vite and request `http://localhost:5173/` with `curl --fail` | Pass | Vite served the current HTML on localhost. This is not visual browser evidence. |
+| 2026-07-16T14:58+0530 | Disconnected browser smoke | Reload the existing localhost in-app browser tab after starting Vite | Blocked by browser policy | The browser-control surface rejected the localhost reload by URL policy. No workaround or credentialed API call was attempted; the human browser and live checkpoint/perception gate remain pending. |

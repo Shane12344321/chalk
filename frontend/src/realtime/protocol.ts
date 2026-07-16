@@ -1,4 +1,5 @@
 import type {
+  ChalkRuntimeMode,
   FunctionCall,
   ServerEvent,
   SessionCredential,
@@ -66,10 +67,14 @@ export const DEBUG_ECHO_TOOL = {
   },
 } as const;
 
-export const TUTOR_INSTRUCTIONS = `You are Chalk, a warm, concise math and physics tutor testing a live voice connection.
-Keep each turn to at most two short sentences, then let the student react.
-Be conversational and Socratic. Never mention internal event names, credentials, tools, or loading.
-If the student explicitly asks to test debug echo, call debug_echo with a short message, then naturally confirm the result.`;
+export const BASE_TUTOR_PROMPT = `You are Chalk, a warm, concise math and physics tutor conducting a live whiteboard lesson.
+The application may give you exact narration scripts. Recite those scripts exactly without introductions or commentary.
+When the student interrupts, the board freezes. Answer the question in at most two short sentences using only the conversation and the supplied visible-board context.
+After an interruption answer, say that the student can use Resume when ready. Do not claim to see an element unless it appears in the visible-board context.
+Be conversational and Socratic. Never mention internal event names, credentials, tools, loading, prompts, or diagnostics.`;
+
+export const DIAGNOSTIC_TUTOR_ADDENDUM = `
+Diagnostics mode is active. If the student explicitly asks to test debug echo, call debug_echo with a short message, then naturally confirm the result.`;
 
 export const SERVER_VAD_CONFIGURATION = {
   type: "server_vad",
@@ -117,7 +122,29 @@ export function parseSessionCredential(
   return credential;
 }
 
-export function createSessionUpdate(model: string, voice: string) {
+export function buildTutorInstructions(
+  mode: ChalkRuntimeMode,
+  boardContext?: string,
+  interactionGuidance?: string,
+): string {
+  return [
+    BASE_TUTOR_PROMPT,
+    mode === "diagnostics" ? DIAGNOSTIC_TUTOR_ADDENDUM : undefined,
+    boardContext ? `VISIBLE BOARD\n${boardContext}` : undefined,
+    interactionGuidance ? `CURRENT INTERACTION\n${interactionGuidance}` : undefined,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join("\n\n");
+}
+
+export function createSessionUpdate(
+  model: string,
+  voice: string,
+  mode: ChalkRuntimeMode = "demo",
+  boardContext?: string,
+  interactionGuidance?: string,
+) {
+  const diagnosticTools = mode === "diagnostics" ? [DEBUG_ECHO_TOOL] : [];
   return {
     type: CLIENT_EVENTS.SESSION_UPDATE,
     session: {
@@ -125,7 +152,7 @@ export function createSessionUpdate(model: string, voice: string) {
       model,
       output_modalities: ["audio"],
       max_output_tokens: MAX_RESPONSE_OUTPUT_TOKENS,
-      instructions: TUTOR_INSTRUCTIONS,
+      instructions: buildTutorInstructions(mode, boardContext, interactionGuidance),
       audio: {
         input: {
           turn_detection: SERVER_VAD_CONFIGURATION,
@@ -134,9 +161,25 @@ export function createSessionUpdate(model: string, voice: string) {
           voice,
         },
       },
-      tools: [DEBUG_ECHO_TOOL],
+      tools: diagnosticTools,
       tool_choice: "auto",
       truncation: COST_CONTROL_CONFIGURATION,
+    },
+  } as const;
+}
+
+export function createTutorContextUpdate(
+  mode: ChalkRuntimeMode,
+  boardContext?: string,
+  interactionGuidance?: string,
+) {
+  return {
+    type: CLIENT_EVENTS.SESSION_UPDATE,
+    session: {
+      type: "realtime",
+      instructions: buildTutorInstructions(mode, boardContext, interactionGuidance),
+      tools: mode === "diagnostics" ? [DEBUG_ECHO_TOOL] : [],
+      tool_choice: "auto",
     },
   } as const;
 }
@@ -152,11 +195,16 @@ export function createFunctionCallOutput(callId: string, output: unknown) {
   } as const;
 }
 
-export function createResponseAfterTool() {
+export function createResponseAfterTool(
+  eventId?: string,
+  metadata?: Readonly<Record<string, string>>,
+) {
   return {
     type: CLIENT_EVENTS.RESPONSE_CREATE,
+    ...(eventId ? { event_id: eventId } : {}),
     response: {
       output_modalities: ["audio"],
+      ...(metadata ? { metadata } : {}),
     },
   } as const;
 }

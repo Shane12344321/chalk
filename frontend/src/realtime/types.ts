@@ -8,6 +8,8 @@ export type ConnectionStatus =
   | "disconnecting"
   | "error";
 
+export type ChalkRuntimeMode = "demo" | "diagnostics";
+
 export interface SessionRequest {
   request_id: string;
   client_id: string;
@@ -112,7 +114,14 @@ export type RealtimeSemanticEvent =
   | { type: "narration.activity"; context: NarrationContext }
   | { type: "narration.generation_done"; context: NarrationContext }
   | { type: "narration.playback_stopped"; context: NarrationContext }
-  | { type: "narration.failed"; context: NarrationContext };
+  | { type: "narration.failed"; context: NarrationContext }
+  | { type: "checkpoint.prompt_activity"; context: NarrationContext }
+  | { type: "checkpoint.prompt_generation_done"; context: NarrationContext }
+  | { type: "checkpoint.prompt_playback_stopped"; context: NarrationContext }
+  | { type: "checkpoint.prompt_failed"; context: NarrationContext }
+  | { type: "checkpoint.feedback_activity"; context: NarrationContext }
+  | { type: "checkpoint.feedback_generation_done"; context: NarrationContext }
+  | { type: "checkpoint.feedback_playback_stopped"; context: NarrationContext };
 
 export interface TraceExportContext {
   model?: string;

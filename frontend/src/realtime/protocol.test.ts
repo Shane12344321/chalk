@@ -6,6 +6,7 @@ import {
   createResponseAfterTool,
   createSessionRequest,
   createSessionUpdate,
+  createTutorContextUpdate,
   extractFunctionCalls,
   getResponseUsage,
   parseServerEvent,
@@ -27,7 +28,7 @@ describe("Realtime protocol builders", () => {
     expect(() => createNarrationResponse("x".repeat(241), "evt_1", {})).toThrow(/budget/i);
   });
 
-  it("builds the current GA audio + server VAD session shape", () => {
+  it("builds the demo session without diagnostic tools", () => {
     const event = createSessionUpdate("gpt-realtime-2.1-mini", "marin");
 
     expect(event).toMatchObject({
@@ -47,7 +48,7 @@ describe("Realtime protocol builders", () => {
           },
           output: { voice: "marin" },
         },
-        tools: [{ type: "function", name: "debug_echo" }],
+        tools: [],
         tool_choice: "auto",
         truncation: {
           type: "retention_ratio",
@@ -56,6 +57,35 @@ describe("Realtime protocol builders", () => {
         },
       },
     });
+    expect(event.session.instructions).toContain("conducting a live whiteboard lesson");
+    expect(event.session.instructions).not.toContain("debug echo");
+  });
+
+  it("retains debug echo only in diagnostics mode", () => {
+    const event = createSessionUpdate(
+      "gpt-realtime-2.1-mini",
+      "marin",
+      "diagnostics",
+    );
+    expect(event.session.tools).toEqual([
+      expect.objectContaining({ type: "function", name: "debug_echo" }),
+    ]);
+    expect(event.session.instructions).toContain("Diagnostics mode is active");
+  });
+
+  it("builds a bounded phase update from base prompt plus visible context", () => {
+    const event = createTutorContextUpdate(
+      "demo",
+      "Lesson: projectile range. Visible board: rangeaxes, rangecurve.",
+      "Evaluate the next answer against 45 degrees.",
+    );
+    expect(event).toMatchObject({
+      type: "session.update",
+      session: { type: "realtime", tools: [], tool_choice: "auto" },
+    });
+    expect(event.session.instructions).toContain("VISIBLE BOARD");
+    expect(event.session.instructions).toContain("rangeaxes");
+    expect(event.session.instructions).toContain("CURRENT INTERACTION");
   });
 
   it("requires the normalized session contract and matching request ID", () => {

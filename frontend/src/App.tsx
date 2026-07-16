@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import projectileLessonSource from "../../demo/cached_lessons/projectile-range.lesson.json";
 import { Board } from "./board/Board";
 import { decodeLesson } from "./board/decode";
+import { buildBoardManifest } from "./board/manifest";
 import { isLessonProgram } from "./board/schema";
 import {
   getOrCreateClientId,
@@ -18,6 +19,8 @@ import type {
 import { useFixedLessonSync } from "./sync/useFixedLessonSync";
 
 const API_BASE_URL = resolveLocalApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
+const CHALK_MODE =
+  import.meta.env.VITE_CHALK_MODE === "diagnostics" ? "diagnostics" : "demo";
 
 const INITIAL_SNAPSHOT: RealtimeSnapshot = {
   status: "disconnected",
@@ -42,11 +45,15 @@ if (!isLessonProgram(projectileLessonSource) || !PROJECTILE_RESULT.lesson || PRO
   throw new Error("The checked-in projectile lesson did not pass its shared contract.");
 }
 const PROJECTILE_LESSON = PROJECTILE_RESULT.lesson;
+const EMPTY_PROJECTILE_MANIFEST = buildBoardManifest(PROJECTILE_LESSON.title, []);
 
 function App() {
+  const isDiagnostics = CHALK_MODE === "diagnostics";
   const clientRef = useRef<RealtimeClient>();
   const semanticHandlerRef = useRef<(event: RealtimeSemanticEvent) => void>();
   const [snapshot, setSnapshot] = useState(INITIAL_SNAPSHOT);
+  const [boardManifest, setBoardManifest] = useState(EMPTY_PROJECTILE_MANIFEST);
+  const [contextError, setContextError] = useState<string>();
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
@@ -62,17 +69,32 @@ function App() {
     const client = new RealtimeClient({
       apiBaseUrl: API_BASE_URL,
       clientId: getOrCreateClientId(),
+      mode: CHALK_MODE,
       callbacks: {
         onSnapshot: setSnapshot,
         onSemanticEvent: (event) => semanticHandlerRef.current?.(event),
       },
     });
     clientRef.current = client;
+    void client.setBoardContext(EMPTY_PROJECTILE_MANIFEST);
     return () => {
       clientRef.current = undefined;
       void client.disconnect();
     };
   }, []);
+
+  useEffect(() => {
+    const client = clientRef.current;
+    if (!client) return;
+    void client
+      .setBoardContext(boardManifest)
+      .then(() => setContextError(undefined))
+      .catch(() =>
+        setContextError(
+          "The latest board grounding update failed; Chalk may use the previous visible state.",
+        ),
+      );
+  }, [boardManifest, snapshot.status]);
 
   const isBusy = !["disconnected", "connected", "error"].includes(
     snapshot.status,
@@ -81,6 +103,8 @@ function App() {
   const canDisconnect =
     snapshot.status !== "disconnected" && snapshot.status !== "disconnecting";
   const recentTrace = useMemo(() => snapshot.trace.slice(-30).reverse(), [snapshot.trace]);
+  const activeCheckpoint =
+    PROJECTILE_LESSON.steps[lessonSync.state.currentStepIndex]?.checkpoint;
 
   const connect = () => {
     setCopyState("idle");
@@ -91,6 +115,22 @@ function App() {
 
   const disconnect = () => {
     void clientRef.current?.disconnect();
+  };
+
+  const startLesson = () => {
+    const client = clientRef.current;
+    if (!client) return;
+    void client
+      .setBoardContext(EMPTY_PROJECTILE_MANIFEST)
+      .then(() => {
+        setContextError(undefined);
+        lessonSync.start();
+      })
+      .catch(() =>
+        setContextError(
+          "Chalk could not reset its board grounding. Disconnect and reconnect before retrying.",
+        ),
+      );
   };
 
   const copyTrace = async () => {
@@ -118,7 +158,9 @@ function App() {
     <main className="app-shell">
       <header className="hero">
         <div>
-          <p className="eyebrow">M2 · Deterministic board</p>
+          <p className="eyebrow">
+            {isDiagnostics ? "Diagnostics · deterministic board" : "Live visual tutoring"}
+          </p>
           <h1>CHALK</h1>
           <p className="tagline">A tutor that draws while it talks—and stops when you do.</p>
         </div>
@@ -128,14 +170,16 @@ function App() {
       <section className="lesson-stage" aria-labelledby="lesson-title">
         <div className="lesson-heading">
           <div>
-            <p className="eyebrow">Hardcoded feel gate · no board-model call</p>
+            <p className="eyebrow">
+              {isDiagnostics ? "Cached lesson · no board-model call" : "Interactive lesson"}
+            </p>
             <h2 id="lesson-title">Projectile range, drawn with the voice</h2>
           </div>
           <div className="lesson-actions">
             <button
               className="primary"
               type="button"
-              onClick={lessonSync.start}
+              onClick={startLesson}
               disabled={snapshot.status !== "connected" || !["IDLE", "DONE"].includes(lessonSync.state.phase)}
             >
               {lessonSync.state.phase === "DONE" ? "Run lesson again" : "Start lesson"}
@@ -160,22 +204,38 @@ function App() {
           currentStepIndex={lessonSync.state.currentStepIndex}
           currentStepProgress={lessonSync.state.currentStepProgress}
           phase={lessonSync.state.phase}
+          onManifestChange={setBoardManifest}
         />
-        <div className="sync-strip" aria-label="Fixed synchronization status">
-          <span><strong>{lessonSync.state.phase}</strong> fixed sync</span>
-          <div className="sync-track" aria-hidden="true">
-            <span style={{ width: `${lessonSync.state.currentStepProgress * 100}%` }} />
+        {contextError ? <p className="error" role="alert">{contextError}</p> : null}
+        {isDiagnostics ? (
+          <div className="sync-strip" aria-label="Fixed synchronization status">
+            <span><strong>{lessonSync.state.phase}</strong> fixed sync</span>
+            <div className="sync-track" aria-hidden="true">
+              <span style={{ width: `${lessonSync.state.currentStepProgress * 100}%` }} />
+            </div>
+            <span>{Math.round(lessonSync.state.currentStepProgress * 100)}% current step</span>
+            <span><strong>{lessonSync.state.completedRuns} / 3</strong> completed runs</span>
+            {lessonSync.state.ignoredEvents > 0 ? <span>{lessonSync.state.ignoredEvents} stale/invalid events ignored</span> : null}
           </div>
-          <span>{Math.round(lessonSync.state.currentStepProgress * 100)}% current step</span>
-          <span><strong>{lessonSync.state.completedRuns} / 3</strong> completed runs</span>
-          {lessonSync.state.ignoredEvents > 0 ? <span>{lessonSync.state.ignoredEvents} stale/invalid events ignored</span> : null}
-        </div>
+        ) : null}
         {snapshot.status !== "connected" ? (
           <p className="lesson-hint">Connect the microphone below, then start the lesson. Routine board rendering is local; only narration uses the mini Realtime model.</p>
         ) : lessonSync.state.phase === "TEACHING" ? (
           <p className="lesson-hint lesson-hint-live">Interrupt while a stroke is moving. The ink should remain exactly where it stopped.</p>
         ) : lessonSync.state.phase === "QA" ? (
           <p className="lesson-hint lesson-hint-frozen">Ink frozen. Ask your question, then use “Resume frozen step” when ready.</p>
+        ) : lessonSync.state.phase === "CHECKPOINT_ASKING" ? (
+          <p className="lesson-hint lesson-hint-live">
+            Chalk has a quick check before moving on.
+          </p>
+        ) : lessonSync.state.phase === "CHECKPOINT_LISTENING" ? (
+          <p className="lesson-hint lesson-hint-live">
+            Your turn: {activeCheckpoint?.question}
+          </p>
+        ) : lessonSync.state.phase === "CHECKPOINT_FEEDBACK" ? (
+          <p className="lesson-hint lesson-hint-live">
+            Chalk is responding to your answer.
+          </p>
         ) : null}
       </section>
 
@@ -195,7 +255,9 @@ function App() {
           </h2>
           <p>
             {snapshot.status === "connected"
-              ? "Speak naturally. Interrupt while the orb is moving to test barge-in."
+              ? isDiagnostics
+                ? "Speak naturally. Interrupt while the orb is moving to test barge-in."
+                : "Ask a question at any time. Chalk will pause the lesson and answer you."
               : "The browser will ask for microphone access after the backend mints a short-lived session credential."}
           </p>
           <div className="button-row">
@@ -212,7 +274,9 @@ function App() {
         </div>
       </section>
 
-      <section className="metrics" aria-label="Realtime diagnostics">
+      {isDiagnostics ? (
+        <>
+          <section className="metrics" aria-label="Realtime diagnostics">
         <Metric
           label="Settled interruption streak"
           value={`${snapshot.consecutiveSuccessfulInterruptions} / 5`}
@@ -237,9 +301,9 @@ function App() {
           detail={`${snapshot.tokenUsage.input_tokens.toLocaleString()} input · ${snapshot.tokenUsage.output_tokens.toLocaleString()} output · auto-disconnect at limit`}
           pass={snapshot.tokenUsage.total_tokens < snapshot.tokenBudget}
         />
-      </section>
+          </section>
 
-      <section className="evidence-grid">
+          <section className="evidence-grid">
         <article className="panel interruptions-panel">
           <div className="panel-heading">
             <div>
@@ -314,7 +378,9 @@ function App() {
             </div>
           )}
         </article>
-      </section>
+          </section>
+        </>
+      ) : null}
     </main>
   );
 }

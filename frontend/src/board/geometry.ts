@@ -10,6 +10,8 @@ export interface BoardPath {
   stroke: string;
   strokeWidth: number;
   fill: string;
+  revealGroup?: number;
+  revealWeight?: number;
 }
 
 export interface BoardLabel {
@@ -27,6 +29,7 @@ export interface BoardGeometry {
   labels: BoardLabel[];
   text?: string;
   equationHtml?: string;
+  manifestSummary: string;
   stepIndex: number;
   opIndex: number;
 }
@@ -88,13 +91,20 @@ function createGeometry(
     box,
     paths: [],
     labels: [],
+    manifestSummary: op.op,
     stepIndex,
     opIndex,
   };
 
-  if (op.op === "text") return { ...base, text: op.content };
+  if (op.op === "text") {
+    return { ...base, text: op.content, manifestSummary: `text: ${op.content}` };
+  }
   if (op.op === "equation") {
-    return { ...base, equationHtml: renderSafeLatex(op.latex) };
+    return {
+      ...base,
+      equationHtml: renderSafeLatex(op.latex),
+      manifestSummary: `equation: ${op.latex}`,
+    };
   }
 
   const generator = rough.generator({
@@ -113,11 +123,15 @@ function createGeometry(
         box.x + x * box.width,
         box.y + y * box.height,
       ] as [number, number]);
-      return generator.toPaths(
-        generator.linearPath(points, { seed: stableSeed(`${op.id}:${index}`) }),
+      return normalizePaths(
+        generator.toPaths(
+          generator.linearPath(points, { seed: stableSeed(`${op.id}:${index}`) }),
+        ),
+        index,
+        polylineLength(points),
       );
     });
-    return { ...base, paths: normalizePaths(paths) };
+    return { ...base, paths, manifestSummary: `sketch with ${op.strokes.length} strokes` };
   }
 
   if (op.op === "axes") {
@@ -132,6 +146,7 @@ function createGeometry(
     return {
       ...base,
       paths: normalizePaths(paths),
+      manifestSummary: `axes: ${op.x.label} ${op.x.min} to ${op.x.max}; ${op.y.label} ${op.y.min} to ${op.y.max}`,
       labels: [
         { text: op.x.label, x: right, y: bottom + 36, anchor: "end" },
         { text: op.y.label, x: left + 8, y: top + 4 },
@@ -145,13 +160,17 @@ function createGeometry(
   const target = axes.get(op.axes_id);
   if (!target) throw new Error(`Curve ${op.id} has no laid-out axes.`);
   const plot = plotBox(target.box);
-  const visibleSegments = sampleVisibleCurveSegments(op, target.op).map((segment) =>
+  const sampledSegments = sampleVisibleCurveSegments(op, target.op);
+  const visibleSegments = sampledSegments.map((segment) =>
     segment.map(([x, y]) => [
       plot.x + ((x - target.op.x.min) / (target.op.x.max - target.op.x.min)) * plot.width,
       plot.y + plot.height - ((y - target.op.y.min) / (target.op.y.max - target.op.y.min)) * plot.height,
     ] as [number, number]),
   );
   if (visibleSegments.length === 0) throw new Error(`Curve ${op.id} has fewer than two visible samples.`);
+  const peak = sampledSegments
+    .flat()
+    .reduce((highest, point) => (point[1] > highest[1] ? point : highest));
   return {
     ...base,
     paths: normalizePaths(
@@ -164,7 +183,12 @@ function createGeometry(
         })),
       ),
     ),
+    manifestSummary: `curve on ${op.axes_id}; visible peak near x=${formatNumber(peak[0])}, y=${formatNumber(peak[1])}`,
   };
+}
+
+function formatNumber(value: number): string {
+  return Number(value.toFixed(2)).toString();
 }
 
 function plotBox(box: LayoutBox): LayoutBox {
@@ -176,13 +200,29 @@ function plotBox(box: LayoutBox): LayoutBox {
   };
 }
 
-function normalizePaths(paths: PathInfo[]): BoardPath[] {
+function normalizePaths(
+  paths: PathInfo[],
+  revealGroup?: number,
+  revealWeight?: number,
+): BoardPath[] {
   return paths.map((path) => ({
     d: path.d,
     stroke: path.stroke || "#f5efd8",
     strokeWidth: path.strokeWidth || 4,
     fill: path.fill && path.fill !== "none" ? path.fill : "none",
+    ...(revealGroup === undefined ? {} : { revealGroup }),
+    ...(revealWeight === undefined ? {} : { revealWeight }),
   }));
+}
+
+function polylineLength(points: readonly [number, number][]): number {
+  let length = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const [previousX, previousY] = points[index - 1];
+    const [x, y] = points[index];
+    length += Math.hypot(x - previousX, y - previousY);
+  }
+  return Math.max(1, length);
 }
 
 export function stableSeed(id: string): number {

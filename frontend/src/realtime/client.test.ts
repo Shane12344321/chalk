@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { RealtimeClient } from "./client";
 import { SESSION_TOKEN_BUDGET, SERVER_EVENTS } from "./protocol";
+import { ResponseCoordinator } from "./responseCoordinator";
 import type {
   InterruptionMarker,
-  NarrationContext,
   RealtimeSemanticEvent,
   RealtimeSnapshot,
   ServerEvent,
@@ -25,15 +25,7 @@ interface ClientHarness {
   observedSessionModel?: string;
   observedSessionVoice?: string;
   toolRoundTrips: number;
-  pendingToolRoundTrip?: { successfulEchoes: number; responseId?: string };
-  pendingNarration?: {
-    context: NarrationContext;
-    clientEventId: string;
-    responseId?: string;
-    activitySeen: boolean;
-    generationDone: boolean;
-    playbackStopped: boolean;
-  };
+  responseCoordinator: ResponseCoordinator;
   interruptions: InterruptionMarker[];
   seenCallIds: Set<string>;
   seenUsageResponseIds: Set<string>;
@@ -204,7 +196,7 @@ describe("RealtimeClient event coordination", () => {
       { type: "narration.generation_done", context },
       { type: "narration.playback_stopped", context },
     ]);
-    expect(harness.pendingNarration).toBeUndefined();
+    expect(harness.responseCoordinator.hasPurpose("lesson_narration")).toBe(false);
   });
 
   it("retains narration correlation when playback stops before generation completes", () => {
@@ -233,14 +225,17 @@ describe("RealtimeClient event coordination", () => {
       type: SERVER_EVENTS.OUTPUT_AUDIO_BUFFER_STOPPED,
       response_id: "resp_lesson",
     });
-    expect(harness.pendingNarration).toMatchObject({ playbackStopped: true, generationDone: false });
+    expect(harness.responseCoordinator.get("resp_lesson")).toMatchObject({
+      playbackStopped: true,
+      generationDone: false,
+    });
     harness.handleServerEvent(responseDone("resp_lesson", "completed"));
     expect(semanticEvents).toEqual([
       { type: "narration.activity", context },
       { type: "narration.playback_stopped", context },
       { type: "narration.generation_done", context },
     ]);
-    expect(harness.pendingNarration).toBeUndefined();
+    expect(harness.responseCoordinator.hasPurpose("lesson_narration")).toBe(false);
   });
 
   it("does not bind lesson narration to an unrelated response.created event", () => {
@@ -262,24 +257,25 @@ describe("RealtimeClient event coordination", () => {
       response_id: "resp_vad",
     });
 
-    expect(harness.pendingNarration?.responseId).toBeUndefined();
+    expect(harness.responseCoordinator.get("resp_vad")).toBeUndefined();
     expect(semanticEvents).toEqual([]);
   });
 
   it("releases rejected narration and emits a correlated failure", () => {
     const semanticEvents: RealtimeSemanticEvent[] = [];
-    const { client, harness } = createHarness(vi.fn(), (event) => semanticEvents.push(event));
+    const send = vi.fn();
+    const { client, harness } = createHarness(send, (event) => semanticEvents.push(event));
     harness.status = "connected";
     const context = { requestId: "req-1", stepId: "s1", cycle: 1 };
     client.requestNarration("A short deterministic lesson line.", context);
-    const clientEventId = harness.pendingNarration!.clientEventId;
+    const clientEventId = JSON.parse(String(send.mock.calls[0][0])).event_id as string;
 
     harness.handleServerEvent({
       type: SERVER_EVENTS.ERROR,
       error: { event_id: clientEventId, type: "invalid_request_error" },
     });
 
-    expect(harness.pendingNarration).toBeUndefined();
+    expect(harness.responseCoordinator.hasPurpose("lesson_narration")).toBe(false);
     expect(semanticEvents).toEqual([{ type: "narration.failed", context }]);
     expect(() => client.requestNarration("Retry safely.", { ...context, cycle: 2 })).not.toThrow();
   });
@@ -338,6 +334,92 @@ describe("RealtimeClient event coordination", () => {
     const { harness } = createHarness();
     harness.handleServerEvent({ type: SERVER_EVENTS.SESSION_UPDATED });
     await expect(harness.waitUntilSessionUpdated(0)).resolves.toBeUndefined();
+  });
+
+  it("publishes visible-board context serially and waits for acknowledgement", async () => {
+    const send = vi.fn();
+    const { client, harness } = createHarness(send);
+    harness.status = "connected";
+
+    const first = client.setBoardContext("Board: title. Visible: curve at center.");
+    const second = client.setInteractionGuidance("Answer the active checkpoint briefly.");
+    await flushMicrotasks();
+    expect(send).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(send.mock.calls[0][0]))).toMatchObject({
+      type: "session.update",
+      session: {
+        instructions: expect.stringContaining("curve at center"),
+      },
+    });
+
+    harness.handleServerEvent({ type: SERVER_EVENTS.SESSION_UPDATED });
+    await first;
+    await flushMicrotasks();
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(send.mock.calls[1][0]))).toMatchObject({
+      type: "session.update",
+      session: {
+        instructions: expect.stringContaining("Answer the active checkpoint briefly"),
+      },
+    });
+    harness.handleServerEvent({ type: SERVER_EVENTS.SESSION_UPDATED });
+    await second;
+  });
+
+  it("tracks checkpoint prompt and automatic feedback as separate responses", () => {
+    const semanticEvents: RealtimeSemanticEvent[] = [];
+    const { client, harness } = createHarness(vi.fn(), (event) =>
+      semanticEvents.push(event),
+    );
+    harness.status = "connected";
+    const context = { requestId: "req-1", stepId: "s2", cycle: 2 };
+
+    client.requestCheckpointPrompt("Where does the curve peak?", context);
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.RESPONSE_CREATED,
+      response: {
+        id: "resp_prompt",
+        metadata: {
+          chalk_kind: "checkpoint_prompt",
+          chalk_request_id: "req-1",
+          chalk_step_id: "s2",
+          chalk_cycle: "2",
+        },
+      },
+    });
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.OUTPUT_AUDIO_BUFFER_STARTED,
+      response_id: "resp_prompt",
+    });
+    harness.handleServerEvent(responseDone("resp_prompt", "completed"));
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.OUTPUT_AUDIO_BUFFER_STOPPED,
+      response_id: "resp_prompt",
+    });
+
+    client.expectAutomaticResponse("checkpoint_feedback", context);
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.RESPONSE_CREATED,
+      response: { id: "resp_feedback" },
+    });
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.OUTPUT_AUDIO_BUFFER_STARTED,
+      response_id: "resp_feedback",
+    });
+    harness.handleServerEvent(responseDone("resp_feedback", "completed"));
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.OUTPUT_AUDIO_BUFFER_STOPPED,
+      response_id: "resp_feedback",
+    });
+
+    expect(semanticEvents.map((event) => event.type)).toEqual([
+      "checkpoint.prompt_activity",
+      "checkpoint.prompt_generation_done",
+      "checkpoint.prompt_playback_stopped",
+      "checkpoint.feedback_activity",
+      "checkpoint.feedback_generation_done",
+      "checkpoint.feedback_playback_stopped",
+    ]);
   });
 
   it("stops a late microphone stream when disconnect supersedes getUserMedia", async () => {
@@ -721,7 +803,7 @@ describe("RealtimeClient event coordination", () => {
     expect(send).toHaveBeenCalledTimes(3); // two outputs + response.create, then deduped no-op
     harness.handleServerEvent({
       type: SERVER_EVENTS.RESPONSE_CREATED,
-      response: { id: "resp_followup" },
+      response: { id: "resp_followup", metadata: { chalk_kind: "diagnostic_tool" } },
     });
     expect(latest().toolRoundTrips).toBe(0);
     harness.handleServerEvent({
@@ -792,7 +874,7 @@ describe("RealtimeClient event coordination", () => {
     );
     harness.handleServerEvent({
       type: SERVER_EVENTS.RESPONSE_CREATED,
-      response: { id: "resp_followup" },
+      response: { id: "resp_followup", metadata: { chalk_kind: "diagnostic_tool" } },
     });
     harness.handleServerEvent(responseDone("resp_followup", "completed"));
     harness.handleServerEvent({
@@ -912,10 +994,11 @@ describe("RealtimeClient event coordination", () => {
     harness.observedSessionModel = "gpt-realtime-2.1-mini";
     harness.observedSessionVoice = "marin";
     harness.toolRoundTrips = 4;
-    harness.pendingToolRoundTrip = {
+    harness.responseCoordinator.registerManual({
+      purpose: "diagnostic_tool",
+      clientEventId: "evt_tool",
       successfulEchoes: 1,
-      responseId: "resp_followup",
-    };
+    });
     harness.interruptions = [
       {
         id: "marker_1",
@@ -956,7 +1039,7 @@ describe("RealtimeClient event coordination", () => {
         output_audio_tokens: 0,
       },
     });
-    expect(harness.pendingToolRoundTrip).toBeUndefined();
+    expect(harness.responseCoordinator.hasPurpose("diagnostic_tool")).toBe(false);
     expect(harness.seenCallIds.size).toBe(0);
     expect(harness.seenUsageResponseIds.size).toBe(0);
     expect(harness.startedAt).toBeGreaterThan(-1_000);

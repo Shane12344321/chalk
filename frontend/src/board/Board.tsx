@@ -1,23 +1,48 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import "katex/dist/katex.min.css";
 import { opProgress } from "./animation";
 import type { NormalizedLesson } from "./decode";
-import { BoardGeometryStore, type BoardGeometry } from "./geometry";
+import { BoardGeometryStore, type BoardGeometry, type BoardPath } from "./geometry";
 import { BOARD_HEIGHT, BOARD_WIDTH, layoutSteps } from "./layout";
+import { buildBoardManifest } from "./manifest";
 
 interface BoardProps {
   lesson: NormalizedLesson;
   currentStepIndex: number;
   currentStepProgress: number;
   phase: string;
+  onManifestChange?: (manifest: string) => void;
 }
 
-export function Board({ lesson, currentStepIndex, currentStepProgress, phase }: BoardProps) {
+export function Board({
+  lesson,
+  currentStepIndex,
+  currentStepProgress,
+  phase,
+  onManifestChange,
+}: BoardProps) {
   const store = useRef<BoardGeometryStore>();
   if (!store.current) store.current = new BoardGeometryStore();
   const geometryStore = store.current;
   const laidOut = useMemo(() => layoutSteps(lesson.steps), [lesson]);
   const build = useMemo(() => geometryStore.build(laidOut), [geometryStore, laidOut]);
+  const manifest = useMemo(
+    () =>
+      buildBoardManifest(
+        lesson.title,
+        build.geometries.map((geometry) => ({
+          geometry,
+          progress: geometryProgress(
+            geometry,
+            lesson,
+            currentStepIndex,
+            currentStepProgress,
+          ),
+        })),
+      ),
+    [build.geometries, currentStepIndex, currentStepProgress, lesson],
+  );
+  useEffect(() => onManifestChange?.(manifest), [manifest, onManifestChange]);
 
   return (
     <section className="chalkboard-shell" aria-label="Animated projectile lesson board">
@@ -68,7 +93,9 @@ function Geometry({ geometry, progress }: { geometry: BoardGeometry; progress: n
           height={geometry.box.height + 16}
         />
       </clipPath>
-      {geometry.paths.map((path, index) => (
+      {geometry.paths.map((path, index) => {
+        const revealProgress = pathRevealProgress(geometry, path, progress);
+        return (
         <path
           key={`${geometry.id}-path-${index}`}
           d={path.d}
@@ -77,12 +104,13 @@ function Geometry({ geometry, progress }: { geometry: BoardGeometry; progress: n
           pathLength={1}
           stroke={path.stroke}
           strokeDasharray="1"
-          strokeDashoffset={1 - progress}
+          strokeDashoffset={1 - revealProgress}
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={path.strokeWidth}
         />
-      ))}
+        );
+      })}
       {geometry.labels.map((label, index) => (
         <text
           key={`${geometry.id}-label-${index}`}
@@ -123,6 +151,34 @@ function Geometry({ geometry, progress }: { geometry: BoardGeometry; progress: n
       ) : null}
     </g>
   );
+}
+
+function pathRevealProgress(
+  geometry: BoardGeometry,
+  path: BoardPath,
+  progress: number,
+): number {
+  if (geometry.kind !== "sketch" || path.revealGroup === undefined) return progress;
+  const revealGroup = path.revealGroup;
+  const groups = new Map<number, number>();
+  for (const candidate of geometry.paths) {
+    if (candidate.revealGroup === undefined) continue;
+    groups.set(
+      candidate.revealGroup,
+      Math.max(groups.get(candidate.revealGroup) ?? 0, candidate.revealWeight ?? 1),
+    );
+  }
+  const ordered = [...groups.entries()].sort(([left], [right]) => left - right);
+  const total = ordered.reduce((sum, [, weight]) => sum + weight, 0);
+  const before = ordered
+    .filter(([group]) => group < revealGroup)
+    .reduce((sum, [, weight]) => sum + weight, 0);
+  const own = groups.get(revealGroup) ?? 1;
+  return clampPathProgress((progress * total - before) / own);
+}
+
+function clampPathProgress(value: number): number {
+  return Math.min(1, Math.max(0, value));
 }
 
 function geometryProgress(

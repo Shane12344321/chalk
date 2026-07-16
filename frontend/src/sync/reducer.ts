@@ -4,12 +4,17 @@ export type LessonPhase =
   | "TEACHING"
   | "FROZEN"
   | "QA"
+  | "CHECKPOINT_ASKING"
+  | "CHECKPOINT_LISTENING"
+  | "CHECKPOINT_FEEDBACK"
   | "DONE";
 
 export interface FixedSyncState {
   phase: LessonPhase;
   requestId: string;
   stepIds: string[];
+  checkpointStepIds: string[];
+  completedCheckpointStepIds: string[];
   currentStepIndex: number;
   currentStepProgress: number;
   cycle: number;
@@ -29,7 +34,12 @@ interface CorrelatedEvent {
 }
 
 export type FixedSyncEvent =
-  | { type: "LOAD"; requestId: string; stepIds: string[] }
+  | {
+      type: "LOAD";
+      requestId: string;
+      stepIds: string[];
+      checkpointStepIds: string[];
+    }
   | { type: "START"; requestId: string }
   | ({ type: "NARRATION_ACTIVITY" } & CorrelatedEvent)
   | ({ type: "TICK"; progress: number } & CorrelatedEvent)
@@ -38,6 +48,16 @@ export type FixedSyncEvent =
   | ({ type: "DRAIN_ELAPSED" } & CorrelatedEvent)
   | ({ type: "STUDENT_SPEECH_STARTED" } & CorrelatedEvent)
   | ({ type: "INTERRUPTION_COMMITTED" } & CorrelatedEvent)
+  | ({ type: "CHECKPOINT_PROMPT_ACTIVITY" } & CorrelatedEvent)
+  | ({ type: "CHECKPOINT_PROMPT_DONE" } & CorrelatedEvent)
+  | ({ type: "CHECKPOINT_PROMPT_AUDIO_STOPPED" } & CorrelatedEvent)
+  | ({ type: "CHECKPOINT_PROMPT_DRAIN_ELAPSED" } & CorrelatedEvent)
+  | ({ type: "CHECKPOINT_STUDENT_SPEECH_STARTED" } & CorrelatedEvent)
+  | ({ type: "CHECKPOINT_FEEDBACK_ACTIVITY" } & CorrelatedEvent)
+  | ({ type: "CHECKPOINT_FEEDBACK_DONE" } & CorrelatedEvent)
+  | ({ type: "CHECKPOINT_FEEDBACK_AUDIO_STOPPED" } & CorrelatedEvent)
+  | ({ type: "CHECKPOINT_FEEDBACK_DRAIN_ELAPSED" } & CorrelatedEvent)
+  | ({ type: "CHECKPOINT_FAILED" } & CorrelatedEvent)
   | ({ type: "RESUME" } & CorrelatedEvent)
   | { type: "RESET"; requestId: string };
 
@@ -45,6 +65,8 @@ export const EMPTY_SYNC_STATE: FixedSyncState = {
   phase: "IDLE",
   requestId: "",
   stepIds: [],
+  checkpointStepIds: [],
+  completedCheckpointStepIds: [],
   currentStepIndex: 0,
   currentStepProgress: 0,
   cycle: 0,
@@ -63,34 +85,46 @@ export function fixedSyncReducer(
 ): FixedSyncState {
   if (event.type === "LOAD") {
     if (event.stepIds.length === 0) return ignored(state);
+    const knownSteps = new Set(event.stepIds);
     return {
       ...EMPTY_SYNC_STATE,
       requestId: event.requestId,
       stepIds: [...event.stepIds],
+      checkpointStepIds: [...new Set(event.checkpointStepIds)].filter((id) =>
+        knownSteps.has(id),
+      ),
     };
   }
   if (event.type === "RESET") {
     return event.requestId === state.requestId
-      ? { ...EMPTY_SYNC_STATE, requestId: state.requestId, stepIds: state.stepIds }
+      ? {
+          ...EMPTY_SYNC_STATE,
+          requestId: state.requestId,
+          stepIds: state.stepIds,
+          checkpointStepIds: state.checkpointStepIds,
+        }
       : ignored(state);
   }
   if (event.type === "START") {
     if (event.requestId !== state.requestId || !["IDLE", "DONE"].includes(state.phase)) {
       return ignored(state);
     }
-    return teachingState(state, 0, state.cycle + 1, 0);
+    return teachingState(
+      { ...state, completedCheckpointStepIds: [] },
+      0,
+      state.cycle + 1,
+      0,
+    );
   }
   if (isStale(state, event)) return ignored(state);
 
   switch (event.type) {
     case "NARRATION_ACTIVITY":
-      return state.phase === "TEACHING"
-        ? { ...state, animationStarted: true }
-        : ignored(state);
+      return state.phase === "TEACHING" ? { ...state, animationStarted: true } : ignored(state);
     case "TICK": {
       if (state.phase !== "TEACHING" || !state.animationStarted) return ignored(state);
       const progress = clamp(Math.max(state.currentStepProgress, event.progress));
-      return settle({
+      return settleTeaching({
         ...state,
         currentStepProgress: progress,
         animationDone: progress >= 1,
@@ -98,22 +132,60 @@ export function fixedSyncReducer(
     }
     case "NARRATION_DONE":
       return state.phase === "TEACHING"
-        ? settle({ ...state, narrationDone: true })
+        ? settleTeaching({ ...state, narrationDone: true })
         : ignored(state);
     case "AUDIO_STOPPED":
       return state.phase === "TEACHING"
-        ? settle({ ...state, audioStopped: true })
+        ? settleTeaching({ ...state, audioStopped: true })
         : ignored(state);
     case "DRAIN_ELAPSED":
       return state.phase === "TEACHING" && state.audioStopped
-        ? settle({ ...state, drainElapsed: true })
+        ? settleTeaching({ ...state, drainElapsed: true })
         : ignored(state);
     case "STUDENT_SPEECH_STARTED":
-      return state.phase === "TEACHING"
-        ? { ...state, phase: "FROZEN" }
-        : ignored(state);
+      return state.phase === "TEACHING" ? { ...state, phase: "FROZEN" } : ignored(state);
     case "INTERRUPTION_COMMITTED":
       return state.phase === "FROZEN" ? { ...state, phase: "QA" } : ignored(state);
+    case "CHECKPOINT_PROMPT_ACTIVITY":
+      return state.phase === "CHECKPOINT_ASKING" ? state : ignored(state);
+    case "CHECKPOINT_PROMPT_DONE":
+      return state.phase === "CHECKPOINT_ASKING"
+        ? settleCheckpointPrompt({ ...state, narrationDone: true })
+        : ignored(state);
+    case "CHECKPOINT_PROMPT_AUDIO_STOPPED":
+      return state.phase === "CHECKPOINT_ASKING"
+        ? settleCheckpointPrompt({ ...state, audioStopped: true })
+        : ignored(state);
+    case "CHECKPOINT_PROMPT_DRAIN_ELAPSED":
+      return state.phase === "CHECKPOINT_ASKING" && state.audioStopped
+        ? settleCheckpointPrompt({ ...state, drainElapsed: true })
+        : ignored(state);
+    case "CHECKPOINT_STUDENT_SPEECH_STARTED":
+      return ["CHECKPOINT_ASKING", "CHECKPOINT_LISTENING"].includes(state.phase)
+        ? checkpointFeedbackState(state)
+        : ignored(state);
+    case "CHECKPOINT_FEEDBACK_ACTIVITY":
+      return state.phase === "CHECKPOINT_FEEDBACK" ? state : ignored(state);
+    case "CHECKPOINT_FEEDBACK_DONE":
+      return state.phase === "CHECKPOINT_FEEDBACK"
+        ? settleCheckpointFeedback({ ...state, narrationDone: true })
+        : ignored(state);
+    case "CHECKPOINT_FEEDBACK_AUDIO_STOPPED":
+      return state.phase === "CHECKPOINT_FEEDBACK"
+        ? settleCheckpointFeedback({ ...state, audioStopped: true })
+        : ignored(state);
+    case "CHECKPOINT_FEEDBACK_DRAIN_ELAPSED":
+      return state.phase === "CHECKPOINT_FEEDBACK" && state.audioStopped
+        ? settleCheckpointFeedback({ ...state, drainElapsed: true })
+        : ignored(state);
+    case "CHECKPOINT_FAILED":
+      return [
+        "CHECKPOINT_ASKING",
+        "CHECKPOINT_LISTENING",
+        "CHECKPOINT_FEEDBACK",
+      ].includes(state.phase)
+        ? advanceAfterCheckpoint(state)
+        : ignored(state);
     case "RESUME":
       return state.phase === "QA"
         ? teachingState(
@@ -128,7 +200,7 @@ export function fixedSyncReducer(
   }
 }
 
-function settle(state: FixedSyncState): FixedSyncState {
+function settleTeaching(state: FixedSyncState): FixedSyncState {
   if (
     !state.animationDone ||
     !state.narrationDone ||
@@ -137,6 +209,41 @@ function settle(state: FixedSyncState): FixedSyncState {
   ) {
     return state;
   }
+  const currentStepId = state.stepIds[state.currentStepIndex];
+  if (
+    state.checkpointStepIds.includes(currentStepId) &&
+    !state.completedCheckpointStepIds.includes(currentStepId)
+  ) {
+    return checkpointAskingState(state);
+  }
+  return advanceStep(state);
+}
+
+function settleCheckpointPrompt(state: FixedSyncState): FixedSyncState {
+  if (!state.narrationDone || !state.audioStopped || !state.drainElapsed) return state;
+  return {
+    ...state,
+    phase: "CHECKPOINT_LISTENING",
+    narrationDone: false,
+    audioStopped: false,
+    drainElapsed: false,
+  };
+}
+
+function settleCheckpointFeedback(state: FixedSyncState): FixedSyncState {
+  if (!state.narrationDone || !state.audioStopped || !state.drainElapsed) return state;
+  return advanceAfterCheckpoint(state);
+}
+
+function advanceAfterCheckpoint(state: FixedSyncState): FixedSyncState {
+  const currentStepId = state.stepIds[state.currentStepIndex];
+  return advanceStep({
+    ...state,
+    completedCheckpointStepIds: [...state.completedCheckpointStepIds, currentStepId],
+  });
+}
+
+function advanceStep(state: FixedSyncState): FixedSyncState {
   const nextIndex = state.currentStepIndex + 1;
   if (nextIndex >= state.stepIds.length) {
     return {
@@ -147,6 +254,28 @@ function settle(state: FixedSyncState): FixedSyncState {
     };
   }
   return teachingState(state, nextIndex, state.cycle + 1, 0);
+}
+
+function checkpointAskingState(state: FixedSyncState): FixedSyncState {
+  return {
+    ...state,
+    phase: "CHECKPOINT_ASKING",
+    animationStarted: false,
+    animationDone: true,
+    narrationDone: false,
+    audioStopped: false,
+    drainElapsed: false,
+  };
+}
+
+function checkpointFeedbackState(state: FixedSyncState): FixedSyncState {
+  return {
+    ...state,
+    phase: "CHECKPOINT_FEEDBACK",
+    narrationDone: false,
+    audioStopped: false,
+    drainElapsed: false,
+  };
 }
 
 function teachingState(

@@ -15,8 +15,12 @@ describe("Board", () => {
     expect(sketch.getAttribute("data-progress")).toBe("0.333");
     const path = sketch.querySelector("path")!;
     const originalD = path.getAttribute("d");
-    expect(Number(path.getAttribute("stroke-dashoffset"))).toBeGreaterThan(0);
-    expect(Number(path.getAttribute("stroke-dashoffset"))).toBeLessThan(1);
+    const offsets = [...sketch.querySelectorAll("path")].map((candidate) =>
+      Number(candidate.getAttribute("stroke-dashoffset")),
+    );
+    expect(offsets.some((offset) => offset === 0)).toBe(true);
+    expect(offsets.some((offset) => offset > 0 && offset < 1)).toBe(true);
+    expect(offsets.some((offset) => offset === 1)).toBe(true);
 
     view.rerender(
       <Board lesson={lesson} currentStepIndex={0} currentStepProgress={0.5} phase="QA" />,
