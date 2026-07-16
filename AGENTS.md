@@ -24,7 +24,7 @@ These corrections are intentional:
 2. The Python backend cannot call `mathjs.compile()`. It must validate a restricted expression subset without evaluation; the TypeScript renderer performs the final `mathjs` compile and finite-value sampling. Never claim that Python validated mathjs itself.
 3. Do not create undocumented `role: "system"` Realtime conversation items for board state. Prefer replacing the session `instructions` with `BASE_TUTOR_PROMPT + latest manifest` through `session.update`, and wait for `session.updated`. Keep this behind a `BoardContextPublisher` interface so the mechanism can change after a documented smoke test.
 4. Transcript deltas track generation, not guaranteed speaker playback. Paced synchronization is perceptual and heuristic. `response.done` alone is not proof that buffered WebRTC audio has finished playing.
-5. The safe sync fallback must still animate ink concurrently with narration. Use `SYNC_MODE=fixed` for a word-count-duration schedule that starts on the first narration delta/audio activity. Keep a strictly sequential mode only as an emergency diagnostic; it does not satisfy the final demo claim.
+5. The safe sync fallback must still animate ink concurrently with narration. Use `SYNC_MODE=fixed` for a word-count-duration schedule that starts on observed output-buffer playback activity. Transcript deltas prove generation, not audible playout, and must not start ink directly. Keep a strictly sequential mode only as an emergency diagnostic; it does not satisfy the final demo claim.
 6. A Realtime tool call must not remain open for the full lesson generation. The `teach` handler starts the NDJSON request, returns a small `{"status":"started","request_id":"..."}` function result promptly, and lets lesson generation continue independently. Do not assume the model will keep speaking while an unresolved tool call blocks.
 7. Generated-expression examples containing free symbols such as `v` or `g` are invalid unless the schema explicitly declares those parameters. For v1 lesson curves, allow only `x`, numeric literals, `pi`, `e`, and allowlisted functions. Inline other constants.
 8. Dropping an invalid step can invalidate later references. Validation state must contain only accepted IDs; later steps that refer to a dropped ID must be repaired or dropped too.
@@ -129,6 +129,7 @@ The client parser must tolerate arbitrary network chunk boundaries, blank lines,
 
 - Mint ephemeral credentials on the server. Keep the standard API key server-only.
 - Configure the session from environment-backed model and voice values. Audition `marin` and `cedar`, but do not hardcode a choice in multiple files.
+- Default to product-facing `demo` mode, which exposes no diagnostic tool or evidence dashboard. Use `VITE_CHALK_MODE=diagnostics` only for deliberate evidence collection; never place a credential in a `VITE_*` variable.
 - Use server VAD with interruption enabled for the demo unless a measured browser test shows semantic VAD is better. Log the exact VAD settings used for the final take.
 - With WebRTC and VAD interruption enabled, expect the service to cancel the active response and truncate unplayed audio. On `input_audio_buffer.speech_started`, immediately freeze the local animator and transition to QA. Do not issue redundant cancel events unless the app created a manual response that VAD did not cancel.
 - Tools must return a function-call output and then explicitly trigger the next response when required by the current API flow.
@@ -153,14 +154,20 @@ Keep state transitions explicit and testable:
 
 ```text
 IDLE -> GENERATING -> TEACHING -> FROZEN -> QA -> TEACHING -> DONE
+                         |
+                         +-> CHECKPOINT_ASKING -> CHECKPOINT_LISTENING
+                                   |                      |
+                                   +-----> CHECKPOINT_FEEDBACK -> TEACHING
 ```
+
+The checkpoint branch is entered only after a checkpoint-bearing teaching step settles. Early student speech may move directly from `CHECKPOINT_ASKING` to `CHECKPOINT_FEEDBACK`. Prompt and feedback advancement require generation completion, playback stop, and the drain guard, just like lesson narration.
 
 Invalid transitions must be ignored with a structured warning. UI components must not mutate lesson state directly.
 
 `SYNC_MODE=fixed` is the dependable concurrent fallback:
 
 - request the step narration;
-- begin the animation on the first output transcript delta or observed remote audio activity;
+- begin the animation on observed output-buffer playback activity;
 - estimate speech duration from word count with configurable bounds;
 - distribute op completion by weight across that duration;
 - wait for both response generation completion and animation completion, plus a small measured audio-drain guard, before advancing;

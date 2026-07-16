@@ -4,6 +4,7 @@
 types are generated from it with `npm run schema:types` in `frontend/`; do not
 hand-edit `frontend/src/board/lesson.generated.ts`.
 
-M2 intentionally contains only the five operations required by the hardcoded
-projectile lesson. Later milestones must extend this schema before adding new
-renderer behavior.
+The implemented contract intentionally contains only the five operations
+required by the cached projectile lesson. M4 reuses its existing checkpoint
+shape without widening the drawing DSL. Later renderer or overlay operations
+must extend this schema before they are accepted as lesson wire data.

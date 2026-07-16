@@ -15,7 +15,7 @@ Prerequisites:
 - Node.js `^20.19.0` or `>=22.12.0` with npm (the current development machine uses Node 25 and npm 11).
 - [`uv`](https://docs.astral.sh/uv/) for the Python environment.
 - A current Chromium-family browser with localhost microphone permission for the live check.
-- An OpenAI API key with access to `gpt-realtime-2.1-mini` for live M1 validation.
+- An OpenAI API key with access to `gpt-realtime-2.1-mini` for live voice and M4 interaction validation.
 
 From the repository root:
 

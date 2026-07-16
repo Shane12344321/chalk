@@ -11,7 +11,7 @@ This document describes how CHALK is intended to work as a system. It captures c
 - `chalk-build-plan.md` defines the product, schedule, and demo story.
 - `AGENTS.md` defines audited implementation rules and acceptance standards.
 - `ARCHITECTURE.md` defines the current system design and records how it changes as code is built.
-- `shared/schema/*.json` will define the actual wire contracts. Once those files exist, they are authoritative for payload shapes; this document should link to them rather than copy them.
+- `shared/schema/lesson.schema.json` defines the implemented lesson wire contract and is authoritative for payload shapes. Future wire contracts belong beside it rather than being copied into this document.
 
 Use these status labels throughout:
 
@@ -80,7 +80,7 @@ The Realtime model never produces raw ink operations. The board model never cont
 Owns the `RTCPeerConnection`, remote audio element/stream, data channel, session setup, and translation between OpenAI events and typed internal events.
 
 - Protocol event strings stay inside `frontend/src/realtime/`.
-- It exposes semantic events such as `studentSpeechStarted`, `responseCompleted`, `transcriptDelta`, and `toolCallCompleted` to the rest of the app.
+- It exposes typed semantic events such as `student.speech_started`, `narration.*`, and `checkpoint.*` to the sync engine while keeping raw protocol names inside the adapter.
 - It does not own lesson state or render board elements.
 - Demo mode uses product tutor instructions and no diagnostic tool; diagnostics mode restores the evidence UI and `debug_echo` without changing the transport.
 
@@ -364,7 +364,7 @@ The browser does not redundantly send `response.cancel` for a VAD interruption u
 
 ### 6. Publishing board context
 
-The manifest is derived from committed visible state, never the intended program. After a step, annotation, widget event, or accepted student sketch:
+The manifest is derived from committed visible state, never the intended program. The current cached slice republishes after fully revealed lesson geometry changes; later annotation, widget, and student-sketch implementations must use the same path:
 
 1. Build a compact inventory of visible elements and relevant computed facts.
 2. Keep it to approximately 120 tokens.
@@ -407,7 +407,7 @@ State carries at least:
 - active Realtime response ID and purpose;
 - animation progress for the current op batch;
 - stream status;
-- latest committed manifest version;
+- latest committed manifest content and acknowledgement state;
 - current sync mode;
 - recoverable error and fallback status.
 
@@ -419,11 +419,11 @@ Invalid state/event combinations log and do nothing. Events with a stale request
 generated -> validated -> normalized -> laid out -> animating -> committed -> erased
 ```
 
-Only committed elements appear in the manifest. A frozen element is visible but marked partial internally; whether it enters the manifest during QA is a rehearsal decision. Default: include it as “partially drawn” only if the student can point to it.
+Only successfully rendered, fully revealed elements appear in the current manifest. Frozen partial geometry remains visible locally but is omitted from tutor grounding until a deliberately partial manifest contract is designed and validated.
 
 ## Data model boundaries
 
-The lesson JSON Schema will define steps, ops, anchors, checkpoints, and budgets. Architecture-specific constraints that must be reflected in that schema or validator include:
+The lesson JSON Schema defines the implemented steps, ops, anchors, checkpoints, and budgets. Architecture-specific constraints reflected in that schema or its semantic decoder include:
 
 - unique short IDs;
 - no forward references;

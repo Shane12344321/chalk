@@ -45,15 +45,16 @@ Non-goals: accounts, authentication, persistence, deployment, mobile, multi-user
 |---|---|---|
 | Product brief | Complete | `chalk-build-plan.md` |
 | Audited agent guidance | Complete | `AGENTS.md` |
-| Architecture baseline | Complete; M1 live assumptions resolved | `ARCHITECTURE.md`, M1 source/tests, and checked-in acceptance summary |
-| Git repository | M1 and M2 checkpoints preserved; M4 interaction work isolated | M1 `e6822f5`; M2 `4f3d9ed`; branch `codex/m4-cached-interaction-loop` |
-| Frontend scaffold | Complete for M1 | 64 tests, lint, production build, local browser smoke, and live acceptance |
+| Architecture baseline | Current through the deterministic M4 interaction slice | `ARCHITECTURE.md`, ADR-010/011, and the active M4 execution plan |
+| Git repository | M1 and M2 checkpoints preserved; deterministic M4 slice checkpointed | M1 `e6822f5`; M2 `4f3d9ed`; M4 slice `232a828` on `codex/m4-cached-interaction-loop` |
+| Frontend application | M4 deterministic slice implemented | 115 tests, product/diagnostic modes, sequential sketches, visible manifest, response coordinator, and checkpoint state machine |
 | Backend scaffold | Complete for M1 | 38 tests, lint/format, compile, health, CORS, safe failures, and live client-secret minting |
 | Shared schema | Implemented for the M2 five-op contract | JSON Schema, generated TypeScript types, fixtures, and decoder tests |
 | Realtime API smoke test | Complete | Mint, WebRTC, voice, dummy-tool continuation, live cost controls, and five consecutive playback-backed interruptions passed on 2026-07-15 |
 | Board renderer | M2 complete; deterministic and live perceptual gates passed | Seeded rough.js SVG, KaTeX, safe mathjs sampling, layout, animation, defensive tests, and three accepted live runs |
 | Live lesson generation | Not started | No application code |
-| Cached demo lessons | Projectile lesson implemented for M2 | `demo/cached_lessons/projectile-range.lesson.json` |
+| Cached demo lessons | Projectile lesson powers the accepted M2 path and active M4 interaction slice | `demo/cached_lessons/projectile-range.lesson.json` |
+| M4 live rehearsal | Pending | One short checkpoint/grounding run; automated localhost browser reload was policy-blocked |
 | Video workflow | Not started | No script, rehearsal, or recording evidence |
 
 ## Milestone summary
@@ -240,7 +241,8 @@ Active implementation slice: `docs/exec-plans/active/m4-cached-interaction-loop.
 
 - [x] Implement visible-state-derived board manifests under the token budget.
 - [x] Publish manifest state through `BoardContextPublisher`.
-- [ ] Confirm publication acknowledgement and timing with `session.updated`.
+- [x] Require and deterministically test serialized `session.updated` acknowledgement before dependent scripted responses.
+- [ ] Measure instruction-publication timing in the live rehearsal.
 - [ ] Implement `point_at`, `circle_el`, `underline`, and `flash` as local overlay tools.
 - [ ] Validate all deixis IDs against committed or deliberately partial visible state.
 - [ ] Implement bounded `POST /annotate` with overlay-only output.
@@ -265,7 +267,7 @@ The last acknowledged manifest must match the visible committed board. The three
 
 ### Validation record
 
-Not run. Retain three rehearsal checklists, a redacted Realtime event trace, manifest snapshots, and the runtime-flag set used.
+Deterministic slice passed on 2026-07-16: 115 frontend and 38 backend tests, lint/format, TypeScript/Vite build, Python compileall, zero production npm vulnerabilities, and clean diff hygiene. The implementation is checkpointed at `232a828`. A localhost serving check passed, but automated in-app browser navigation was policy-blocked. One minimal human checkpoint/grounding rehearsal and the broader three-run M4 exit gate remain pending. Retain rehearsal checklists, a redacted Realtime event trace, manifest snapshots, and the runtime-flag set used.
 
 ### Rollback
 

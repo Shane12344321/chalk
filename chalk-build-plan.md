@@ -1,5 +1,7 @@
 # CHALK — Voice-Interruptible AI Whiteboard Tutor
 
+> Implementation status, 2026-07-16: this is the original product brief, not the current execution record. M1 and M2 are accepted; the deterministic M4 cached-interaction slice is checkpointed at `232a828`, with its minimal live rehearsal still pending. Follow `AGENTS.md`, `ARCHITECTURE.md`, `PLANS.md`, `PROGRESS.md`, and `docs/exec-plans/active/m4-cached-interaction-loop.md` for audited current behavior and documented divergences.
+
 **Build plan for an autonomous coding agent. Timeline: 7 days. Deliverable: working app + 3-minute demo video for a hackathon (education track, video submission).**
 
 ---

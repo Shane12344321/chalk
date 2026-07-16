@@ -1,9 +1,10 @@
 # M4 cached interaction loop
 
-Status: active
+Status: active — D1–D5 checkpointed; D6 live rehearsal pending
 Started: 2026-07-16
 Branch: `codex/m4-cached-interaction-loop`
 Baseline: accepted M2 checkpoint `4f3d9ed`
+Implementation checkpoint: `232a828`
 
 ## Objective
 
