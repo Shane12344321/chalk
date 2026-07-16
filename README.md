@@ -6,7 +6,7 @@ This is not a production service and is not suitable for unsupervised use by chi
 
 ## Current status
 
-M1 and M2 are complete. The current M4 cached-interaction implementation passes deterministic tests and awaits its minimal live rehearsal: product-facing demo mode, sequential sketch strokes, a renderer-derived visible-board manifest, response-purpose coordination, and the existing step-2 checkpoint. Automated checks do not call the live API or require a key. See `PROGRESS.md` for evidence actually collected.
+M1 and M2 are complete, and the M4 cached-interaction slice has passed its deterministic and owner-observed live gates: product-facing demo mode, turn-gated microphone input, sequential sketch strokes, a renderer-derived visible-board manifest, response-purpose coordination, and the step-2 checkpoint. Broader M4 overlays and multi-lesson rehearsals remain future work; the next product-enabling milestone is M3 live lesson generation. Automated checks do not call the live API or require a key. See `PROGRESS.md` for evidence actually collected.
 
 ## Local setup
 

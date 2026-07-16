@@ -1,7 +1,8 @@
 # M4 cached interaction loop
 
-Status: active — D1–D5a checkpointed; D6 live rehearsal pending
+Status: complete
 Started: 2026-07-16
+Completed: 2026-07-16
 Branch: `codex/m4-cached-interaction-loop`
 Baseline: accepted M2 checkpoint `4f3d9ed`
 Implementation checkpoint: `232a828`
@@ -37,7 +38,7 @@ Turn the passing deterministic lesson into a convincing tutoring interaction wit
 - [x] D4 — Visible-state manifest publisher sends bounded acknowledged instruction updates.
 - [x] D5 — Step-2 checkpoint asks, listens, gives bounded feedback, and advances safely.
 - [x] D5a — Microphone opens only for a deliberate **Speak** turn and auto-mutes at VAD speech stop or assistant playback.
-- [ ] D6 — Deterministic suite, production build, disconnected browser smoke, and one minimal credentialed cached-lesson rehearsal pass.
+- [x] D6 — Deterministic suite, production build, browser smoke, and one minimal credentialed cached-lesson rehearsal pass.
 
 ## Assumptions
 
@@ -76,3 +77,4 @@ Turn the passing deterministic lesson into a convincing tutoring interaction wit
 - 2026-07-16: Accepted the audited scope, preserved M2 at `4f3d9ed`, created the post-M2 branch, and rejected unsafe word-slicing, transcript-clock, static-future-context, and duration-only VAD shortcuts.
 - 2026-07-16: Implemented D1–D5. The full deterministic gate passed with 115 frontend and 38 backend tests, lint/format, production build, zero production dependency vulnerabilities, and clean diff hygiene. A disconnected in-app browser reload was blocked by the browser URL policy even though the Vite server was reachable over localhost; browser and minimal credentialed rehearsal evidence remain pending under D6.
 - 2026-07-16: The first owner rehearsal entered `QA` on an unintended speech detection and appeared to self-respond. Replaced the always-open input with a deliberate **Speak** control and auto-mute on documented `input_audio_buffer.speech_stopped` plus assistant-playback fallback. Commit `c0d6f48`; 116 frontend and 38 backend tests plus all deterministic gates pass. Live retest remains D6.
+- 2026-07-16: Owner reran the published D6 checklist and reported it passed. The microphone remained deliberately turn-gated, the tutor no longer self-triggered, interruption/recovery worked, and the checkpoint accepted the spoken answer, responded once, and advanced. The cached-interaction slice is accepted; no machine trace or numeric usage claim is inferred from the owner report.

@@ -1,6 +1,6 @@
 # CHALK architecture
 
-Status: M1 and M2 accepted; M4 cached interaction slice active
+Status: M1 and M2 accepted; M4 cached interaction slice accepted; M3 live generation next
 Last reviewed: 2026-07-16
 Companion documents: `chalk-build-plan.md`, `AGENTS.md`
 

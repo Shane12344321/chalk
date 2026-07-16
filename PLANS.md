@@ -53,8 +53,8 @@ Non-goals: accounts, authentication, persistence, deployment, mobile, multi-user
 | Realtime API smoke test | Complete | Mint, WebRTC, voice, dummy-tool continuation, live cost controls, and five consecutive playback-backed interruptions passed on 2026-07-15 |
 | Board renderer | M2 complete; deterministic and live perceptual gates passed | Seeded rough.js SVG, KaTeX, safe mathjs sampling, layout, animation, defensive tests, and three accepted live runs |
 | Live lesson generation | Not started | No application code |
-| Cached demo lessons | Projectile lesson powers the accepted M2 path and active M4 interaction slice | `demo/cached_lessons/projectile-range.lesson.json` |
-| M4 live rehearsal | Pending | One short checkpoint/grounding run; automated localhost browser reload was policy-blocked |
+| Cached demo lessons | Projectile lesson powers the accepted M2 path and accepted M4 cached-interaction slice | `demo/cached_lessons/projectile-range.lesson.json` |
+| M4 cached interaction slice | Accepted | Deterministic gate plus owner-observed turn-gated microphone, interruption, checkpoint response, and automatic advancement |
 | Video workflow | Not started | No script, rehearsal, or recording evidence |
 
 ## Milestone summary
@@ -64,8 +64,8 @@ Non-goals: accounts, authentication, persistence, deployment, mobile, multi-user
 | M0 | Planning and repository baseline | Planning documents committed on a clean repository | Complete |
 | M1 | Scaffold and Realtime vertical slice | Browser voice loop, five successful interruptions, dummy tool round trip | Complete |
 | M2 | Deterministic board and fixed sync | Hardcoded projectile lesson speaks and draws concurrently without crashes | Complete |
-| M3 | Live lesson generation | Validated NDJSON streams; 8/10 golden topics pass the rubric | Pending |
-| M4 | Full interruption and grounding loop | Three consecutive cached MVP rehearsals pass | Active (`docs/exec-plans/active/m4-cached-interaction-loop.md`) |
+| M3 | Live lesson generation | Validated NDJSON streams; 8/10 golden topics pass the rubric | Next |
+| M4 | Full interruption and grounding loop | Three consecutive cached MVP rehearsals pass | Partial; cached slice accepted, broader gate pending |
 | M5 | Optional widget spectacle | Projectile widget and reactive tutor moment pass, or milestone is explicitly cut | Pending |
 | M6 | Optional student draw-back and freeze | Fallback critique passes, or milestone is explicitly cut; features frozen | Pending |
 | M7 | Demo, documentation, and submission | Final video, uncut proof take, README, and submission complete | Pending |
@@ -235,7 +235,7 @@ Not run. Record model, prompt version/hash, per-topic outcome, first-step latenc
 
 Objective: pass the MVP demo gate.
 
-Active implementation slice: `docs/exec-plans/active/m4-cached-interaction-loop.md`.
+Completed cached-interaction slice: `docs/exec-plans/completed/m4-cached-interaction-loop.md`.
 
 ### Work
 
@@ -268,7 +268,7 @@ The last acknowledged manifest must match the visible committed board. The three
 
 ### Validation record
 
-Deterministic slice passed on 2026-07-16 and the first live attempt exposed an always-open-microphone feedback loop. Commit `c0d6f48` now keeps input muted until **Speak** and auto-mutes at the documented VAD turn boundary or assistant playback. The post-fix gate passes 116 frontend and 38 backend tests, lint/format, TypeScript/Vite build, Python compileall, zero production npm vulnerabilities, and clean diff hygiene. A localhost serving check passed, but automated in-app browser navigation was policy-blocked. One minimal human checkpoint/grounding rehearsal and the broader three-run M4 exit gate remain pending. Retain rehearsal checklists, a redacted Realtime event trace, manifest snapshots, and the runtime-flag set used.
+The deterministic slice passed on 2026-07-16 and the first live attempt exposed an always-open-microphone feedback loop. Commit `c0d6f48` keeps input muted until **Speak** and auto-mutes at the documented VAD turn boundary or assistant playback. The post-fix gate passes 116 frontend and 38 backend tests, lint/format, TypeScript/Vite build, Python compileall, zero production npm vulnerabilities, and clean diff hygiene. The owner then reran the published minimal checklist and reported that the turn-gated microphone, interruption flow, checkpoint response, and automatic advancement passed. This accepts the cached-interaction slice; the broader three-run, multi-lesson, and overlay M4 gate remains pending. Retain future rehearsal checklists, redacted traces, manifest snapshots, and runtime flags when those broader gates run.
 
 ### Rollback
 
@@ -361,7 +361,7 @@ If a stretch beat fails during recording, remove that beat and use the last pass
 | A-003 | The recording browser permits microphone capture and stable WebRTC localhost use | Verified for Chrome 150 in-app; recording setup still separate | Voice, tools, and five interruptions passed in the current browser; test the eventual OBS/recording configuration before M7 |
 | A-004 | React 18 and Python 3.12 are acceptable locked foundations | Accepted | Revisit only for a concrete dependency incompatibility |
 | A-005 | Fixed transcript/word-count synchronization will look convincing enough | Verified for M2 | Three-run perceptual gate passed; owner confirmed concurrent-feeling ink and no consecutive narration overlap on 2026-07-16 |
-| A-006 | Session instruction replacement is timely enough for board manifests | Unverified | Measure and resolve in M4 |
+| A-006 | Session instruction replacement is timely enough for board manifests | Verified for cached slice | Deterministic acknowledgement tests passed and the owner-observed cached interaction run completed; retain timing evidence for broader M4 rehearsals |
 | A-007 | Three cached lessons are sufficient recording insurance | Accepted | Add caches only for a demonstrated demo need |
 | A-008 | OBS can capture screen, microphone, and system audio separately on the target Mac | Unverified | Test before M7, preferably during M4 rehearsal |
 | A-009 | The seven-day schedule starts when implementation begins, not when planning documents were drafted | Assumed | Owner should set actual day/date mapping before M1 |
@@ -415,6 +415,7 @@ Append validation evidence; do not replace failed entries.
 | 2026-07-16T13:52+0530 | M2 | Final checkpoint gate | Run tests, lint/format, build/compile, production dependency audit, evidence parsing, secret scan, and diff hygiene | Pass | 100 frontend and 38 backend tests passed; all lint/build checks passed; npm reported zero production vulnerabilities; evidence JSON and diff/secret hygiene checks passed; only the documented non-blocking Vite chunk-size warning remains |
 | 2026-07-16T14:58+0530 | M4 | Cached interaction deterministic gate | Run root tests, lint/format, production build, production dependency audit, diff hygiene, and attempt a disconnected browser reload | Deterministic pass; browser/live pending | 115 frontend and 38 backend tests passed; lint, format, TypeScript, Vite, compileall, audit, and diff checks passed. The Vite server responded on localhost, but the in-app browser URL policy blocked the automated reload; no credentialed call was made. |
 | 2026-07-16T15:37+0530 | M4 | Turn-gated microphone regression gate | Add explicit input gating and VAD-boundary auto-mute; run root tests, lint/format, build/compile, production audit, and diff hygiene | Pass; live retest pending | 116 frontend and 38 backend tests passed; the microphone remains muted after connection, opens only through **Speak**, and deterministically closes on `input_audio_buffer.speech_stopped` or assistant playback. |
+| 2026-07-16 | M4 | Owner live retest of cached interaction slice | Reload/reconnect; run the published **Speak** interruption and checkpoint checklist; report whether self-triggering, recovery, feedback, and advancement pass | Pass | Owner reported “passed.” This is human acceptance of the checklist, not a retained machine trace or numeric latency/usage measurement. |
 
 Current deterministic command baseline:
 
@@ -446,6 +447,7 @@ The native commands are documented in `README.md`. Passing deterministic command
 | 2026-07-16T13:45+0530 | M2 | Recorded the owner's perceptual pass and closed every M2 exit condition | Create the passing M2 checkpoint, then allow owner fine-tuning from that recoverable baseline | None |
 | 2026-07-16T14:58+0530 | M4 | Implemented product/diagnostic modes, sequential sketch reveal, visible manifest publication, response-purpose coordination, and one tutor-initiated checkpoint | Complete one short cached-lesson browser rehearsal and record manifest/checkpoint behavior | Automated in-app browser navigation was blocked by URL policy; human microphone/perceptual participation remains required for the live gate |
 | 2026-07-16T15:37+0530 | M4 | Diagnosed the first rehearsal freeze as unintended VAD input from an always-open microphone and checkpointed one-turn **Speak** gating at `c0d6f48` | Reload, reconnect, and repeat one short checkpoint run using **Speak** for deliberate turns | Human confirmation that Chalk no longer self-triggers and the checkpoint advances |
+| 2026-07-16 | M4 | Owner confirmed the post-fix cached-interaction checklist passed; moved the slice plan to completed | Choose whether to begin M3 live lesson generation | No implementation blocker; broader M4 overlays and three-run/multi-lesson gate remain deferred |
 
 ## Discoveries and surprises
 

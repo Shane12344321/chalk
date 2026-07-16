@@ -183,7 +183,7 @@ M2 is complete. The deterministic five-op whiteboard, validated renderer, fixed 
 
 ## 2026-07-16 — M4 cached interaction slice
 
-Status: **deterministic implementation complete; one minimal live rehearsal pending**.
+Status at this implementation checkpoint: **deterministic implementation complete; one minimal live rehearsal pending**. Superseded by the accepted live retest recorded below.
 
 ### Scope and decisions
 
@@ -211,3 +211,9 @@ The first owner rehearsal visibly froze in `QA` during step 1 and the tutor appe
 Commit `c0d6f48` implements deliberate one-turn input gating. The captured track remains muted after connection; **Speak** enables it; `input_audio_buffer.speech_stopped` automatically mutes it at the documented end of the user turn; assistant playback also force-mutes as a safety backstop. This preserves intentional barge-in without using the rejected sub-400 ms false-alarm heuristic.
 
 At 2026-07-16T15:37+0530, `make test`, `make lint`, `make build`, `npm --prefix frontend audit --omit=dev`, and `git diff --check` passed: 116 frontend and 38 backend tests, zero production vulnerabilities, and the existing non-blocking Vite chunk warning. Live confirmation that self-triggering is gone remains pending.
+
+## 2026-07-16 — M4 cached interaction slice accepted
+
+The owner reloaded and reran the published post-fix checklist, then reported “passed.” This closes the cached-interaction D6 gate: deliberate **Speak** input no longer produced the observed self-response loop, interruption/recovery remained usable, and the tutor-initiated checkpoint accepted the answer, responded, and advanced. This entry records owner-observed acceptance only; no machine trace, exact latency, token usage, or broader three-run claim is inferred.
+
+The completed execution plan is now `docs/exec-plans/completed/m4-cached-interaction-loop.md`. The broader M4 work—deixis overlays, annotation, two additional cached lessons, and its full three-run gate—remains pending. M3 live lesson generation is the next product-enabling milestone if approved.
