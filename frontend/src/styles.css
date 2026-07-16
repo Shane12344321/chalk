@@ -65,14 +65,73 @@ h2 { margin-bottom: 0; font: 650 1.35rem/1.2 Georgia, serif; }
 .status-connected span { background: #78d39d; box-shadow: 0 0 14px #78d39d; }
 .status-error span { background: #ff8878; }
 
+.lesson-stage {
+  margin: 30px 0 18px;
+  padding: clamp(18px, 3vw, 30px);
+  border: 1px solid rgba(237, 230, 199, 0.16);
+  border-radius: 30px;
+  background: rgba(5, 17, 13, 0.78);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.3), inset 0 1px rgba(255,255,255,0.04);
+}
+
+.lesson-heading, .lesson-actions, .board-toolbar, .sync-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.lesson-heading { margin-bottom: 18px; }
+.lesson-heading h2 { font-size: clamp(1.45rem, 3vw, 2.25rem); }
+.lesson-actions { flex-wrap: wrap; justify-content: flex-end; }
+
+.chalkboard-shell { position: relative; }
+.board-toolbar {
+  min-height: 45px;
+  padding: 0 16px;
+  border: 1px solid rgba(230, 222, 192, 0.12);
+  border-bottom: 0;
+  border-radius: 18px 18px 0 0;
+  color: #a9b9ae;
+  background: #0b1c16;
+  font-size: .76rem;
+}
+.board-toolbar > div { display: flex; align-items: center; gap: 9px; color: #e7e3d4; }
+.board-live-dot { width: 8px; height: 8px; border-radius: 50%; background: #efc76a; box-shadow: 0 0 12px rgba(239,199,106,.7); }
+.chalkboard {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 1px solid rgba(230, 222, 192, 0.12);
+  border-radius: 0 0 20px 20px;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(80, 122, 96, .18), transparent 40%),
+    #102b22;
+  box-shadow: inset 0 0 90px rgba(0, 0, 0, .28);
+}
+.board-ghost-line { fill: none; stroke: rgba(239,232,204,.035); stroke-width: 2; stroke-dasharray: 8 18; }
+.board-axis-label { fill: #afc0b5; font: 24px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.board-hand-text { fill: #f5efd8; font: 700 43px/1.1 "Comic Sans MS", "Bradley Hand", cursive; letter-spacing: .01em; }
+.board-equation { display: grid; place-items: center; width: 100%; height: 100%; overflow: hidden; color: #f5efd8; font-size: 31px; }
+.board-equation .katex-display { margin: 0; }
+.board-warning { position: absolute; right: 14px; bottom: 12px; margin: 0; padding: 7px 10px; border-radius: 9px; color: #ffd2c8; background: rgba(93,26,19,.88); font-size: .72rem; }
+
+.sync-strip { min-height: 42px; padding: 0 4px; color: #85988c; font-size: .73rem; }
+.sync-strip strong { color: #d8dfd6; }
+.sync-track { flex: 1 1 180px; height: 5px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.08); }
+.sync-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #78d39d, #efc76a); transition: width 80ms linear; }
+.lesson-hint { margin: 2px 0 0; color: #8fa296; font-size: .82rem; text-align: center; }
+.lesson-hint-live { color: #a7d9b8; }
+.lesson-hint-frozen { color: #efc76a; }
+
 .voice-stage {
   display: grid;
   grid-template-columns: minmax(210px, 0.75fr) minmax(280px, 1.25fr);
   align-items: center;
   gap: clamp(28px, 7vw, 88px);
-  min-height: 400px;
-  margin: 30px 0 24px;
-  padding: clamp(28px, 5vw, 64px);
+  min-height: 280px;
+  margin: 18px 0 24px;
+  padding: clamp(24px, 4vw, 42px);
   border: 1px solid rgba(237, 230, 199, 0.13);
   border-radius: 30px;
   background: rgba(17, 39, 31, 0.72);
@@ -82,7 +141,7 @@ h2 { margin-bottom: 0; font: 650 1.35rem/1.2 Georgia, serif; }
 .orb {
   position: relative;
   aspect-ratio: 1;
-  width: min(100%, 300px);
+  width: min(100%, 210px);
   margin: auto;
   border-radius: 50%;
   background: radial-gradient(circle at 38% 35%, #fcf4d4 0 9%, #d7b963 26%, #57775f 54%, #173026 73%);
@@ -166,6 +225,9 @@ select { width: 100%; min-height: 38px; padding: 0 10px; border: 1px solid rgba(
   .orb { width: min(56vw, 230px); }
   .button-row { justify-content: center; }
   .metrics, .evidence-grid { grid-template-columns: 1fr; }
+  .lesson-heading, .sync-strip { align-items: flex-start; flex-direction: column; }
+  .lesson-actions { width: 100%; justify-content: flex-start; }
+  .sync-track { flex: none; width: 100%; }
 }
 
 @media (max-width: 480px) {

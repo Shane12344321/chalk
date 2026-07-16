@@ -1,0 +1,64 @@
+{
+  "schema_version": "1.0",
+  "title": "Why projectile range peaks at 45°",
+  "steps": [
+    {
+      "id": "s1",
+      "script": "Imagine launching the same ball at different angles. Which angle do you predict sends it farthest?",
+      "ops": [
+        { "op": "text", "id": "title", "region": "A1", "content": "Projectile range" },
+        {
+          "op": "sketch",
+          "id": "cannon",
+          "region": "A2",
+          "strokes": [
+            [[0.08, 0.78], [0.78, 0.78]],
+            [[0.23, 0.72], [0.48, 0.40]],
+            [[0.19, 0.72], [0.43, 0.36]],
+            [[0.18, 0.78], [0.18, 0.58], [0.29, 0.51]],
+            [[0.48, 0.39], [0.60, 0.18], [0.76, 0.12], [0.90, 0.35], [0.95, 0.77]]
+          ]
+        }
+      ],
+      "checkpoint": null
+    },
+    {
+      "id": "s2",
+      "script": "Here is normalized range against launch angle. The curve climbs, peaks once, then falls symmetrically.",
+      "ops": [
+        {
+          "op": "axes",
+          "id": "rangeaxes",
+          "region": "right",
+          "x": { "min": 0, "max": 90, "label": "launch angle θ" },
+          "y": { "min": 0, "max": 1.1, "label": "normalized range" }
+        },
+        {
+          "op": "curve",
+          "id": "rangecurve",
+          "axes_id": "rangeaxes",
+          "expr": "sin(2 * x * pi / 180)",
+          "domain": [0, 90]
+        }
+      ],
+      "checkpoint": { "question": "Where does the curve peak?", "expected_gist": "45 degrees" }
+    },
+    {
+      "id": "s3",
+      "script": "The range formula contains sine of twice the angle, so its largest value occurs when twice theta is ninety degrees.",
+      "ops": [
+        { "op": "equation", "id": "formula", "region": "B1", "latex": "R = \\frac{v_0^2}{g}\\sin(2\\theta)" },
+        { "op": "text", "id": "doubleangle", "anchor": { "el": "formula", "side": "below", "gap": 0.08 }, "content": "2θ = 90°" }
+      ],
+      "checkpoint": null
+    },
+    {
+      "id": "s4",
+      "script": "Therefore theta is forty-five degrees. Equal launch and landing heights make that the maximum-range angle.",
+      "ops": [
+        { "op": "text", "id": "answer", "region": "A3", "content": "Maximum range → 45°" }
+      ],
+      "checkpoint": null
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   CLIENT_EVENTS,
   createFunctionCallOutput,
+  createNarrationResponse,
   createResponseAfterTool,
   createSessionRequest,
   createSessionUpdate,
@@ -13,6 +14,19 @@ import {
 } from "./protocol";
 
 describe("Realtime protocol builders", () => {
+  it("creates a bounded audio-only exact narration request", () => {
+    expect(createNarrationResponse("Range peaks at forty-five degrees.", "evt_1", { chalk_kind: "lesson_narration" })).toEqual({
+      type: CLIENT_EVENTS.RESPONSE_CREATE,
+      event_id: "evt_1",
+      response: {
+        output_modalities: ["audio"],
+        instructions: "SAY EXACTLY: Range peaks at forty-five degrees.",
+        metadata: { chalk_kind: "lesson_narration" },
+      },
+    });
+    expect(() => createNarrationResponse("x".repeat(241), "evt_1", {})).toThrow(/budget/i);
+  });
+
   it("builds the current GA audio + server VAD session shape", () => {
     const event = createSessionUpdate("gpt-realtime-2.1-mini", "marin");
 

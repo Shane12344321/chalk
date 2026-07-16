@@ -3,6 +3,8 @@ import { RealtimeClient } from "./client";
 import { SESSION_TOKEN_BUDGET, SERVER_EVENTS } from "./protocol";
 import type {
   InterruptionMarker,
+  NarrationContext,
+  RealtimeSemanticEvent,
   RealtimeSnapshot,
   ServerEvent,
   SessionCredential,
@@ -24,6 +26,14 @@ interface ClientHarness {
   observedSessionVoice?: string;
   toolRoundTrips: number;
   pendingToolRoundTrip?: { successfulEchoes: number; responseId?: string };
+  pendingNarration?: {
+    context: NarrationContext;
+    clientEventId: string;
+    responseId?: string;
+    activitySeen: boolean;
+    generationDone: boolean;
+    playbackStopped: boolean;
+  };
   interruptions: InterruptionMarker[];
   seenCallIds: Set<string>;
   seenUsageResponseIds: Set<string>;
@@ -123,12 +133,15 @@ async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
 }
 
-function createHarness(send: (data: string) => void = vi.fn()) {
+function createHarness(
+  send: (data: string) => void = vi.fn(),
+  onSemanticEvent?: (event: RealtimeSemanticEvent) => void,
+) {
   let latest: RealtimeSnapshot | undefined;
   const client = new RealtimeClient({
     apiBaseUrl: "http://127.0.0.1:8000",
     clientId: "00000000-0000-4000-8000-000000000001",
-    callbacks: { onSnapshot: (snapshot) => (latest = snapshot) },
+    callbacks: { onSnapshot: (snapshot) => (latest = snapshot), onSemanticEvent },
     now: (() => {
       let now = 0;
       return () => ++now;
@@ -152,6 +165,154 @@ function responseDone(
 }
 
 describe("RealtimeClient event coordination", () => {
+  it("correlates lesson narration activity, completion, and playback stop", () => {
+    const semanticEvents: RealtimeSemanticEvent[] = [];
+    const send = vi.fn();
+    const { client, harness } = createHarness(send, (event) => semanticEvents.push(event));
+    harness.status = "connected";
+    const context = { requestId: "req-1", stepId: "s1", cycle: 1 };
+
+    client.requestNarration("A short deterministic lesson line.", context);
+    expect(JSON.parse(String(send.mock.calls[0][0]))).toMatchObject({
+      type: "response.create",
+      response: { output_modalities: ["audio"] },
+    });
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.RESPONSE_CREATED,
+      response: {
+        id: "resp_lesson",
+        metadata: {
+          chalk_kind: "lesson_narration",
+          chalk_request_id: "req-1",
+          chalk_step_id: "s1",
+          chalk_cycle: "1",
+        },
+      },
+    });
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.OUTPUT_AUDIO_BUFFER_STARTED,
+      response_id: "resp_lesson",
+    });
+    harness.handleServerEvent(responseDone("resp_lesson", "completed"));
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.OUTPUT_AUDIO_BUFFER_STOPPED,
+      response_id: "resp_lesson",
+    });
+
+    expect(semanticEvents).toEqual([
+      { type: "narration.activity", context },
+      { type: "narration.generation_done", context },
+      { type: "narration.playback_stopped", context },
+    ]);
+    expect(harness.pendingNarration).toBeUndefined();
+  });
+
+  it("retains narration correlation when playback stops before generation completes", () => {
+    const semanticEvents: RealtimeSemanticEvent[] = [];
+    const { client, harness } = createHarness(vi.fn(), (event) => semanticEvents.push(event));
+    harness.status = "connected";
+    const context = { requestId: "req-1", stepId: "s1", cycle: 1 };
+    client.requestNarration("A short deterministic lesson line.", context);
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.RESPONSE_CREATED,
+      response: {
+        id: "resp_lesson",
+        metadata: {
+          chalk_kind: "lesson_narration",
+          chalk_request_id: "req-1",
+          chalk_step_id: "s1",
+          chalk_cycle: "1",
+        },
+      },
+    });
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.OUTPUT_AUDIO_BUFFER_STARTED,
+      response_id: "resp_lesson",
+    });
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.OUTPUT_AUDIO_BUFFER_STOPPED,
+      response_id: "resp_lesson",
+    });
+    expect(harness.pendingNarration).toMatchObject({ playbackStopped: true, generationDone: false });
+    harness.handleServerEvent(responseDone("resp_lesson", "completed"));
+    expect(semanticEvents).toEqual([
+      { type: "narration.activity", context },
+      { type: "narration.playback_stopped", context },
+      { type: "narration.generation_done", context },
+    ]);
+    expect(harness.pendingNarration).toBeUndefined();
+  });
+
+  it("does not bind lesson narration to an unrelated response.created event", () => {
+    const semanticEvents: RealtimeSemanticEvent[] = [];
+    const { client, harness } = createHarness(vi.fn(), (event) => semanticEvents.push(event));
+    harness.status = "connected";
+    client.requestNarration("A short deterministic lesson line.", {
+      requestId: "req-1",
+      stepId: "s1",
+      cycle: 1,
+    });
+
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.RESPONSE_CREATED,
+      response: { id: "resp_vad", metadata: { chalk_kind: "conversation" } },
+    });
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.OUTPUT_AUDIO_BUFFER_STARTED,
+      response_id: "resp_vad",
+    });
+
+    expect(harness.pendingNarration?.responseId).toBeUndefined();
+    expect(semanticEvents).toEqual([]);
+  });
+
+  it("releases rejected narration and emits a correlated failure", () => {
+    const semanticEvents: RealtimeSemanticEvent[] = [];
+    const { client, harness } = createHarness(vi.fn(), (event) => semanticEvents.push(event));
+    harness.status = "connected";
+    const context = { requestId: "req-1", stepId: "s1", cycle: 1 };
+    client.requestNarration("A short deterministic lesson line.", context);
+    const clientEventId = harness.pendingNarration!.clientEventId;
+
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.ERROR,
+      error: { event_id: clientEventId, type: "invalid_request_error" },
+    });
+
+    expect(harness.pendingNarration).toBeUndefined();
+    expect(semanticEvents).toEqual([{ type: "narration.failed", context }]);
+    expect(() => client.requestNarration("Retry safely.", { ...context, cycle: 2 })).not.toThrow();
+  });
+
+  it("waits for actual output playback before signaling narration activity", () => {
+    const semanticEvents: RealtimeSemanticEvent[] = [];
+    const { client, harness } = createHarness(vi.fn(), (event) => semanticEvents.push(event));
+    harness.status = "connected";
+    client.requestNarration("A short deterministic lesson line.", {
+      requestId: "req-1",
+      stepId: "s1",
+      cycle: 1,
+    });
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.RESPONSE_CREATED,
+      response: {
+        id: "resp_lesson",
+        metadata: {
+          chalk_kind: "lesson_narration",
+          chalk_request_id: "req-1",
+          chalk_step_id: "s1",
+          chalk_cycle: "1",
+        },
+      },
+    });
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.RESPONSE_OUTPUT_AUDIO_TRANSCRIPT_DELTA,
+      response_id: "resp_lesson",
+      delta: "Generated before playout.",
+    });
+    expect(semanticEvents).toEqual([]);
+  });
+
   it("binds the native fetch receiver", async () => {
     const originalFetch = globalThis.fetch;
     const receiverCheckingFetch = vi.fn(function (this: unknown) {

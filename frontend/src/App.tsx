@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import projectileLessonSource from "../../demo/cached_lessons/projectile-range.lesson.json";
+import { Board } from "./board/Board";
+import { decodeLesson } from "./board/decode";
+import { isLessonProgram } from "./board/schema";
 import {
   getOrCreateClientId,
   RealtimeClient,
@@ -7,9 +11,11 @@ import {
 } from "./realtime";
 import type {
   PerceivedAudioStop,
+  RealtimeSemanticEvent,
   RealtimeSnapshot,
   TraceEntry,
 } from "./realtime";
+import { useFixedLessonSync } from "./sync/useFixedLessonSync";
 
 const API_BASE_URL = resolveLocalApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 
@@ -31,18 +37,35 @@ const INITIAL_SNAPSHOT: RealtimeSnapshot = {
   tokenBudget: 20_000,
 };
 
+const PROJECTILE_RESULT = decodeLesson(projectileLessonSource);
+if (!isLessonProgram(projectileLessonSource) || !PROJECTILE_RESULT.lesson || PROJECTILE_RESULT.warnings.length > 0) {
+  throw new Error("The checked-in projectile lesson did not pass its shared contract.");
+}
+const PROJECTILE_LESSON = PROJECTILE_RESULT.lesson;
+
 function App() {
   const clientRef = useRef<RealtimeClient>();
+  const semanticHandlerRef = useRef<(event: RealtimeSemanticEvent) => void>();
   const [snapshot, setSnapshot] = useState(INITIAL_SNAPSHOT);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
+  const lessonSync = useFixedLessonSync({
+    lesson: PROJECTILE_LESSON,
+    clientRef,
+    connectionStatus: snapshot.status,
+    responseIdle: !snapshot.activeResponseId && !snapshot.audioPlaybackActive,
+  });
+  semanticHandlerRef.current = lessonSync.onSemanticEvent;
 
   useEffect(() => {
     const client = new RealtimeClient({
       apiBaseUrl: API_BASE_URL,
       clientId: getOrCreateClientId(),
-      callbacks: { onSnapshot: setSnapshot },
+      callbacks: {
+        onSnapshot: setSnapshot,
+        onSemanticEvent: (event) => semanticHandlerRef.current?.(event),
+      },
     });
     clientRef.current = client;
     return () => {
@@ -95,12 +118,66 @@ function App() {
     <main className="app-shell">
       <header className="hero">
         <div>
-          <p className="eyebrow">M1 · Realtime protocol spike</p>
+          <p className="eyebrow">M2 · Deterministic board</p>
           <h1>CHALK</h1>
-          <p className="tagline">A tutor that stops when you do.</p>
+          <p className="tagline">A tutor that draws while it talks—and stops when you do.</p>
         </div>
         <StatusPill status={snapshot.status} />
       </header>
+
+      <section className="lesson-stage" aria-labelledby="lesson-title">
+        <div className="lesson-heading">
+          <div>
+            <p className="eyebrow">Hardcoded feel gate · no board-model call</p>
+            <h2 id="lesson-title">Projectile range, drawn with the voice</h2>
+          </div>
+          <div className="lesson-actions">
+            <button
+              className="primary"
+              type="button"
+              onClick={lessonSync.start}
+              disabled={snapshot.status !== "connected" || !["IDLE", "DONE"].includes(lessonSync.state.phase)}
+            >
+              {lessonSync.state.phase === "DONE" ? "Run lesson again" : "Start lesson"}
+            </button>
+            <button
+              className="secondary"
+              type="button"
+              onClick={lessonSync.resume}
+              disabled={
+                lessonSync.state.phase !== "QA" ||
+                snapshot.status !== "connected" ||
+                Boolean(snapshot.activeResponseId) ||
+                snapshot.audioPlaybackActive
+              }
+            >
+              Resume frozen step
+            </button>
+          </div>
+        </div>
+        <Board
+          lesson={PROJECTILE_LESSON}
+          currentStepIndex={lessonSync.state.currentStepIndex}
+          currentStepProgress={lessonSync.state.currentStepProgress}
+          phase={lessonSync.state.phase}
+        />
+        <div className="sync-strip" aria-label="Fixed synchronization status">
+          <span><strong>{lessonSync.state.phase}</strong> fixed sync</span>
+          <div className="sync-track" aria-hidden="true">
+            <span style={{ width: `${lessonSync.state.currentStepProgress * 100}%` }} />
+          </div>
+          <span>{Math.round(lessonSync.state.currentStepProgress * 100)}% current step</span>
+          <span><strong>{lessonSync.state.completedRuns} / 3</strong> completed runs</span>
+          {lessonSync.state.ignoredEvents > 0 ? <span>{lessonSync.state.ignoredEvents} stale/invalid events ignored</span> : null}
+        </div>
+        {snapshot.status !== "connected" ? (
+          <p className="lesson-hint">Connect the microphone below, then start the lesson. Routine board rendering is local; only narration uses the mini Realtime model.</p>
+        ) : lessonSync.state.phase === "TEACHING" ? (
+          <p className="lesson-hint lesson-hint-live">Interrupt while a stroke is moving. The ink should remain exactly where it stopped.</p>
+        ) : lessonSync.state.phase === "QA" ? (
+          <p className="lesson-hint lesson-hint-frozen">Ink frozen. Ask your question, then use “Resume frozen step” when ready.</p>
+        ) : null}
+      </section>
 
       <section className="voice-stage" aria-labelledby="voice-title">
         <div className={`orb ${snapshot.audioPlaybackActive ? "orb-speaking" : ""}`} aria-hidden="true">
@@ -135,7 +212,7 @@ function App() {
         </div>
       </section>
 
-      <section className="metrics" aria-label="M1 acceptance evidence">
+      <section className="metrics" aria-label="Realtime diagnostics">
         <Metric
           label="Settled interruption streak"
           value={`${snapshot.consecutiveSuccessfulInterruptions} / 5`}

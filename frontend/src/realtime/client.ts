@@ -1,10 +1,13 @@
 import {
   createFunctionCallOutput,
+  createNarrationResponse,
   createResponseAfterTool,
   createSessionRequest,
   createSessionUpdate,
   extractFunctionCalls,
   getResponseId,
+  getResponseMetadata,
+  getRelatedClientEventId,
   getResponseStatus,
   getResponseUsage,
   parseServerEvent,
@@ -22,8 +25,10 @@ import {
 import type {
   ConnectionStatus,
   InterruptionMarker,
+  NarrationContext,
   PerceivedAudioStop,
   RealtimeClientCallbacks,
+  RealtimeSemanticEvent,
   RealtimeSnapshot,
   ServerEvent,
   SessionCredential,
@@ -59,6 +64,15 @@ interface PendingToolRoundTrip {
   responseId?: string;
 }
 
+interface PendingNarration {
+  context: NarrationContext;
+  clientEventId: string;
+  responseId?: string;
+  activitySeen: boolean;
+  generationDone: boolean;
+  playbackStopped: boolean;
+}
+
 export class RealtimeClient {
   private readonly apiBaseUrl: string;
   private readonly clientId: string;
@@ -76,6 +90,7 @@ export class RealtimeClient {
   private lastError?: string;
   private toolRoundTrips = 0;
   private pendingToolRoundTrip?: PendingToolRoundTrip;
+  private pendingNarration?: PendingNarration;
   private trace: TraceEntry[] = [];
   private interruptions: InterruptionMarker[] = [];
   private seenCallIds = new Set<string>();
@@ -238,6 +253,39 @@ export class RealtimeClient {
     this.emitSnapshot();
   }
 
+  requestNarration(script: string, context: NarrationContext): void {
+    if (this.status !== "connected") {
+      throw new Error("Connect the Realtime session before starting narration.");
+    }
+    if (this.pendingNarration) {
+      throw new Error("A lesson narration is already active.");
+    }
+    if (this.activeResponseId || this.playbackResponseId) {
+      throw new Error("Wait for the active response to finish before lesson narration.");
+    }
+    const clientEventId = `evt_narration_${crypto.randomUUID()}`;
+    this.pendingNarration = {
+      context: { ...context },
+      clientEventId,
+      activitySeen: false,
+      generationDone: false,
+      playbackStopped: false,
+    };
+    try {
+      this.sendEvent(
+        createNarrationResponse(script, clientEventId, {
+          chalk_kind: "lesson_narration",
+          chalk_request_id: context.requestId,
+          chalk_step_id: context.stepId,
+          chalk_cycle: String(context.cycle),
+        }),
+      );
+    } catch (error) {
+      this.pendingNarration = undefined;
+      throw error;
+    }
+  }
+
   getSnapshot(): RealtimeSnapshot {
     return {
       status: this.status,
@@ -339,6 +387,14 @@ export class RealtimeClient {
 
     if (event.type === SERVER_EVENTS.RESPONSE_CREATED) {
       this.activeResponseId = getResponseId(event);
+      const metadata = getResponseMetadata(event);
+      if (
+        this.pendingNarration &&
+        !this.pendingNarration.responseId &&
+        metadataMatchesNarration(metadata, this.pendingNarration)
+      ) {
+        this.pendingNarration.responseId = this.activeResponseId;
+      }
       if (this.pendingToolRoundTrip && !this.pendingToolRoundTrip.responseId) {
         this.pendingToolRoundTrip.responseId = this.activeResponseId;
       }
@@ -351,6 +407,7 @@ export class RealtimeClient {
       if (responseId) {
         this.playbackResponseId = responseId;
         this.activeResponseId = responseId;
+        this.emitNarrationEvent(responseId, "narration.activity");
         this.emitSnapshot();
       }
       return;
@@ -361,6 +418,7 @@ export class RealtimeClient {
       event.type === SERVER_EVENTS.OUTPUT_AUDIO_BUFFER_CLEARED
     ) {
       const responseId = getResponseId(event) ?? this.playbackResponseId;
+      this.emitNarrationEvent(responseId, "narration.playback_stopped");
       if (event.type === SERVER_EVENTS.OUTPUT_AUDIO_BUFFER_CLEARED && responseId) {
         this.settleInterruption(responseId, "cleared");
       } else if (
@@ -380,6 +438,7 @@ export class RealtimeClient {
     }
 
     if (event.type === SERVER_EVENTS.INPUT_AUDIO_BUFFER_SPEECH_STARTED) {
+      this.emitSemanticEvent({ type: "student.speech_started" });
       this.markInterruption();
       return;
     }
@@ -396,6 +455,14 @@ export class RealtimeClient {
 
     if (event.type === SERVER_EVENTS.RESPONSE_DONE) {
       const responseId = getResponseId(event);
+      this.emitNarrationEvent(responseId, "narration.generation_done");
+      if (
+        responseId &&
+        getResponseStatus(event) !== "completed" &&
+        responseId !== this.playbackResponseId
+      ) {
+        this.emitNarrationEvent(responseId, "narration.playback_stopped");
+      }
       if (
         responseId &&
         responseId === this.activeResponseId &&
@@ -431,6 +498,14 @@ export class RealtimeClient {
 
     if (event.type === SERVER_EVENTS.ERROR) {
       this.lastError = "The Realtime service reported an error. See the redacted trace code.";
+      if (
+        this.pendingNarration &&
+        getRelatedClientEventId(event) === this.pendingNarration.clientEventId
+      ) {
+        const context = { ...this.pendingNarration.context };
+        this.pendingNarration = undefined;
+        this.emitSemanticEvent({ type: "narration.failed", context });
+      }
       this.emitSnapshot();
     }
   }
@@ -453,6 +528,44 @@ export class RealtimeClient {
         this.sessionCredential.voice,
       ),
     );
+  }
+
+  private emitNarrationEvent(
+    responseId: string | undefined,
+    type:
+      | "narration.activity"
+      | "narration.generation_done"
+      | "narration.playback_stopped",
+  ): void {
+    if (
+      !responseId ||
+      !this.pendingNarration?.responseId ||
+      responseId !== this.pendingNarration.responseId
+    ) {
+      return;
+    }
+    const context = { ...this.pendingNarration.context };
+    if (type === "narration.activity" && this.pendingNarration.activitySeen) return;
+    if (type === "narration.generation_done" && this.pendingNarration.generationDone) return;
+    if (type === "narration.playback_stopped" && this.pendingNarration.playbackStopped) return;
+
+    if (type === "narration.activity") this.pendingNarration.activitySeen = true;
+    if (type === "narration.generation_done") this.pendingNarration.generationDone = true;
+    if (type === "narration.playback_stopped") this.pendingNarration.playbackStopped = true;
+    this.emitSemanticEvent({ type, context });
+    if (this.pendingNarration.generationDone && this.pendingNarration.playbackStopped) {
+      this.pendingNarration = undefined;
+    }
+  }
+
+  private emitSemanticEvent(event: RealtimeSemanticEvent): void {
+    try {
+      this.callbacks.onSemanticEvent?.(event);
+    } catch {
+      // Consumer callbacks are isolated from protocol bookkeeping. The trace
+      // remains content-free and the connection stays usable.
+      this.addLocalTrace("semantic_callback.failed", { code: "callback_error" });
+    }
   }
 
   private markInterruption(): void {
@@ -721,6 +834,7 @@ export class RealtimeClient {
     this.lastError = undefined;
     this.toolRoundTrips = 0;
     this.pendingToolRoundTrip = undefined;
+    this.pendingNarration = undefined;
     this.trace = [];
     this.interruptions = [];
     this.seenCallIds.clear();
@@ -775,6 +889,7 @@ export class RealtimeClient {
     this.sessionUpdated = false;
     this.sessionUpdateSent = false;
     this.pendingToolRoundTrip = undefined;
+    this.pendingNarration = undefined;
     this.playbackResponseId = undefined;
   }
 }
@@ -798,6 +913,18 @@ function waitForIceGathering(
     peer.addEventListener("icegatheringstatechange", onChange);
     window.setTimeout(finish, timeoutMs);
   });
+}
+
+function metadataMatchesNarration(
+  metadata: Readonly<Record<string, string>> | undefined,
+  pending: PendingNarration,
+): boolean {
+  return (
+    metadata?.chalk_kind === "lesson_narration" &&
+    metadata.chalk_request_id === pending.context.requestId &&
+    metadata.chalk_step_id === pending.context.stepId &&
+    metadata.chalk_cycle === String(pending.context.cycle)
+  );
 }
 
 function countConsecutiveSuccesses(markers: InterruptionMarker[]): number {

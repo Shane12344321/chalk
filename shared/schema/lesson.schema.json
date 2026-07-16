@@ -1,0 +1,227 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://chalk.local/schema/lesson.schema.json",
+  "title": "LessonProgram",
+  "description": "CHALK M2 deterministic lesson wire contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "title", "steps"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/step" }
+    }
+  },
+  "$defs": {
+    "elementId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,15}$"
+    },
+    "region": {
+      "type": "string",
+      "enum": [
+        "A1", "A2", "A3", "B1", "B2", "B3",
+        "C1", "C2", "C3", "D1", "D2", "D3",
+        "left", "right", "full"
+      ]
+    },
+    "anchor": {
+      "title": "Anchor",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["el", "side"],
+      "properties": {
+        "el": { "$ref": "#/$defs/elementId" },
+        "side": { "enum": ["above", "below", "left", "right"] },
+        "gap": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "axisSpec": {
+      "title": "AxisSpec",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max", "label"],
+      "properties": {
+        "min": { "type": "number", "minimum": -1000000, "maximum": 1000000 },
+        "max": { "type": "number", "minimum": -1000000, "maximum": 1000000 },
+        "label": { "type": "string", "maxLength": 32 }
+      }
+    },
+    "point": {
+      "title": "NormalizedPoint",
+      "type": "array",
+      "items": [
+        { "type": "number", "minimum": 0, "maximum": 1 },
+        { "type": "number", "minimum": 0, "maximum": 1 }
+      ],
+      "additionalItems": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "textRegionOp": {
+      "title": "TextRegionOp",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "region", "content"],
+      "properties": {
+        "op": { "const": "text" },
+        "id": { "$ref": "#/$defs/elementId" },
+        "region": { "$ref": "#/$defs/region" },
+        "content": { "type": "string", "minLength": 1, "maxLength": 120 }
+      }
+    },
+    "textAnchorOp": {
+      "title": "TextAnchorOp",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "anchor", "content"],
+      "properties": {
+        "op": { "const": "text" },
+        "id": { "$ref": "#/$defs/elementId" },
+        "anchor": { "$ref": "#/$defs/anchor" },
+        "content": { "type": "string", "minLength": 1, "maxLength": 120 }
+      }
+    },
+    "textOp": {
+      "title": "TextOp",
+      "oneOf": [
+        { "$ref": "#/$defs/textRegionOp" },
+        { "$ref": "#/$defs/textAnchorOp" }
+      ]
+    },
+    "equationRegionOp": {
+      "title": "EquationRegionOp",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "region", "latex"],
+      "properties": {
+        "op": { "const": "equation" },
+        "id": { "$ref": "#/$defs/elementId" },
+        "region": { "$ref": "#/$defs/region" },
+        "latex": { "type": "string", "minLength": 1, "maxLength": 160 }
+      }
+    },
+    "equationAnchorOp": {
+      "title": "EquationAnchorOp",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "anchor", "latex"],
+      "properties": {
+        "op": { "const": "equation" },
+        "id": { "$ref": "#/$defs/elementId" },
+        "anchor": { "$ref": "#/$defs/anchor" },
+        "latex": { "type": "string", "minLength": 1, "maxLength": 160 }
+      }
+    },
+    "equationOp": {
+      "title": "EquationOp",
+      "oneOf": [
+        { "$ref": "#/$defs/equationRegionOp" },
+        { "$ref": "#/$defs/equationAnchorOp" }
+      ]
+    },
+    "sketchOp": {
+      "title": "SketchOp",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "region", "strokes"],
+      "properties": {
+        "op": { "const": "sketch" },
+        "id": { "$ref": "#/$defs/elementId" },
+        "region": { "$ref": "#/$defs/region" },
+        "strokes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 6,
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 40,
+            "items": { "$ref": "#/$defs/point" }
+          }
+        }
+      }
+    },
+    "axesOp": {
+      "title": "AxesOp",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "region", "x", "y"],
+      "properties": {
+        "op": { "const": "axes" },
+        "id": { "$ref": "#/$defs/elementId" },
+        "region": { "$ref": "#/$defs/region" },
+        "x": { "$ref": "#/$defs/axisSpec" },
+        "y": { "$ref": "#/$defs/axisSpec" }
+      }
+    },
+    "curveOp": {
+      "title": "CurveOp",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "axes_id", "expr"],
+      "properties": {
+        "op": { "const": "curve" },
+        "id": { "$ref": "#/$defs/elementId" },
+        "axes_id": { "$ref": "#/$defs/elementId" },
+        "expr": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "domain": {
+          "type": "array",
+          "items": [
+            { "type": "number", "minimum": -1000000, "maximum": 1000000 },
+            { "type": "number", "minimum": -1000000, "maximum": 1000000 }
+          ],
+          "additionalItems": false,
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
+    "op": {
+      "title": "LessonOp",
+      "oneOf": [
+        { "$ref": "#/$defs/textOp" },
+        { "$ref": "#/$defs/equationOp" },
+        { "$ref": "#/$defs/sketchOp" },
+        { "$ref": "#/$defs/axesOp" },
+        { "$ref": "#/$defs/curveOp" }
+      ]
+    },
+    "checkpoint": {
+      "title": "Checkpoint",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["question", "expected_gist"],
+      "properties": {
+        "question": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "expected_gist": { "type": "string", "minLength": 1, "maxLength": 80 }
+      }
+    },
+    "step": {
+      "title": "LessonStep",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "script", "ops", "checkpoint"],
+      "properties": {
+        "id": { "$ref": "#/$defs/elementId" },
+        "script": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "ops": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": { "$ref": "#/$defs/op" }
+        },
+        "checkpoint": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/checkpoint" }
+          ]
+        }
+      }
+    }
+  }
+}

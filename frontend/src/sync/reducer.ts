@@ -1,0 +1,186 @@
+export type LessonPhase =
+  | "IDLE"
+  | "GENERATING"
+  | "TEACHING"
+  | "FROZEN"
+  | "QA"
+  | "DONE";
+
+export interface FixedSyncState {
+  phase: LessonPhase;
+  requestId: string;
+  stepIds: string[];
+  currentStepIndex: number;
+  currentStepProgress: number;
+  cycle: number;
+  animationStarted: boolean;
+  animationDone: boolean;
+  narrationDone: boolean;
+  audioStopped: boolean;
+  drainElapsed: boolean;
+  ignoredEvents: number;
+  completedRuns: number;
+}
+
+interface CorrelatedEvent {
+  requestId: string;
+  stepId: string;
+  cycle: number;
+}
+
+export type FixedSyncEvent =
+  | { type: "LOAD"; requestId: string; stepIds: string[] }
+  | { type: "START"; requestId: string }
+  | ({ type: "NARRATION_ACTIVITY" } & CorrelatedEvent)
+  | ({ type: "TICK"; progress: number } & CorrelatedEvent)
+  | ({ type: "NARRATION_DONE" } & CorrelatedEvent)
+  | ({ type: "AUDIO_STOPPED" } & CorrelatedEvent)
+  | ({ type: "DRAIN_ELAPSED" } & CorrelatedEvent)
+  | ({ type: "STUDENT_SPEECH_STARTED" } & CorrelatedEvent)
+  | ({ type: "INTERRUPTION_COMMITTED" } & CorrelatedEvent)
+  | ({ type: "RESUME" } & CorrelatedEvent)
+  | { type: "RESET"; requestId: string };
+
+export const EMPTY_SYNC_STATE: FixedSyncState = {
+  phase: "IDLE",
+  requestId: "",
+  stepIds: [],
+  currentStepIndex: 0,
+  currentStepProgress: 0,
+  cycle: 0,
+  animationStarted: false,
+  animationDone: false,
+  narrationDone: false,
+  audioStopped: false,
+  drainElapsed: false,
+  ignoredEvents: 0,
+  completedRuns: 0,
+};
+
+export function fixedSyncReducer(
+  state: FixedSyncState,
+  event: FixedSyncEvent,
+): FixedSyncState {
+  if (event.type === "LOAD") {
+    if (event.stepIds.length === 0) return ignored(state);
+    return {
+      ...EMPTY_SYNC_STATE,
+      requestId: event.requestId,
+      stepIds: [...event.stepIds],
+    };
+  }
+  if (event.type === "RESET") {
+    return event.requestId === state.requestId
+      ? { ...EMPTY_SYNC_STATE, requestId: state.requestId, stepIds: state.stepIds }
+      : ignored(state);
+  }
+  if (event.type === "START") {
+    if (event.requestId !== state.requestId || !["IDLE", "DONE"].includes(state.phase)) {
+      return ignored(state);
+    }
+    return teachingState(state, 0, state.cycle + 1, 0);
+  }
+  if (isStale(state, event)) return ignored(state);
+
+  switch (event.type) {
+    case "NARRATION_ACTIVITY":
+      return state.phase === "TEACHING"
+        ? { ...state, animationStarted: true }
+        : ignored(state);
+    case "TICK": {
+      if (state.phase !== "TEACHING" || !state.animationStarted) return ignored(state);
+      const progress = clamp(Math.max(state.currentStepProgress, event.progress));
+      return settle({
+        ...state,
+        currentStepProgress: progress,
+        animationDone: progress >= 1,
+      });
+    }
+    case "NARRATION_DONE":
+      return state.phase === "TEACHING"
+        ? settle({ ...state, narrationDone: true })
+        : ignored(state);
+    case "AUDIO_STOPPED":
+      return state.phase === "TEACHING"
+        ? settle({ ...state, audioStopped: true })
+        : ignored(state);
+    case "DRAIN_ELAPSED":
+      return state.phase === "TEACHING" && state.audioStopped
+        ? settle({ ...state, drainElapsed: true })
+        : ignored(state);
+    case "STUDENT_SPEECH_STARTED":
+      return state.phase === "TEACHING"
+        ? { ...state, phase: "FROZEN" }
+        : ignored(state);
+    case "INTERRUPTION_COMMITTED":
+      return state.phase === "FROZEN" ? { ...state, phase: "QA" } : ignored(state);
+    case "RESUME":
+      return state.phase === "QA"
+        ? teachingState(
+            state,
+            state.currentStepIndex,
+            state.cycle + 1,
+            state.currentStepProgress,
+          )
+        : ignored(state);
+    default:
+      return ignored(state);
+  }
+}
+
+function settle(state: FixedSyncState): FixedSyncState {
+  if (
+    !state.animationDone ||
+    !state.narrationDone ||
+    !state.audioStopped ||
+    !state.drainElapsed
+  ) {
+    return state;
+  }
+  const nextIndex = state.currentStepIndex + 1;
+  if (nextIndex >= state.stepIds.length) {
+    return {
+      ...state,
+      phase: "DONE",
+      currentStepProgress: 1,
+      completedRuns: state.completedRuns + 1,
+    };
+  }
+  return teachingState(state, nextIndex, state.cycle + 1, 0);
+}
+
+function teachingState(
+  state: FixedSyncState,
+  stepIndex: number,
+  cycle: number,
+  progress: number,
+): FixedSyncState {
+  return {
+    ...state,
+    phase: "TEACHING",
+    currentStepIndex: stepIndex,
+    currentStepProgress: progress,
+    cycle,
+    animationStarted: false,
+    animationDone: progress >= 1,
+    narrationDone: false,
+    audioStopped: false,
+    drainElapsed: false,
+  };
+}
+
+function isStale(state: FixedSyncState, event: CorrelatedEvent): boolean {
+  return (
+    event.requestId !== state.requestId ||
+    event.stepId !== state.stepIds[state.currentStepIndex] ||
+    event.cycle !== state.cycle
+  );
+}
+
+function ignored(state: FixedSyncState): FixedSyncState {
+  return { ...state, ignoredEvents: state.ignoredEvents + 1 };
+}
+
+function clamp(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}

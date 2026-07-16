@@ -161,6 +161,25 @@ export function createResponseAfterTool() {
   } as const;
 }
 
+export function createNarrationResponse(
+  script: string,
+  eventId: string,
+  metadata: Readonly<Record<string, string>>,
+) {
+  if (script.length === 0 || script.length > 240) {
+    throw new Error("Narration script exceeds the lesson budget.");
+  }
+  return {
+    type: CLIENT_EVENTS.RESPONSE_CREATE,
+    event_id: eventId,
+    response: {
+      output_modalities: ["audio"],
+      instructions: `SAY EXACTLY: ${script}`,
+      metadata,
+    },
+  } as const;
+}
+
 export function parseServerEvent(data: unknown): ServerEvent | null {
   if (typeof data !== "string" || data.length > 256_000) {
     return null;
@@ -224,6 +243,24 @@ export function getResponseStatus(event: ServerEvent): string | undefined {
     return event.response.status;
   }
   return undefined;
+}
+
+export function getResponseMetadata(event: ServerEvent): Record<string, string> | undefined {
+  if (!isRecord(event.response) || !isRecord(event.response.metadata)) return undefined;
+  const entries = Object.entries(event.response.metadata);
+  if (
+    entries.length > 16 ||
+    entries.some(([key, value]) => key.length > 64 || typeof value !== "string" || value.length > 512)
+  ) {
+    return undefined;
+  }
+  return Object.fromEntries(entries) as Record<string, string>;
+}
+
+export function getRelatedClientEventId(event: ServerEvent): string | undefined {
+  if (!isRecord(event.error)) return undefined;
+  const value = event.error.event_id;
+  return typeof value === "string" && value.length <= 512 ? value : undefined;
 }
 
 export function getResponseUsage(event: ServerEvent): TokenUsageSummary | undefined {

@@ -3,7 +3,7 @@
 Status: active  
 Owner: repository team  
 Started: 2026-07-15  
-Last updated: 2026-07-15  
+Last updated: 2026-07-16
 Target: working localhost demo and three-minute hackathon video
 
 ## How to use this plan
@@ -46,14 +46,14 @@ Non-goals: accounts, authentication, persistence, deployment, mobile, multi-user
 | Product brief | Complete | `chalk-build-plan.md` |
 | Audited agent guidance | Complete | `AGENTS.md` |
 | Architecture baseline | Complete; M1 live assumptions resolved | `ARCHITECTURE.md`, M1 source/tests, and checked-in acceptance summary |
-| Git repository | M0 baseline and accepted M1 implementation checked in with this plan revision | Commit `97128fe`; branch `codex/m1-realtime-scaffold` |
+| Git repository | M1 checkpoint preserved; passing M2 checkpoint isolated on its own branch | M1 commit `e6822f5`; branch `codex/m2-deterministic-board` |
 | Frontend scaffold | Complete for M1 | 64 tests, lint, production build, local browser smoke, and live acceptance |
 | Backend scaffold | Complete for M1 | 38 tests, lint/format, compile, health, CORS, safe failures, and live client-secret minting |
-| Shared schema | Not started | No `shared/schema/` directory |
+| Shared schema | Implemented for the M2 five-op contract | JSON Schema, generated TypeScript types, fixtures, and decoder tests |
 | Realtime API smoke test | Complete | Mint, WebRTC, voice, dummy-tool continuation, live cost controls, and five consecutive playback-backed interruptions passed on 2026-07-15 |
-| Board renderer | Not started | No application code |
+| Board renderer | M2 complete; deterministic and live perceptual gates passed | Seeded rough.js SVG, KaTeX, safe mathjs sampling, layout, animation, defensive tests, and three accepted live runs |
 | Live lesson generation | Not started | No application code |
-| Cached demo lessons | Not started | No `demo/cached_lessons/` directory |
+| Cached demo lessons | Projectile lesson implemented for M2 | `demo/cached_lessons/projectile-range.lesson.json` |
 | Video workflow | Not started | No script, rehearsal, or recording evidence |
 
 ## Milestone summary
@@ -62,7 +62,7 @@ Non-goals: accounts, authentication, persistence, deployment, mobile, multi-user
 |---|---|---|---|
 | M0 | Planning and repository baseline | Planning documents committed on a clean repository | Complete |
 | M1 | Scaffold and Realtime vertical slice | Browser voice loop, five successful interruptions, dummy tool round trip | Complete |
-| M2 | Deterministic board and fixed sync | Hardcoded projectile lesson speaks and draws concurrently without crashes | Pending |
+| M2 | Deterministic board and fixed sync | Hardcoded projectile lesson speaks and draws concurrently without crashes | Complete |
 | M3 | Live lesson generation | Validated NDJSON streams; 8/10 golden topics pass the rubric | Pending |
 | M4 | Full interruption and grounding loop | Three consecutive cached MVP rehearsals pass | Pending |
 | M5 | Optional widget spectacle | Projectile widget and reactive tutor moment pass, or milestone is explicitly cut | Pending |
@@ -151,18 +151,18 @@ Objective: prove the product feel with no board-model dependency.
 
 ### Work
 
-- [ ] Create `shared/schema/lesson.schema.json` as the lesson wire source of truth.
-- [ ] Define the minimal ops required by the hardcoded projectile lesson before the full DSL.
-- [ ] Add deterministic schema fixtures and invalid cases.
-- [ ] Implement region/anchor layout with normalized dimensions.
-- [ ] Implement stable-seeded rough.js SVG rendering.
-- [ ] Implement KaTeX rendering with trust disabled.
-- [ ] Implement safe frontend mathjs compilation and domain sampling.
-- [ ] Isolate failures per op so the step continues.
-- [ ] Implement reducer-driven lesson state and stale-event rejection.
-- [ ] Implement `SYNC_MODE=fixed` with concurrent narration and weighted animation.
-- [ ] Implement freeze that retains a partial stroke.
-- [ ] Create the hardcoded projectile lesson and play it start to finish.
+- [x] Create `shared/schema/lesson.schema.json` as the lesson wire source of truth.
+- [x] Define the minimal ops required by the hardcoded projectile lesson before the full DSL.
+- [x] Add deterministic schema fixtures and invalid cases.
+- [x] Implement region/anchor layout with normalized dimensions.
+- [x] Implement stable-seeded rough.js SVG rendering.
+- [x] Implement KaTeX rendering with trust disabled.
+- [x] Implement safe frontend mathjs compilation and domain sampling.
+- [x] Isolate failures per op so the step continues.
+- [x] Implement reducer-driven lesson state and stale-event rejection.
+- [x] Implement `SYNC_MODE=fixed` with concurrent narration and weighted animation.
+- [x] Implement freeze that retains a partial stroke.
+- [x] Create the hardcoded projectile lesson and wire it to the live narration path.
 
 ### Exit gate
 
@@ -175,14 +175,16 @@ Objective: prove the product feel with no board-model dependency.
 
 ### Validation record
 
-Not run. Planned evidence:
+Deterministic implementation passed on 2026-07-15, seam hardening passed on 2026-07-16, and the live three-run/perceptual gate passed on 2026-07-16. Current evidence:
 
-- JSON Schema fixture tests;
-- layout and anchor unit tests;
-- renderer no-throw tests for every op;
-- math expression rejection tests;
-- state-transition and stale-event tests;
-- three captured hardcoded-lesson runs.
+- 100 frontend tests and 38 backend tests pass;
+- shared-schema fixture, per-op salvage, budget, dangling-reference, unsafe LaTeX, and expression rejection tests pass;
+- deterministic layout, anchor, seeded geometry identity, and partial SVG stroke tests pass;
+- state-transition, stale request/cycle, audio/generation ordering, four-way advancement gate, and three consecutive reducer-run tests pass;
+- root lint/build, schema regeneration, npm production audit, diff check, and clean in-app browser load pass;
+- three captured voice/ink runs and a human mid-stroke interruption pass;
+- three four-step runs reached `DONE`, partial ink froze at 19% and resumed, and machine-observed playback did not overlap;
+- the owner confirmed that ink felt concurrent with narration and consecutive narration did not overlap.
 
 ### Rollback
 
@@ -353,7 +355,7 @@ If a stretch beat fails during recording, remove that beat and use the last pass
 | A-002 | `gpt-realtime-2.1-mini`, `gpt-realtime-2.1`, and `gpt-5.6-terra` remain valid model IDs | Verified in official docs; mini account access passed on 2026-07-15 | Recheck larger Realtime and board-model account access before wiring or recording |
 | A-003 | The recording browser permits microphone capture and stable WebRTC localhost use | Verified for Chrome 150 in-app; recording setup still separate | Voice, tools, and five interruptions passed in the current browser; test the eventual OBS/recording configuration before M7 |
 | A-004 | React 18 and Python 3.12 are acceptable locked foundations | Accepted | Revisit only for a concrete dependency incompatibility |
-| A-005 | Fixed transcript/word-count synchronization will look convincing enough | Unverified | Three-run perceptual gate in M2 |
+| A-005 | Fixed transcript/word-count synchronization will look convincing enough | Verified for M2 | Three-run perceptual gate passed; owner confirmed concurrent-feeling ink and no consecutive narration overlap on 2026-07-16 |
 | A-006 | Session instruction replacement is timely enough for board manifests | Unverified | Measure and resolve in M4 |
 | A-007 | Three cached lessons are sufficient recording insurance | Accepted | Add caches only for a demonstrated demo need |
 | A-008 | OBS can capture screen, microphone, and system audio separately on the target Mac | Unverified | Test before M7, preferably during M4 rehearsal |
@@ -375,6 +377,8 @@ Architecture decisions ADR-001 through ADR-008 live in `ARCHITECTURE.md`. Execut
 | E-006 | 2026-07-15 | Keep the audited raw Realtime adapter through the M1 live gate; evaluate OpenAI's Agents SDK after M1 | The open-source SDK now covers WebRTC, media, interruptions, tools, and raw events, but migrating after 57 adapter-specific tests would delay the riskiest live check and would not remove CHALK's custom evidence requirements | The live gate exposes adapter defects, protocol maintenance becomes material, or M2 needs SDK handoffs/guardrails |
 | E-007 | 2026-07-15 | Treat credentialed API usage as a minimal, owner-controlled acceptance budget | Live calls consume tokens and audio usage; deterministic tests already cover routine behavior | The owner explicitly approves a larger model, extended session, or batch evaluation |
 | E-008 | 2026-07-15 | Enforce layered Realtime token controls in the client | A post-response session ceiling alone can overshoot; per-response output, rolling input context, usage visibility, and a hard disconnect bound different cost drivers | A measured lesson cannot fit within the limits, in which case adjust one bound with recorded evidence rather than disabling all controls |
+| E-009 | 2026-07-15 | Reuse rough.js, KaTeX, mathjs, and Ajv for M2 while keeping CHALK-specific validation and orchestration local | Rebuilding seeded sketch geometry, TeX layout, expression ASTs, or JSON Schema validation would add risk without differentiating the product; model expressions still pass a narrower CHALK allowlist before mathjs compilation | A dependency cannot meet determinism, safety, or bundle constraints in measured use |
+| E-010 | 2026-07-16 | Correlate manual lesson responses with bounded Realtime response metadata and start fixed ink on output-buffer playback start | Official Realtime guidance recommends metadata for disambiguating simultaneous responses; transcript deltas prove generation but not playout | A live browser trace contradicts metadata echoing or shows playback-start arrives too late for convincing concurrency |
 
 ## Validation ledger
 
@@ -397,6 +401,11 @@ Append validation evidence; do not replace failed entries.
 | 2026-07-15T22:57+0530 | M1 | Second supplied live trace audit | Reconcile all five markers against response creation, output-buffer playback, clear/truncation, stale events, and numeric usage | Partial pass; false positive rejected | Cost controls were present and 3,507 / 20,000 tokens were used. Four markers followed audible playback and server clear/truncation with zero stale output. Marker 3 preceded playback, cancelled a zero-token response, and does not satisfy an audible interruption gate. Counter/UI semantics were tightened; 64 frontend and 38 backend tests plus lint/build/diff checks pass |
 | 2026-07-15T23:01+0530 | M1 | Final live acceptance trace | Audit every marker against prior output playback, server clear/truncation, settlement, stale output, usage, configuration, privacy allowlists, and the owner's separate perception report | Pass | Five playback-backed interruptions each cleared and truncated successfully with no stale output; local handler-state stop was 0–0.1 ms; owner reported “Wonderful. Worked well.”; usage was 5,378 / 20,000 tokens; checked-in ID-free summary records source hashes and aggregate evidence |
 | 2026-07-15T23:05+0530 | M1 | Final clean milestone gate | Validate checked-in evidence JSON; run `make test`, `make lint`, `make build`, and `git diff --check` | Pass | 64 frontend and 38 backend tests passed; ESLint, Ruff lint/format, TypeScript, Vite, Python compileall, evidence JSON parsing, and diff checks passed |
+| 2026-07-15T23:34+0530 | M2 | Deterministic board implementation gate | Run `make test`, `make lint`, `make build`, schema regeneration, npm production audit, diff check, and a clean in-app browser load | Deterministic pass; live gate pending | 91 frontend and 38 backend tests passed; clean browser load had no warning/error; one non-blocking Vite warning remains for the ~988 kB uncompressed mathjs/KaTeX application chunk |
+| 2026-07-16T13:04+0530 | M2 | Independent seam-audit hardening | Verify audit findings, add response rejection/race/disconnect/schema/curve/layout regressions, run deterministic suites, and inspect the disconnected browser runtime | Pass; live gate pending | 100 frontend and 38 backend tests passed; lint, format, compile, build, npm production audit, diff check, schema regeneration, and clean browser smoke passed; live microphone/perceptual evidence is still required |
+| 2026-07-16T13:22+0530 | M2 | Three-run live cached-lesson gate | Complete three four-step projectile lessons, exercise mid-stroke freeze/resume, verify playback serialization, and retain ID-free evidence | Machine pass; owner perception pending | `DONE 3 / 3`; partial ink retained at 19%; three final-session interruptions settled with zero stale output; final session used 13,589 / 20,000 tokens and disconnected; owner must still confirm concurrency and audible non-overlap |
+| 2026-07-16T13:45+0530 | M2 | Owner perceptual acceptance | Record whether ink felt concurrent and whether consecutive narration overlapped | Pass | Owner confirmed that ink felt concurrent and consecutive narration did not overlap; all M2 exit conditions are now satisfied |
+| 2026-07-16T13:52+0530 | M2 | Final checkpoint gate | Run tests, lint/format, build/compile, production dependency audit, evidence parsing, secret scan, and diff hygiene | Pass | 100 frontend and 38 backend tests passed; all lint/build checks passed; npm reported zero production vulnerabilities; evidence JSON and diff/secret hygiene checks passed; only the documented non-blocking Vite chunk-size warning remains |
 
 Current deterministic command baseline:
 
@@ -422,6 +431,10 @@ The native commands are documented in `README.md`. Passing deterministic command
 | 2026-07-15T22:39+0530 | M1 | Audited the supplied trace, confirmed the dummy tool and one immediate server-side interruption, fixed playback-aware instrumentation, and added layered token controls | Run five brief interruptions on the corrected build and export the updated trace | Human voice participation and perceived audio-stop judgments |
 | 2026-07-15T22:57+0530 | M1 | Audited the second trace: four genuine audible interruptions passed, one pre-playback cancellation was rejected, and the counter now requires confirmed audio playback | Run one clean five-audible-interruption session and record perceived stop in the UI | Human voice participation and perceived audio-stop judgments |
 | 2026-07-15T23:01+0530 | M1 | Final five-interruption run, privacy audit, cost controls, tool evidence, deterministic suites, and owner perception all passed; M1 complete | Begin M2 only when explicitly requested | None |
+| 2026-07-15T23:12+0530 | M2 | Preserved M1 at `e6822f5`, created `codex/m2-deterministic-board`, audited the M2 contract and reusable rendering dependencies, and activated M2 | Implement the shared schema and deterministic board vertical slice | None |
+| 2026-07-15T23:34+0530 | M2 | Implemented and deterministically validated the five-op projectile board, fixed sync, semantic Realtime correlation, partial freeze, and three-run counter | Run three short browser lessons with one human mid-stroke interruption and record concurrency/non-overlap judgments | Rotated live key and human microphone/perceptual participation |
+| 2026-07-16T13:02+0530 | M2 | Audited and fixed live-seam failures: request rejection recovery, disconnect reset, metadata correlation, shared script cap, playback-start gating, curve clipping/validation, and bounded dense layout | Rotate the disclosed key, then run three short browser lessons with one mid-stroke interruption | Rotated live key and human microphone/perceptual participation |
+| 2026-07-16T13:45+0530 | M2 | Recorded the owner's perceptual pass and closed every M2 exit condition | Create the passing M2 checkpoint, then allow owner fine-tuning from that recoverable baseline | None |
 
 ## Discoveries and surprises
 

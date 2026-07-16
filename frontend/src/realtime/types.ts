@@ -98,7 +98,21 @@ export interface RealtimeSnapshot {
 
 export interface RealtimeClientCallbacks {
   onSnapshot: (snapshot: RealtimeSnapshot) => void;
+  onSemanticEvent?: (event: RealtimeSemanticEvent) => void;
 }
+
+export interface NarrationContext {
+  requestId: string;
+  stepId: string;
+  cycle: number;
+}
+
+export type RealtimeSemanticEvent =
+  | { type: "student.speech_started" }
+  | { type: "narration.activity"; context: NarrationContext }
+  | { type: "narration.generation_done"; context: NarrationContext }
+  | { type: "narration.playback_stopped"; context: NarrationContext }
+  | { type: "narration.failed"; context: NarrationContext };
 
 export interface TraceExportContext {
   model?: string;

@@ -1,6 +1,6 @@
 # CHALK architecture
 
-Status: M1 scaffold implemented; live Realtime protocol gate pending
+Status: M1 accepted; M2 deterministic board and fixed-sync implementation active
 Last reviewed: 2026-07-15  
 Companion documents: `chalk-build-plan.md`, `AGENTS.md`
 
@@ -88,6 +88,8 @@ Owns the `RTCPeerConnection`, remote audio element/stream, data channel, session
 Serializes default-conversation responses so filler speech, lesson narration, and Q&A do not overlap. It records the active response ID, purpose, request ID, and completion status.
 
 `response.done` means generation/sending completed; it is not treated as proof that the remote audio buffer is silent.
+
+Manual lesson narration requests carry a client `event_id` and bounded response metadata containing only purpose/request/step/cycle identifiers. The coordinator binds narration only when the echoed metadata matches; a simultaneous VAD-created response cannot claim the lesson cycle. A matching recoverable error releases the pending narration and resets the fixed-sync run. Fixed ink begins on `output_audio_buffer.started`, because transcript deltas indicate generation rather than audible playout.
 
 #### `ToolRouter`
 
@@ -532,10 +534,10 @@ Client-visible configuration must contain only non-secret feature flags. Never e
 
 ### Day 2 board/sync spike
 
-- [ ] Hardcoded projectile lesson renders without uncaught errors.
+- [x] Hardcoded projectile lesson renders without uncaught errors.
 - [ ] Fixed mode starts voice and ink concurrently.
-- [ ] Rough paths do not jump on rerender.
-- [ ] Freeze retains a visibly partial stroke.
+- [x] Rough paths do not jump on rerender.
+- [x] Freeze retains a visibly partial stroke in deterministic rendering tests.
 - [ ] Response completion plus the chosen drain guard does not overlap steps.
 
 ### Day 3 generation spike

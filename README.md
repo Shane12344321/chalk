@@ -1,12 +1,12 @@
 # CHALK
 
-CHALK is a localhost hackathon prototype for a math and physics tutor that talks while drawing and stops when the student interrupts. Milestone M1 proves the riskiest foundation: a browser-to-OpenAI Realtime WebRTC voice loop, server-minted ephemeral credentials, interruption handling, and a dummy tool round trip. The deterministic whiteboard arrives in M2.
+CHALK is a localhost hackathon prototype for a math and physics tutor that talks while drawing and stops when the student interrupts. Milestone M1 proves the browser-to-OpenAI Realtime WebRTC voice foundation. M2 adds a deterministic SVG whiteboard, a schema-validated hardcoded projectile lesson, and fixed concurrent voice/ink synchronization.
 
 This is not a production service and is not suitable for unsupervised use by children. It has no authentication, persistence, deployment hardening, or production privacy controls.
 
 ## Current status
 
-M1 is complete: deterministic checks, live voice, the dummy-tool continuation, layered token controls, and five consecutive playback-backed interruptions passed. Automated checks do not call the live API or require a key. A manual rerun still requires a valid `OPENAI_API_KEY`; see `PROGRESS.md` and the checked-in ID-free acceptance summary for evidence actually collected.
+M1 is complete: deterministic checks, live voice, the dummy-tool continuation, layered token controls, and five consecutive playback-backed interruptions passed. M2 is also complete: the deterministic whiteboard, three live four-step runs, partial-stroke interruption/resume, concurrent voice and ink, and audible narration serialization passed. Automated checks do not call the live API or require a key. See `PROGRESS.md` for evidence actually collected.
 
 ## Local setup
 
@@ -40,7 +40,7 @@ DRAWBACK_MODE=vision
 FRONTEND_ORIGIN=http://localhost:5173
 ```
 
-`SAFETY_IDENTIFIER_SALT` is a non-secret domain-separation value, not an authentication credential. Choose a deliberate per-app value if this prototype is ever adapted beyond local development. `BOARD_MODEL`, `SYNC_MODE`, and `DRAWBACK_MODE` are forward configuration for later milestones; they do not imply those features exist in M1. Audition `cedar` against `marin` before recording. Use `gpt-realtime-2.1` only if the owner explicitly approves the higher recording cost after the mini-model flow passes.
+`SAFETY_IDENTIFIER_SALT` is a non-secret domain-separation value, not an authentication credential. Choose a deliberate per-app value if this prototype is ever adapted beyond local development. `SYNC_MODE=fixed` is the M2 implementation; `BOARD_MODEL` and `DRAWBACK_MODE` are forward configuration for later milestones. Audition `cedar` against `marin` before recording. Use `gpt-realtime-2.1` only if the owner explicitly approves the higher recording cost after the mini-model flow passes.
 
 ## Run locally
 
@@ -78,10 +78,25 @@ The Make targets below are thin wrappers around the native project commands.
 | Frontend lint | `make lint-frontend` | `npm --prefix frontend run lint` |
 | Backend lint/format check | `make lint-backend` | `uv run --project backend ruff check backend` and `ruff format --check backend` |
 | Frontend production build | `make build-frontend` | `npm --prefix frontend run build` |
+| Regenerate lesson types | — | `npm --prefix frontend run schema:types` |
 | Backend syntax build | `make build-backend` | `uv run --project backend python -m compileall -q backend/app backend/tests` |
 | All lint/build checks | `make lint` / `make build` | the corresponding commands above |
 
 The production frontend build is a static validation artifact only; deployment is out of scope.
+
+## Reproducing the M2 projectile lesson gate
+
+The board program is checked in at `demo/cached_lessons/projectile-range.lesson.json`. It is decoded through `shared/schema/lesson.schema.json`; no board-model request is made in M2.
+
+1. Start both services, open the app, and connect the microphone using the mini Realtime model.
+2. Click **Start lesson**. Confirm the first moving ink begins on the first narration activity rather than before the voice or after it finishes.
+3. During a visibly incomplete stroke, speak. Confirm the stroke freezes where it is and remains visible while the app is in `QA`.
+4. After the answer finishes, click **Resume frozen step**. Narration restarts for that step while ink continues from its retained progress.
+5. Let all four steps finish. Confirm the counter increments only when the last step clears animation, generation, audio-stop, and drain gates.
+6. Repeat until the UI shows **3 / 3 completed runs**. Confirm no next-step narration audibly overlaps the prior step.
+7. Disconnect immediately after recording the result to conserve credits.
+
+The deterministic suite covers schema failures, unsafe expressions and equations, dangling references, region/anchor layout, stable rough paths, partial-stroke retention, response/audio event-order races, stale request/cycle rejection, and three full reducer runs. The deliberately human M2 gate also passed: the owner confirmed that voice and ink felt concurrent and consecutive narration did not overlap in the recording browser.
 
 ## Realtime cost controls
 

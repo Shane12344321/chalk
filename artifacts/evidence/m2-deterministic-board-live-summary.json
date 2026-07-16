@@ -1,0 +1,56 @@
+{
+  "schema": "chalk.m2-live-acceptance.v1",
+  "captured_at": "2026-07-16T13:22:37+0530",
+  "browser": "Codex in-app browser",
+  "model": "gpt-realtime-2.1-mini",
+  "voice": "marin",
+  "lesson_fixture": "demo/cached_lessons/projectile-range.lesson.json",
+  "completed_runs": 3,
+  "final_state": {
+    "phase": "DONE",
+    "step": "4/4",
+    "step_progress_percent": 100,
+    "completed_runs_display": "3 / 3"
+  },
+  "interruption_evidence": {
+    "partial_freeze_observed_percent": 19,
+    "partial_ink_retained": true,
+    "resume_completed": true,
+    "final_session_settled_interruptions": 3,
+    "final_session_successful_interruptions": 3,
+    "final_session_stale_output_events": 0,
+    "local_handler_stop_latency_ms": [0.0, 0.0, 0.0]
+  },
+  "response_coordination": {
+    "resume_disabled_during_qa_playback": true,
+    "resume_enabled_after_output_audio_buffer_stopped": true,
+    "overlapping_playback_buffers_observed": false
+  },
+  "final_session_usage": {
+    "total_tokens": 13589,
+    "input_tokens": 10691,
+    "output_tokens": 2898,
+    "session_token_budget": 20000,
+    "auto_disconnect_triggered": false
+  },
+  "privacy": {
+    "contains_transcript_text": false,
+    "contains_audio": false,
+    "contains_tool_arguments": false,
+    "contains_credentials": false,
+    "contains_response_or_item_ids": false
+  },
+  "human_perceptual_judgment": {
+    "voice_and_ink_concurrent": true,
+    "audible_narration_overlap": false,
+    "status": "passed",
+    "confirmed_at": "2026-07-16T13:45:30+0530",
+    "confirmed_by": "project_owner"
+  },
+  "notes": [
+    "Three complete four-step loops reached DONE in one browser page across three short Realtime sessions.",
+    "Additional speech detections exercised repeated freeze/resume recovery but were not required by the M2 exit gate.",
+    "The project owner confirmed that ink felt concurrent with narration and consecutive narration did not overlap.",
+    "This aggregate intentionally excludes raw trace identifiers and content-bearing events."
+  ]
+}

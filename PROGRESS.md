@@ -138,7 +138,45 @@ Do not infer perceived audio-stop latency from the local-state timing. Do not cl
 - If WebRTC fails, diagnose the handshake and account/model access. Do not silently substitute a different transport.
 - Revert root setup with a normal Git revert only after it is committed; do not destructively reset user work.
 
-### Next smallest evidence-backed actions
+### Next smallest evidence-backed actions at M1 completion
 
-1. Revoke the chat-disclosed API key and replace or remove the local `.env` value.
-2. Begin M2 only when explicitly requested; its first task is the shared lesson schema and minimal hardcoded projectile op set.
+1. Implement and validate the M2 shared lesson schema and minimal hardcoded projectile op set.
+2. Build the deterministic seeded board renderer and fixed concurrent sync without spending live API tokens during routine development.
+
+## 2026-07-15 — M2 established
+
+M1 remains preserved at commit `e6822f5`, and M2 is isolated on `codex/m2-deterministic-board`. The M2 contract was re-audited against `AGENTS.md`, `ARCHITECTURE.md`, `PLANS.md`, and the original build plan. The audited contract overrides the original sequential fallback: fixed mode must begin narration and ink together and retain a partial stroke on interruption.
+
+The dependency audit selected rough.js for stable seeded sketch geometry, KaTeX for formula layout with `trust: false`, mathjs for browser-side compilation after a stricter CHALK expression allowlist, and Ajv for runtime validation of the shared JSON Schema. These libraries replace commodity geometry/typesetting/parsing work; CHALK still owns schema budgets, reference validation, deterministic layout, per-op isolation, animation, state transitions, and Realtime coordination.
+
+Live API use is not required for routine M2 implementation. Credentials remain local, ignored, and outside source control.
+
+### M2 deterministic implementation evidence
+
+The frontend now loads a four-step projectile program through the shared JSON Schema and generated TypeScript types. The minimal M2 DSL contains only `text`, `equation`, `sketch`, `axes`, and `curve`. Ajv validates the wire contract; the defensive decoder separately salvages valid sibling ops while rejecting over-budget steps, duplicate IDs, dangling anchors/axes, unsafe LaTeX, invalid axis ranges, and expressions outside CHALK's allowlist. KaTeX runs with `trust: false`; mathjs compiles only after the stricter AST walk and bounded finite sampling.
+
+The SVG renderer resolves the 1600 × 900 region/anchor layout, caches rough.js geometry by validated op and stable element-ID seed, and reveals immutable paths with normalized dash offsets. The fixed-sync reducer begins animation only after narration activity, weights ops across the word-count duration, freezes without changing progress, rejects stale request/step/cycle events, and advances only after animation, response generation, audio-buffer stop, and a 260 ms drain guard. Realtime narration correlation retains both completion signals in either arrival order.
+
+At 2026-07-15T23:34:37+0530, `make test`, `make lint`, `make build`, `npm --prefix frontend audit --omit=dev`, schema regeneration, and `git diff --check` passed: 91 frontend and 38 backend tests, zero production npm audit findings, and a clean local browser load with no console warning/error. The renderer suite proves stable paths and a visible one-third partial cannon stroke across rerender; the reducer suite completes three consecutive four-step runs. Vite reports a non-blocking chunk-size warning because the restricted mathjs/KaTeX application bundle is about 988 kB uncompressed (298 kB gzip).
+
+At this stage the milestone was not yet accepted. Three live mini-model runs, human judgment of concurrent voice/ink and audible non-overlap, and one microphone interruption during a visibly partial stroke still remained. Deterministic tests were not substituted for that perceptual gate.
+
+## 2026-07-16 — M2 seam audit and hardening
+
+The independent M2 infrastructure audit in `artifacts/audit/2026-07-16-m2-infra-audit.md` was checked against the implementation rather than accepted wholesale. Seven M2-critical findings were confirmed and fixed: rejected narration now releases its correlation lock and resets the lesson safely; an in-progress lesson resets when its Realtime connection ends; the decoder enforces the shared 240-character script cap; lesson responses use bounded Realtime response metadata so an unrelated VAD response cannot claim the pending narration; animation starts only on `output_audio_buffer.started`, not transcript generation; curve validation and rendering share the axes domain and sample density while clipped runs render as separate segments; and dense region layout remains inside its region.
+
+The response-correlation design follows the current official Realtime contract: client `event_id` identifies a rejected request, while response `metadata` disambiguates simultaneous responses. Metadata contains only CHALK request/step/cycle identifiers and purpose—never narration, transcript, audio, credentials, or tool arguments. Resume remains deliberately step-level: ink continues from its frozen position while the short current script restarts, but the button now remains disabled until Q&A generation/playback is idle. Word-level alignment is still out of scope.
+
+The audit's request to commit immediately was rejected because `AGENTS.md` requires the relevant acceptance gate to pass first. Backend streaming/ASGI concerns belong to M3, while axes decoration and bundle splitting are non-gating cosmetics/performance work. `.env` remains ignored and no environment file is tracked.
+
+At 2026-07-16T13:04:01+0530, 100 frontend and 38 backend tests passed. Frontend ESLint, TypeScript, Vite production build, backend Ruff lint/format, Python compileall, deterministic schema regeneration during `npm test`, `npm audit --omit=dev` (zero findings), `git diff --check`, and a disconnected in-app browser smoke passed. The browser rendered the M2 shell with the logical `1600 × 900` board, no board warning, and no console warning/error. The Vite chunk-size warning remains non-blocking. At that point the three-run microphone/perceptual gate remained pending, so no M2 commit had been created.
+
+## 2026-07-16 — M2 live three-run evidence captured
+
+The hardcoded four-step projectile lesson reached `DONE` three times in the Codex in-app browser using `gpt-realtime-2.1-mini` with voice `marin`. A playback-backed interruption froze visible ink at 19%, retained the partial stroke, settled with zero stale output, and resumed to completion. Later speech detections exercised the same recovery path repeatedly. Resume remained unavailable while Q&A audio was active and became available after `output_audio_buffer.stopped`; no simultaneous playback buffers were observed. The final session ended at 13,589 / 20,000 tokens and was disconnected immediately after `DONE 3 / 3`.
+
+ID-free machine evidence is checked in at `artifacts/evidence/m2-deterministic-board-live-summary.json`. On 2026-07-16 the owner explicitly confirmed that ink felt concurrent with narration and that consecutive narration did not overlap. That confirmation closes the final live acceptance item; M2 now satisfies every exit condition and is eligible for its checkpoint commit.
+
+## 2026-07-16 — M2 accepted
+
+M2 is complete. The deterministic five-op whiteboard, validated renderer, fixed concurrent synchronization, response correlation, partial-stroke freeze/resume, disconnect/rejection recovery, three consecutive live four-step runs, and owner perceptual gate all pass. A final local checkpoint gate then passed with 100 frontend and 38 backend tests, lint/format, TypeScript/Vite build, Python compileall, zero production npm audit findings, valid evidence JSON, secret-pattern scanning, and clean diff hygiene. The passing checkpoint is the baseline for subsequent visual or pacing fine-tuning; response-coordinator, VAD-policy, out-of-band narration, manifests, live generation, and paced-sync changes remain deliberately outside this checkpoint.
