@@ -25,6 +25,7 @@ const CHALK_MODE =
 const INITIAL_SNAPSHOT: RealtimeSnapshot = {
   status: "disconnected",
   audioPlaybackActive: false,
+  microphoneEnabled: false,
   trace: [],
   interruptions: [],
   consecutiveSuccessfulInterruptions: 0,
@@ -115,6 +116,14 @@ function App() {
 
   const disconnect = () => {
     void clientRef.current?.disconnect();
+  };
+
+  const toggleMicrophone = () => {
+    try {
+      clientRef.current?.setMicrophoneEnabled(!snapshot.microphoneEnabled);
+    } catch {
+      // Connection errors are already represented by the client snapshot.
+    }
   };
 
   const startLesson = () => {
@@ -250,19 +259,30 @@ function App() {
             {snapshot.status === "connected"
               ? snapshot.audioPlaybackActive
                 ? "Chalk is speaking"
-                : "Chalk is listening"
+                : snapshot.microphoneEnabled
+                  ? "Listening to you"
+                  : "Microphone paused"
               : "Connect the voice loop"}
           </h2>
           <p>
             {snapshot.status === "connected"
-              ? isDiagnostics
-                ? "Speak naturally. Interrupt while the orb is moving to test barge-in."
-                : "Ask a question at any time. Chalk will pause the lesson and answer you."
+              ? snapshot.microphoneEnabled
+                ? "Speak now. The microphone pauses automatically when your turn ends."
+                : "Click Speak when you want to answer or interrupt Chalk."
               : "The browser will ask for microphone access after the backend mints a short-lived session credential."}
           </p>
           <div className="button-row">
             <button className="primary" type="button" onClick={connect} disabled={!canConnect || isBusy}>
               {isBusy ? "Connecting…" : "Connect microphone"}
+            </button>
+            <button
+              className={snapshot.microphoneEnabled ? "secondary" : "primary"}
+              type="button"
+              onClick={toggleMicrophone}
+              disabled={snapshot.status !== "connected"}
+              aria-pressed={snapshot.microphoneEnabled}
+            >
+              {snapshot.microphoneEnabled ? "Stop listening" : "Speak"}
             </button>
             <button className="secondary" type="button" onClick={disconnect} disabled={!canDisconnect}>
               Disconnect

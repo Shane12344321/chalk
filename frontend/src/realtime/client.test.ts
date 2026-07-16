@@ -476,7 +476,7 @@ describe("RealtimeClient event coordination", () => {
     }
   });
 
-  it("keeps captured audio disabled until session.updated is acknowledged", async () => {
+  it("keeps captured audio disabled after session acknowledgement until the user speaks", async () => {
     const track = fakeTrack();
     const stream = fakeStream(track);
     const peer = new HandshakePeer();
@@ -531,9 +531,10 @@ describe("RealtimeClient event coordination", () => {
     try {
       await client.connect();
       expect(enabledObservations).toEqual([false, false]);
-      expect(track.enabled).toBe(true);
+      expect(track.enabled).toBe(false);
       expect(client.getSnapshot()).toMatchObject({
         status: "connected",
+        microphoneEnabled: false,
         sessionModel: "gpt-realtime-2.1-mini",
         sessionVoice: "marin",
       });
@@ -552,6 +553,25 @@ describe("RealtimeClient event coordination", () => {
         Reflect.deleteProperty(navigator, "mediaDevices");
       }
     }
+  });
+
+  it("opens the microphone explicitly and auto-mutes at the VAD turn boundary", () => {
+    const { client, harness, latest } = createHarness();
+    const track = fakeTrack();
+    track.enabled = false;
+    harness.status = "connected";
+    harness.microphoneStream = fakeStream(track);
+
+    client.setMicrophoneEnabled(true);
+    expect(track.enabled).toBe(true);
+    expect(latest().microphoneEnabled).toBe(true);
+
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.INPUT_AUDIO_BUFFER_SPEECH_STOPPED,
+    });
+    expect(track.enabled).toBe(false);
+    expect(latest().microphoneEnabled).toBe(false);
+    expect(latest().trace.at(-1)?.type).toBe("microphone.input_disabled");
   });
 
   it("cleans every resource and clears session state on data-channel close", async () => {

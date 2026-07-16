@@ -89,6 +89,7 @@ export interface RealtimeSnapshot {
   sessionVoice?: string;
   activeResponseId?: string;
   audioPlaybackActive: boolean;
+  microphoneEnabled: boolean;
   lastError?: string;
   trace: TraceEntry[];
   interruptions: InterruptionMarker[];

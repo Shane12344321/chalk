@@ -83,6 +83,7 @@ export class RealtimeClient implements BoardContextPublisher {
   private observedSessionVoice?: string;
   private activeResponseId?: string;
   private playbackResponseId?: string;
+  private microphoneEnabled = false;
   private lastError?: string;
   private toolRoundTrips = 0;
   private readonly responseCoordinator = new ResponseCoordinator();
@@ -213,9 +214,6 @@ export class RealtimeClient implements BoardContextPublisher {
       await peer.setRemoteDescription({ type: "answer", sdp: answerSdp });
       await this.waitUntilSessionUpdated(attempt);
       this.assertCurrentAttempt(attempt);
-      for (const track of microphoneStream.getAudioTracks()) {
-        track.enabled = true;
-      }
       this.setStatus("connected");
     } catch (error) {
       if (attempt !== this.attempt) {
@@ -253,6 +251,20 @@ export class RealtimeClient implements BoardContextPublisher {
       marker.id === markerId ? { ...marker, perceived_audio_stop: value } : marker,
     );
     this.emitSnapshot();
+  }
+
+  setMicrophoneEnabled(enabled: boolean): void {
+    if (enabled && (this.status !== "connected" || !this.microphoneStream)) {
+      throw new Error("Connect the Realtime session before speaking.");
+    }
+    if (enabled === this.microphoneEnabled) return;
+    for (const track of this.microphoneStream?.getAudioTracks() ?? []) {
+      track.enabled = enabled;
+    }
+    this.microphoneEnabled = enabled;
+    this.addLocalTrace(
+      enabled ? "microphone.input_enabled" : "microphone.input_disabled",
+    );
   }
 
   setBoardContext(manifest: string): Promise<void> {
@@ -339,6 +351,7 @@ export class RealtimeClient implements BoardContextPublisher {
       audioPlaybackActive:
         this.activeResponseId !== undefined &&
         this.activeResponseId === this.playbackResponseId,
+      microphoneEnabled: this.microphoneEnabled,
       lastError: this.lastError,
       trace: this.trace.map((entry) => ({ ...entry })),
       interruptions: this.interruptions.map((marker) => ({ ...marker })),
@@ -448,6 +461,7 @@ export class RealtimeClient implements BoardContextPublisher {
     if (event.type === SERVER_EVENTS.OUTPUT_AUDIO_BUFFER_STARTED) {
       const responseId = getResponseId(event);
       if (responseId) {
+        this.setMicrophoneEnabled(false);
         this.playbackResponseId = responseId;
         this.activeResponseId = responseId;
         this.emitResponseLifecycle(responseId, "activity");
@@ -483,6 +497,11 @@ export class RealtimeClient implements BoardContextPublisher {
     if (event.type === SERVER_EVENTS.INPUT_AUDIO_BUFFER_SPEECH_STARTED) {
       this.emitSemanticEvent({ type: "student.speech_started" });
       this.markInterruption();
+      return;
+    }
+
+    if (event.type === SERVER_EVENTS.INPUT_AUDIO_BUFFER_SPEECH_STOPPED) {
+      this.setMicrophoneEnabled(false);
       return;
     }
 
@@ -961,6 +980,7 @@ export class RealtimeClient implements BoardContextPublisher {
     this.observedSessionVoice = undefined;
     this.activeResponseId = undefined;
     this.playbackResponseId = undefined;
+    this.microphoneEnabled = false;
     this.lastError = undefined;
     this.toolRoundTrips = 0;
     this.responseCoordinator.reset();
@@ -1014,6 +1034,7 @@ export class RealtimeClient implements BoardContextPublisher {
     this.peer = undefined;
     if (this.microphoneStream) stopMediaStream(this.microphoneStream);
     this.microphoneStream = undefined;
+    this.microphoneEnabled = false;
     if (this.remoteAudio) {
       this.remoteAudio.pause();
       this.remoteAudio.srcObject = null;
