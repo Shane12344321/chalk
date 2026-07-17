@@ -8,9 +8,10 @@
   },
   "scripts": {
     "dev": "vite --host localhost --port 5173",
-    "schema:types": "npm run schema:lesson && npm run schema:stream",
+    "schema:types": "npm run schema:lesson && npm run schema:stream && npm run schema:annotation",
     "schema:lesson": "json2ts -i ../shared/schema/lesson.schema.json -o src/board/lesson.generated.ts --bannerComment '/* Generated from shared/schema/lesson.schema.json. Do not edit. */'",
     "schema:stream": "json2ts --cwd ../shared/schema -i ../shared/schema/lesson-stream.schema.json -o src/lessonStream/stream.generated.ts --bannerComment '/* Generated from shared/schema/lesson-stream.schema.json. Do not edit. */'",
+    "schema:annotation": "json2ts -i ../shared/schema/annotation.schema.json -o src/annotations/annotation.generated.ts --bannerComment '/* Generated from shared/schema/annotation.schema.json. Do not edit. */'",
     "build": "npm run schema:types && tsc -b && vite build",
     "lint": "eslint . --max-warnings 0",
     "test": "npm run schema:types && vitest run",

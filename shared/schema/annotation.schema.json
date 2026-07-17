@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://chalk.local/schema/annotation.schema.json",
+  "title": "AnnotationProgram",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "request_id", "manifest_version", "ops"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "request_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "manifest_version": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+    "ops": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": { "$ref": "#/$defs/op" }
+    }
+  },
+  "$defs": {
+    "elementId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,15}$"
+    },
+    "side": {
+      "type": "string",
+      "enum": ["above", "below", "left", "right"]
+    },
+    "targetOp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "target_id"],
+      "properties": {
+        "op": { "enum": ["circle", "underline"] },
+        "id": { "$ref": "#/$defs/elementId" },
+        "target_id": { "$ref": "#/$defs/elementId" }
+      }
+    },
+    "arrowOp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "target_id", "side"],
+      "properties": {
+        "op": { "const": "arrow" },
+        "id": { "$ref": "#/$defs/elementId" },
+        "target_id": { "$ref": "#/$defs/elementId" },
+        "side": { "$ref": "#/$defs/side" }
+      }
+    },
+    "textOp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "target_id", "side", "content"],
+      "properties": {
+        "op": { "const": "text" },
+        "id": { "$ref": "#/$defs/elementId" },
+        "target_id": { "$ref": "#/$defs/elementId" },
+        "side": { "$ref": "#/$defs/side" },
+        "content": { "type": "string", "minLength": 1, "maxLength": 100 }
+      }
+    },
+    "equationOp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "target_id", "side", "latex"],
+      "properties": {
+        "op": { "const": "equation" },
+        "id": { "$ref": "#/$defs/elementId" },
+        "target_id": { "$ref": "#/$defs/elementId" },
+        "side": { "$ref": "#/$defs/side" },
+        "latex": { "type": "string", "minLength": 1, "maxLength": 160 }
+      }
+    },
+    "op": {
+      "oneOf": [
+        { "$ref": "#/$defs/targetOp" },
+        { "$ref": "#/$defs/arrowOp" },
+        { "$ref": "#/$defs/textOp" },
+        { "$ref": "#/$defs/equationOp" }
+      ]
+    }
+  }
+}

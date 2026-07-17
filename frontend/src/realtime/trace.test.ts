@@ -22,6 +22,9 @@ describe("redacted trace", () => {
       model: "gpt-realtime-2.1-mini",
       voice: "marin",
       browser: "test-browser",
+      visibleManifestHash: "1234abcd",
+      lastAcknowledgedManifestHash: "1234abcd",
+      contextPublications: [{ manifest_hash: "1234abcd", latency_ms: 12.34 }],
     });
 
     expect(entry).toEqual({
@@ -39,6 +42,8 @@ describe("redacted trace", () => {
     expect(exported).toContain('"type": "server_vad"');
     expect(exported).toContain('"model": "gpt-realtime-2.1-mini"');
     expect(exported).toContain('"max_output_tokens": 256');
+    expect(exported).toContain('"hashes_match": true');
+    expect(exported).toContain('"latency_ms": 12.3');
   });
 
   it("retains numeric usage while excluding response content", () => {

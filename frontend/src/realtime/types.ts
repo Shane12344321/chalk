@@ -101,12 +101,24 @@ export interface RealtimeSnapshot {
   toolRoundTrips: number;
   tokenUsage: TokenUsageSummary;
   tokenBudget: number;
+  contextPublications: ContextPublicationMetric[];
+  lastAcknowledgedManifestHash?: string;
+}
+
+export interface ContextPublicationMetric {
+  manifest_hash: string;
+  latency_ms: number;
 }
 
 export interface RealtimeClientCallbacks {
   onSnapshot: (snapshot: RealtimeSnapshot) => void;
   onSemanticEvent?: (event: RealtimeSemanticEvent) => void;
   onTeachRequested?: (topic: string, studentContext: string) => TeachStartResult;
+  onDeixisRequested?: (
+    kind: "point_at" | "circle_el" | "underline" | "flash",
+    elementId: string,
+  ) => { overlayId: string } | undefined;
+  onAnnotateRequested?: (request: string) => { requestId: string } | undefined;
 }
 
 export interface NarrationContext {
@@ -135,4 +147,7 @@ export interface TraceExportContext {
   browser?: string;
   tokenUsage?: TokenUsageSummary;
   tokenBudget?: number;
+  contextPublications?: ContextPublicationMetric[];
+  visibleManifestHash?: string;
+  lastAcknowledgedManifestHash?: string;
 }

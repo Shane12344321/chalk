@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { RealtimeClient } from "./client";
+import { manifestHash } from "./manifestHash";
 import { SESSION_TOKEN_BUDGET, SERVER_EVENTS } from "./protocol";
 import { ResponseCoordinator } from "./responseCoordinator";
 import type {
   InterruptionMarker,
+  RealtimeClientCallbacks,
   RealtimeSemanticEvent,
   RealtimeSnapshot,
   ServerEvent,
@@ -129,6 +131,8 @@ function createHarness(
   send: (data: string) => void = vi.fn(),
   onSemanticEvent?: (event: RealtimeSemanticEvent) => void,
   onTeachRequested?: (topic: string, studentContext: string) => { requestId: string },
+  onDeixisRequested?: RealtimeClientCallbacks["onDeixisRequested"],
+  onAnnotateRequested?: RealtimeClientCallbacks["onAnnotateRequested"],
 ) {
   let latest: RealtimeSnapshot | undefined;
   const client = new RealtimeClient({
@@ -138,6 +142,8 @@ function createHarness(
       onSnapshot: (snapshot) => (latest = snapshot),
       onSemanticEvent,
       onTeachRequested,
+      onDeixisRequested,
+      onAnnotateRequested,
     },
     now: (() => {
       let now = 0;
@@ -369,6 +375,13 @@ describe("RealtimeClient event coordination", () => {
     });
     harness.handleServerEvent({ type: SERVER_EVENTS.SESSION_UPDATED });
     await second;
+    expect(client.getSnapshot().contextPublications).toHaveLength(2);
+    expect(client.getSnapshot().lastAcknowledgedManifestHash).toBe(
+      manifestHash("Board: title. Visible: curve at center."),
+    );
+    expect(client.getSnapshot().contextPublications.every((item) => item.latency_ms >= 0)).toBe(
+      true,
+    );
   });
 
   it("tracks checkpoint prompt and automatic feedback as separate responses", () => {
@@ -880,6 +893,76 @@ describe("RealtimeClient event coordination", () => {
       response: {
         metadata: { chalk_kind: "tool_continuation" },
         instructions: expect.stringContaining("one short"),
+      },
+    });
+  });
+
+  it("executes local deixis and continues the same answer without exposing internals", () => {
+    const show = vi.fn().mockReturnValue({ overlayId: "overlay-1" });
+    const send = vi.fn();
+    const { harness } = createHarness(send, undefined, undefined, show);
+
+    harness.handleServerEvent(
+      responseDone("resp_tool", "completed", [
+        {
+          type: "function_call",
+          call_id: "call_point",
+          name: "point_at",
+          arguments: '{"element_id":"rangecurve"}',
+        },
+      ]),
+    );
+
+    expect(show).toHaveBeenCalledWith("point_at", "rangecurve");
+    expect(JSON.parse(String(send.mock.calls[0][0]))).toMatchObject({
+      type: "conversation.item.create",
+      item: {
+        output: JSON.stringify({
+          ok: true,
+          status: "shown",
+          overlay_id: "overlay-1",
+        }),
+      },
+    });
+    expect(JSON.parse(String(send.mock.calls[1][0]))).toMatchObject({
+      type: "response.create",
+      response: {
+        metadata: { chalk_kind: "tool_continuation" },
+        instructions: expect.stringContaining("highlighted board element"),
+      },
+    });
+  });
+
+  it("starts annotation independently and returns a prompt continuation immediately", () => {
+    const annotate = vi.fn().mockReturnValue({ requestId: "annotation-request" });
+    const send = vi.fn();
+    const { harness } = createHarness(send, undefined, undefined, undefined, annotate);
+
+    harness.handleServerEvent(
+      responseDone("resp_tool", "completed", [
+        {
+          type: "function_call",
+          call_id: "call_annotate",
+          name: "annotate",
+          arguments: '{"request":"Explain the highlighted peak"}',
+        },
+      ]),
+    );
+
+    expect(annotate).toHaveBeenCalledWith("Explain the highlighted peak");
+    expect(JSON.parse(String(send.mock.calls[0][0]))).toMatchObject({
+      item: {
+        output: JSON.stringify({
+          ok: true,
+          status: "annotation_started",
+          request_id: "annotation-request",
+        }),
+      },
+    });
+    expect(JSON.parse(String(send.mock.calls[1][0]))).toMatchObject({
+      response: {
+        metadata: { chalk_kind: "tool_continuation" },
+        instructions: expect.stringContaining("optional explanatory ink"),
       },
     });
   });

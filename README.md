@@ -6,7 +6,7 @@ This is not a production service and is not suitable for unsupervised use by chi
 
 ## Current status
 
-M1, M2, and M3 are complete, and the cached-interaction M4 slice has passed. M3's approved accumulated-whiteboard v2 Luna/`none` evidence completed all ten fixed topics with 39 accepted steps, zero repairs/drops/retries/errors, zero renderer crashes, and exactly 8/10 human layout passes. Unit circle and standing waves retain explicit collision failures. A separate connected product run measured 1.36 seconds to the first validated step and 2.72 seconds to first visible ink, passing the six-second target. The read-only verifier accepts the redacted package at `artifacts/evidence/m3-luna-v2-batch-20260717-0635/`. Automated checks never call the live API. See `PROGRESS.md` for exact evidence and remaining M4 work.
+M1, M2, and M3 are complete, and the cached-interaction M4 slice has passed. Broader M4 deterministic implementation now includes committed-element grounding, four instant local deixis overlays, a bounded stale-safe annotation overlay path, three offline recording caches, and manifest acknowledgement timing/fingerprint evidence. Its three-loop live rehearsal gate is still pending. M3's approved accumulated-whiteboard v2 Luna/`none` evidence completed all ten fixed topics with 39 accepted steps, zero repairs/drops/retries/errors, zero renderer crashes, and exactly 8/10 human layout passes. Unit circle and standing waves retain explicit live-generation collision failures. A separate connected product run measured 1.36 seconds to the first validated step and 2.72 seconds to first visible ink, passing the six-second target. The read-only verifier accepts the redacted package at `artifacts/evidence/m3-luna-v2-batch-20260717-0635/`. Automated checks never call the live API. See `PROGRESS.md` for exact evidence and remaining M4 work.
 
 ## Local setup
 
@@ -37,6 +37,8 @@ SAFETY_IDENTIFIER_SALT=chalk-local-development-v1
 BOARD_MODEL=gpt-5.6-luna
 BOARD_REASONING_EFFORT=none
 BOARD_PROMPT_VERSION=v2
+ANNOTATION_GENERATION_TIMEOUT_SECONDS=15
+ANNOTATION_MAX_CONCURRENT=1
 SYNC_MODE=fixed
 DRAWBACK_MODE=vision
 FRONTEND_ORIGIN=http://localhost:5173
@@ -58,7 +60,7 @@ make dev-frontend
 
 Then open [http://localhost:5173](http://localhost:5173). The backend binds to `127.0.0.1:8000`, CORS permits exactly `http://localhost:5173`, and Host validation accepts only `localhost`, `127.0.0.1`, and the in-process test host. Do not expose either service to a LAN or the public internet. The frontend uses `VITE_API_BASE_URL=http://127.0.0.1:8000` by default; a non-default value must still be a trusted localhost URL for this prototype.
 
-The default frontend mode is the product-facing demo. It hides the evidence dashboard and does not expose the `debug_echo` tool. Start the diagnostic UI only when collecting protocol evidence:
+The default frontend mode is the product-facing demo. It hides the evidence dashboard and does not expose the `debug_echo` tool. Local pointing and bounded annotation remain product tools. Start the diagnostic UI only when collecting protocol evidence:
 
 ```bash
 VITE_CHALK_MODE=diagnostics make dev-frontend

@@ -1,6 +1,6 @@
 # CHALK architecture
 
-Status: M1 and M2 accepted; M4 cached interaction slice accepted; M3 deterministic implementation and spend/evidence hardening passed, live rubric pending
+Status: M1, M2, and M3 accepted; M4 cached interaction slice accepted and broader interruption/grounding gate active
 Last reviewed: 2026-07-16
 Companion documents: `chalk-build-plan.md`, `AGENTS.md`
 
@@ -131,6 +131,8 @@ It contains:
 - a defensive rough.js/KaTeX renderer;
 - a stroke animator that can freeze at its current progress;
 - a manifest builder derived from committed visible state.
+- a committed-element inventory derived from that same renderer snapshot for
+  local deixis and annotation target validation.
 
 Rough geometry is seeded by element ID and generated once so React rerenders do not move existing strokes.
 
@@ -445,6 +447,9 @@ Curve expressions cross a two-stage boundary:
 - At most one active lesson generation per browser session.
 - At most one default-conversation Realtime response at a time.
 - Annotation requests may run during QA but are tied to the manifest version they received. Stale results are discarded.
+- Annotation output uses its own target-relative overlay schema, never the lesson
+  program schema. It permits at most five circle, underline, arrow, text, or
+  equation marks and cannot create axes or mutate the lesson manifest.
 - A new lesson aborts lesson generation, annotation, pending playback, and optional widget generation from the prior lesson.
 - Backend repair calls are sequential per line to preserve accepted-ID order and share an aggregate four-call lesson budget.
 - The renderer isolates each op: one render failure cannot cancel sibling ops or the lesson.
@@ -569,7 +574,7 @@ Client-visible configuration must contain only non-secret feature flags. Never e
 - [ ] Three consecutive cached projectile loops complete.
 - [ ] Each loop includes interruption, partial-stroke freeze, grounded answer, and resume.
 - [ ] The last acknowledged manifest matches visible committed board state.
-- [ ] No known crash exists on the three cached demo lessons.
+- [x] No known crash exists on the three cached demo lessons.
 
 ## Decision record
 
@@ -592,6 +597,7 @@ Client-visible configuration must contain only non-secret feature flags. Never e
 | ADR-015 | 2026-07-16 | Preserve distinct upstream terminal classes and only bounded diagnostic reasons | Collapsing HTTP rejection, incomplete, failed, and streaming error events made a valid partial lesson look like an access failure and prematurely stopped the first batch; closed codes/reasons restore diagnosis without retaining sensitive upstream content, while the harness continues only clearly topic-scoped token/content outcomes and stops ambiguous or systemic failures to protect spend |
 | ADR-016 | 2026-07-16 | Attribute and cap repairs, stop when the acceptance gate is unreachable, and retain paid-path harness failures | A failed repair previously looked like primary generation failure and could disappear from counts; one lesson now permits at most four counted-before-dispatch repairs, terminal evidence carries only closed origin/count fields, the third machine failure stops the 8/10 batch, and summary v2 records redacted harness failures without exception text |
 | ADR-017 | 2026-07-16 | Use plain-text Responses for repair and qualify that seam with an independent one-call probe | The second batch proved the first unit-circle repair request—not primary generation—received `invalid_request`; Luna documents Structured Outputs support, but the repair-only JSON formatting request failed live. Removing the nonessential format parameter keeps schema validation as the trust boundary. The separately approved content-free repair smoke then passed in 2.77 seconds with exactly one request and no retry |
+| ADR-018 | 2026-07-17 | Keep annotations in a separate target-relative overlay schema | The lesson DSL remains the stable recording contract. A five-op overlay contract can ground new explanatory ink to committed IDs without adding axes, absolute placement, or temporary marks to lesson or manifest state; local deixis remains the reliable fallback |
 
 ## Open spike decisions
 

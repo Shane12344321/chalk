@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     board_prompt_version: Literal["v1", "v2"] = "v2"
     lesson_generation_timeout_seconds: float = Field(default=30.0, gt=0, le=60)
     lesson_max_concurrent: int = Field(default=2, ge=1, le=4)
+    annotation_generation_timeout_seconds: float = Field(default=15.0, gt=0, le=30)
+    annotation_max_concurrent: int = Field(default=1, ge=1, le=2)
     frontend_origin: str = "http://localhost:5173"
     safety_identifier_salt: str = Field(
         default="chalk-local-development-v1",

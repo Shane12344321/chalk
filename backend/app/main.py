@@ -6,9 +6,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from app.annotations import router as annotation_router
 from app.config import Settings, get_settings
 from app.lessons import router as lesson_router
 from app.middleware import (
+    ANNOTATION_BODY_MAX_BYTES,
     LESSON_BODY_MAX_BYTES,
     SESSION_BODY_MAX_BYTES,
     SessionBodyLimitMiddleware,
@@ -30,6 +32,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.lesson_generation_semaphore = asyncio.Semaphore(
         resolved_settings.lesson_max_concurrent
     )
+    application.state.annotation_generation_semaphore = asyncio.Semaphore(
+        resolved_settings.annotation_max_concurrent
+    )
     application.dependency_overrides[get_settings] = lambda: application.state.settings
     application.add_middleware(
         TrustedHostMiddleware,
@@ -40,6 +45,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         path_limits={
             "/session": SESSION_BODY_MAX_BYTES,
             "/lesson": LESSON_BODY_MAX_BYTES,
+            "/annotate": ANNOTATION_BODY_MAX_BYTES,
         },
     )
     application.add_middleware(
@@ -53,10 +59,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "X-Chalk-Board-Reasoning-Effort",
             "X-Chalk-Board-Prompt-SHA256",
             "X-Chalk-Repair-Prompt-SHA256",
+            "X-Chalk-Annotation-Repairs",
+            "X-Chalk-Annotation-Prompt-SHA256",
         ],
     )
     application.include_router(router)
     application.include_router(lesson_router)
+    application.include_router(annotation_router)
     return application
 
 

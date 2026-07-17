@@ -1,11 +1,45 @@
 import type { BoardGeometry } from "./geometry";
-import { BOARD_WIDTH } from "./layout";
+import { BOARD_WIDTH, type LayoutBox } from "./layout";
 
 export const BOARD_MANIFEST_MAX_CHARS = 600;
 
 export interface VisibleGeometry {
   geometry: BoardGeometry;
   progress: number;
+}
+
+export interface VisibleBoardElement {
+  id: string;
+  kind: BoardGeometry["kind"];
+  box: LayoutBox;
+}
+
+export interface VisibleBoardSnapshot {
+  manifest: string;
+  elements: VisibleBoardElement[];
+  fingerprint: string;
+}
+
+export interface VisibleBoardState extends VisibleBoardSnapshot {
+  version: number;
+}
+
+export function buildVisibleBoardSnapshot(
+  title: string,
+  visibleGeometry: readonly VisibleGeometry[],
+): VisibleBoardSnapshot {
+  const committed = visibleGeometry.filter(({ progress }) => progress >= 1);
+  const manifest = buildBoardManifest(title, committed);
+  const elements = committed.map(({ geometry }) => ({
+    id: geometry.id,
+    kind: geometry.kind,
+    box: { ...geometry.box },
+  }));
+  return {
+    manifest,
+    elements,
+    fingerprint: JSON.stringify([manifest, elements]),
+  };
 }
 
 export function buildBoardManifest(

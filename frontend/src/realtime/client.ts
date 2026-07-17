@@ -19,6 +19,7 @@ import {
 } from "./protocol";
 import { routeToolCall } from "./toolRouter";
 import type { BoardContextPublisher } from "./boardContext";
+import { manifestHash } from "./manifestHash";
 import {
   ResponseCoordinator,
   type CoordinatedResponse,
@@ -99,6 +100,10 @@ export class RealtimeClient implements BoardContextPublisher {
   private contextAckResolve?: () => void;
   private contextAckReject?: (error: Error) => void;
   private contextAckTimeout?: number;
+  private contextAckStartedAt?: number;
+  private contextAckManifestHash?: string;
+  private contextPublications: Array<{ manifest_hash: string; latency_ms: number }> = [];
+  private lastAcknowledgedManifestHash?: string;
 
   private peer?: RTCPeerConnection;
   private dataChannel?: RTCDataChannel;
@@ -361,6 +366,8 @@ export class RealtimeClient implements BoardContextPublisher {
       toolRoundTrips: this.toolRoundTrips,
       tokenUsage: { ...this.tokenUsage },
       tokenBudget: SESSION_TOKEN_BUDGET,
+      contextPublications: this.contextPublications.map((item) => ({ ...item })),
+      lastAcknowledgedManifestHash: this.lastAcknowledgedManifestHash,
     };
   }
 
@@ -437,10 +444,13 @@ export class RealtimeClient implements BoardContextPublisher {
     if (event.type === SERVER_EVENTS.SESSION_UPDATED) {
       if (this.contextAckResolve) {
         const resolve = this.contextAckResolve;
+        this.finishContextPublication();
         this.clearContextAcknowledgement();
+        this.emitSnapshot();
         resolve();
         return;
       }
+      this.finishContextPublication();
       this.sessionUpdated = true;
       this.readyResolve?.();
       this.readyResolve = undefined;
@@ -581,6 +591,7 @@ export class RealtimeClient implements BoardContextPublisher {
 
     this.sessionUpdateSent = true;
     this.setStatus("configuring-session");
+    this.startContextPublication();
     this.sendEvent(
       createSessionUpdate(
         this.sessionCredential.model,
@@ -612,6 +623,7 @@ export class RealtimeClient implements BoardContextPublisher {
       this.contextAckResolve = resolve;
       this.contextAckReject = reject;
       try {
+        this.startContextPublication();
         this.sendEvent(
           createTutorContextUpdate(
             this.mode,
@@ -640,6 +652,25 @@ export class RealtimeClient implements BoardContextPublisher {
     this.contextAckTimeout = undefined;
     this.contextAckResolve = undefined;
     this.contextAckReject = undefined;
+    this.contextAckStartedAt = undefined;
+    this.contextAckManifestHash = undefined;
+  }
+
+  private startContextPublication(): void {
+    this.contextAckStartedAt = this.now();
+    this.contextAckManifestHash = manifestHash(this.boardContext ?? "");
+  }
+
+  private finishContextPublication(): void {
+    if (this.contextAckStartedAt === undefined || !this.contextAckManifestHash) return;
+    const metric = {
+      manifest_hash: this.contextAckManifestHash,
+      latency_ms: round(Math.max(0, this.now() - this.contextAckStartedAt)),
+    };
+    this.contextPublications = [...this.contextPublications, metric].slice(-32);
+    this.lastAcknowledgedManifestHash = metric.manifest_hash;
+    this.contextAckStartedAt = undefined;
+    this.contextAckManifestHash = undefined;
   }
 
   private emitResponseLifecycle(
@@ -812,11 +843,15 @@ export class RealtimeClient implements BoardContextPublisher {
 
     let successfulEchoes = 0;
     let lessonStarted = false;
+    let localActionShown = false;
+    let annotationStarted = false;
     const clientEventId = `evt_tool_continuation_${crypto.randomUUID()}`;
     try {
       for (const call of calls) {
         const result = routeToolCall(call, {
           teach: this.callbacks.onTeachRequested,
+          deixis: this.callbacks.onDeixisRequested,
+          annotate: this.callbacks.onAnnotateRequested,
         });
         this.sendEvent(createFunctionCallOutput(call.callId, result));
         this.addLocalTrace("tool.output_sent", {
@@ -824,11 +859,16 @@ export class RealtimeClient implements BoardContextPublisher {
           status: result.ok ? "ok" : result.reason,
         });
         if (result.ok && "echo" in result) successfulEchoes += 1;
-        if (result.ok && "status" in result && result.status === "started") {
-          lessonStarted = true;
+        if (result.ok && "status" in result) {
+          if (result.status === "started") lessonStarted = true;
+          if (result.status === "shown") localActionShown = true;
+          if (result.status === "annotation_started") annotationStarted = true;
         }
       }
-      const purpose = lessonStarted ? "tool_continuation" : "diagnostic_tool";
+      const purpose =
+        lessonStarted || localActionShown || annotationStarted
+          ? "tool_continuation"
+          : "diagnostic_tool";
       this.responseCoordinator.registerManual({
         purpose,
         clientEventId,
@@ -840,7 +880,11 @@ export class RealtimeClient implements BoardContextPublisher {
           { chalk_kind: purpose },
           lessonStarted
             ? "Say one short, engaging sentence that frames the requested topic while the board is prepared. Do not mention tools or loading."
-            : undefined,
+            : localActionShown
+              ? "Continue the answer naturally and refer to the highlighted board element without mentioning tools."
+              : annotationStarted
+                ? "Continue the answer briefly while optional explanatory ink is prepared. Do not mention tools or loading."
+              : undefined,
         ),
       );
     } catch (error) {
@@ -999,6 +1043,10 @@ export class RealtimeClient implements BoardContextPublisher {
     this.responseCoordinator.reset();
     this.interactionGuidance = undefined;
     this.contextUpdateTail = Promise.resolve();
+    this.contextPublications = [];
+    this.lastAcknowledgedManifestHash = undefined;
+    this.contextAckStartedAt = undefined;
+    this.contextAckManifestHash = undefined;
     this.clearContextAcknowledgement();
     this.trace = [];
     this.interruptions = [];

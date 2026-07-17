@@ -4,7 +4,13 @@ import { opProgress } from "./animation";
 import type { NormalizedLesson } from "./decode";
 import { BoardGeometryStore, type BoardGeometry, type BoardPath } from "./geometry";
 import { BOARD_HEIGHT, BOARD_WIDTH, layoutSteps } from "./layout";
-import { buildBoardManifest } from "./manifest";
+import {
+  buildVisibleBoardSnapshot,
+  type VisibleBoardState,
+} from "./manifest";
+import { OverlayLayer, type DeixisOverlay } from "./overlays";
+import { AnnotationOverlayLayer } from "./annotationOverlays";
+import type { AnnotationOp } from "../annotations";
 import { fitBoardText } from "./textLayout";
 
 interface BoardProps {
@@ -13,6 +19,9 @@ interface BoardProps {
   currentStepProgress: number;
   phase: string;
   onManifestChange?: (manifest: string) => void;
+  onVisibleStateChange?: (state: VisibleBoardState) => void;
+  overlays?: readonly DeixisOverlay[];
+  annotations?: readonly AnnotationOp[];
   measurementId?: string;
   onFirstVisibleInk?: (measurementId: string, observedAtMs: number) => void;
 }
@@ -23,6 +32,9 @@ export function Board({
   currentStepProgress,
   phase,
   onManifestChange,
+  onVisibleStateChange,
+  overlays = [],
+  annotations = [],
   measurementId,
   onFirstVisibleInk,
 }: BoardProps) {
@@ -31,9 +43,9 @@ export function Board({
   const geometryStore = store.current;
   const laidOut = useMemo(() => layoutSteps(lesson.steps), [lesson]);
   const build = useMemo(() => geometryStore.build(laidOut), [geometryStore, laidOut]);
-  const manifest = useMemo(
+  const visibleSnapshot = useMemo(
     () =>
-      buildBoardManifest(
+      buildVisibleBoardSnapshot(
         lesson.title,
         build.geometries.map((geometry) => ({
           geometry,
@@ -47,7 +59,15 @@ export function Board({
       ),
     [build.geometries, currentStepIndex, currentStepProgress, lesson],
   );
-  useEffect(() => onManifestChange?.(manifest), [manifest, onManifestChange]);
+  const visibleVersionRef = useRef(0);
+  const visibleFingerprintRef = useRef<string>();
+  useEffect(() => {
+    if (visibleFingerprintRef.current === visibleSnapshot.fingerprint) return;
+    visibleFingerprintRef.current = visibleSnapshot.fingerprint;
+    visibleVersionRef.current += 1;
+    onManifestChange?.(visibleSnapshot.manifest);
+    onVisibleStateChange?.({ ...visibleSnapshot, version: visibleVersionRef.current });
+  }, [onManifestChange, onVisibleStateChange, visibleSnapshot]);
   const measuredRef = useRef<string>();
   useEffect(() => {
     if (!measurementId || measuredRef.current === measurementId) return;
@@ -86,6 +106,16 @@ export function Board({
           <filter id="chalk-softness">
             <feGaussianBlur stdDeviation="0.16" />
           </filter>
+          <marker
+            id="annotation-arrowhead"
+            markerHeight="8"
+            markerWidth="8"
+            orient="auto-start-reverse"
+            refX="7"
+            refY="4"
+          >
+            <path d="M0,0 L8,4 L0,8 Z" fill="#88d9aa" />
+          </marker>
         </defs>
         <rect width={BOARD_WIDTH} height={BOARD_HEIGHT} rx="36" fill="#102b22" />
         <path className="board-ghost-line" d="M48 300 H1552 M48 576 H1552" />
@@ -93,6 +123,8 @@ export function Board({
           const progress = geometryProgress(geometry, lesson, currentStepIndex, currentStepProgress);
           return <Geometry key={geometry.id} geometry={geometry} progress={progress} />;
         })}
+        <AnnotationOverlayLayer ops={annotations} elements={visibleSnapshot.elements} />
+        <OverlayLayer overlays={overlays} elements={visibleSnapshot.elements} />
       </svg>
       {build.warnings.length > 0 ? (
         <p className="board-warning" role="status">

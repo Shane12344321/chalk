@@ -3,7 +3,11 @@ import projectileLesson from "../../../demo/cached_lessons/projectile-range.less
 import { decodeLesson } from "./decode";
 import { BoardGeometryStore } from "./geometry";
 import { layoutSteps } from "./layout";
-import { BOARD_MANIFEST_MAX_CHARS, buildBoardManifest } from "./manifest";
+import {
+  BOARD_MANIFEST_MAX_CHARS,
+  buildBoardManifest,
+  buildVisibleBoardSnapshot,
+} from "./manifest";
 
 const lesson = decodeLesson(projectileLesson).lesson!;
 const geometry = new BoardGeometryStore().build(layoutSteps(lesson.steps)).geometries;
@@ -30,5 +34,19 @@ describe("visible board manifest", () => {
     expect(manifest).toContain("rangecurve");
     expect(manifest).toContain("x=45");
     expect(manifest.length).toBeLessThanOrEqual(BOARD_MANIFEST_MAX_CHARS);
+  });
+
+  it("uses the same committed geometry for manifest text and target boxes", () => {
+    const snapshot = buildVisibleBoardSnapshot(
+      lesson.title,
+      geometry.map((item) => ({
+        geometry: item,
+        progress: item.id === "title" ? 1 : item.id === "cannon" ? 0.99 : 0,
+      })),
+    );
+    expect(snapshot.elements.map((item) => item.id)).toEqual(["title"]);
+    expect(snapshot.manifest).toContain("title");
+    expect(snapshot.manifest).not.toContain("cannon");
+    expect(snapshot.fingerprint).toContain("title");
   });
 });

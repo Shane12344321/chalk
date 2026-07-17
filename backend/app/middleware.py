@@ -6,6 +6,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 SESSION_BODY_MAX_BYTES = 4 * 1024
 LESSON_BODY_MAX_BYTES = 8 * 1024
+ANNOTATION_BODY_MAX_BYTES = 6 * 1024
 
 
 class _RequestBodyTooLarge(Exception):

@@ -28,3 +28,12 @@ The implemented contract intentionally contains only the five operations
 required by the cached projectile lesson. M4 reuses its existing checkpoint
 shape without widening the drawing DSL. Later renderer or overlay operations
 must extend this schema before they are accepted as lesson wire data.
+
+`annotation.schema.json` is a separate M4 overlay wire contract. It cannot add
+lesson axes, curves, regions, absolute coordinates, styles, markup, or URLs.
+It allows at most five target-relative `circle`, `underline`, `arrow`, `text`,
+or `equation` ops. Every `target_id` is validated against the exact committed
+visible-element inventory supplied with the request. Annotation IDs must be
+unique and cannot collide with visible lesson IDs. The backend and browser
+both validate this schema and the target inventory before rendering; invalid,
+cancelled, or stale annotation output never enters lesson or manifest state.

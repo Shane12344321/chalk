@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import projectileLessonSource from "../../demo/cached_lessons/projectile-range.lesson.json";
+import derivativeLessonSource from "../../demo/cached_lessons/derivative-slope.lesson.json";
+import unitCircleLessonSource from "../../demo/cached_lessons/unit-circle-sine.lesson.json";
+import { AnnotationClient, type AnnotationOp } from "./annotations";
 import { Board } from "./board/Board";
 import { decodeLesson } from "./board/decode";
 import { buildBoardManifest } from "./board/manifest";
+import type { VisibleBoardState } from "./board/manifest";
+import type { DeixisKind, DeixisOverlay } from "./board/overlays";
 import { isLessonProgram } from "./board/schema";
 import type { NormalizedLesson } from "./board/decode";
+import { isSpaceToSpeakEvent } from "./voiceShortcut";
 import {
   decodeLessonNdjson,
   LessonStreamClient,
@@ -12,6 +18,7 @@ import {
 } from "./lessonStream";
 import {
   getOrCreateClientId,
+  manifestHash,
   RealtimeClient,
   resolveLocalApiBaseUrl,
   serializeRedactedTrace,
@@ -45,14 +52,31 @@ const INITIAL_SNAPSHOT: RealtimeSnapshot = {
     output_audio_tokens: 0,
   },
   tokenBudget: 20_000,
+  contextPublications: [],
 };
 
-const PROJECTILE_RESULT = decodeLesson(projectileLessonSource);
-if (!isLessonProgram(projectileLessonSource) || !PROJECTILE_RESULT.lesson || PROJECTILE_RESULT.warnings.length > 0) {
-  throw new Error("The checked-in projectile lesson did not pass its shared contract.");
+function checkedCachedLesson(source: unknown, name: string): NormalizedLesson {
+  const result = decodeLesson(source);
+  if (!isLessonProgram(source) || !result.lesson || result.warnings.length > 0) {
+    throw new Error(`The checked-in ${name} lesson did not pass its shared contract.`);
+  }
+  return result.lesson;
 }
-const PROJECTILE_LESSON = PROJECTILE_RESULT.lesson;
+
+const PROJECTILE_LESSON = checkedCachedLesson(projectileLessonSource, "projectile");
+const CACHED_LESSONS = {
+  projectile: PROJECTILE_LESSON,
+  derivative: checkedCachedLesson(derivativeLessonSource, "derivative"),
+  "unit-circle": checkedCachedLesson(unitCircleLessonSource, "unit-circle"),
+} as const;
+type CachedLessonKey = keyof typeof CACHED_LESSONS;
 const EMPTY_PROJECTILE_MANIFEST = buildBoardManifest(PROJECTILE_LESSON.title, []);
+const EMPTY_VISIBLE_BOARD: VisibleBoardState = {
+  version: 0,
+  manifest: EMPTY_PROJECTILE_MANIFEST,
+  elements: [],
+  fingerprint: JSON.stringify([EMPTY_PROJECTILE_MANIFEST, []]),
+};
 
 interface M3GenerationTiming {
   requestId: string;
@@ -80,6 +104,10 @@ function App() {
   if (!lessonStreamRef.current) {
     lessonStreamRef.current = new LessonStreamClient(API_BASE_URL, clientIdRef.current);
   }
+  const annotationClientRef = useRef<AnnotationClient>();
+  if (!annotationClientRef.current) {
+    annotationClientRef.current = new AnnotationClient(API_BASE_URL, clientIdRef.current);
+  }
   const semanticHandlerRef = useRef<(event: RealtimeSemanticEvent) => void>();
   const generationTimingRef = useRef<M3GenerationTiming>();
   const teachHandlerRef = useRef<
@@ -87,7 +115,12 @@ function App() {
   >();
   const [snapshot, setSnapshot] = useState(INITIAL_SNAPSHOT);
   const [boardManifest, setBoardManifest] = useState(EMPTY_PROJECTILE_MANIFEST);
+  const visibleBoardRef = useRef(EMPTY_VISIBLE_BOARD);
+  const [deixisOverlays, setDeixisOverlays] = useState<DeixisOverlay[]>([]);
+  const [annotationOps, setAnnotationOps] = useState<AnnotationOp[]>([]);
+  const overlayTimeoutsRef = useRef(new Map<string, number>());
   const [topic, setTopic] = useState("Derivative as slope at a point");
+  const [cachedLessonKey, setCachedLessonKey] = useState<CachedLessonKey>("projectile");
   const [activeLesson, setActiveLesson] = useState<{
     lesson: NormalizedLesson;
     requestId: string;
@@ -126,6 +159,69 @@ function App() {
   });
   semanticHandlerRef.current = lessonSync.onSemanticEvent;
 
+  const clearDeixisOverlays = useCallback(() => {
+    for (const timeout of overlayTimeoutsRef.current.values()) {
+      window.clearTimeout(timeout);
+    }
+    overlayTimeoutsRef.current.clear();
+    setDeixisOverlays([]);
+  }, []);
+
+  const handleVisibleStateChange = useCallback((state: VisibleBoardState) => {
+    visibleBoardRef.current = state;
+    setBoardManifest(state.manifest);
+  }, []);
+
+  const showDeixis = useCallback(
+    (kind: DeixisKind, elementId: string): { overlayId: string } | undefined => {
+      if (!visibleBoardRef.current.elements.some((element) => element.id === elementId)) {
+        return undefined;
+      }
+      const overlayId = `overlay_${crypto.randomUUID()}`;
+      setDeixisOverlays((current) => [
+        ...current.slice(-7),
+        { id: overlayId, kind, targetId: elementId },
+      ]);
+      const timeout = window.setTimeout(() => {
+        setDeixisOverlays((current) => current.filter((item) => item.id !== overlayId));
+        overlayTimeoutsRef.current.delete(overlayId);
+      }, 2_200);
+      overlayTimeoutsRef.current.set(overlayId, timeout);
+      return { overlayId };
+    },
+    [],
+  );
+
+  const clearAnnotations = useCallback(() => {
+    annotationClientRef.current?.cancel();
+    setAnnotationOps([]);
+  }, []);
+
+  const requestAnnotation = useCallback((question: string) => {
+    const visible = visibleBoardRef.current;
+    if (visible.elements.length === 0) return undefined;
+    const requestId = crypto.randomUUID();
+    void annotationClientRef.current
+      ?.start({
+        requestId,
+        manifestVersion: visible.version,
+        question,
+        boardManifest: visible.manifest,
+        visibleElementIds: visible.elements.map((element) => element.id),
+      })
+      .then((result) => {
+        if (visibleBoardRef.current.version !== result.program.manifest_version) return;
+        setAnnotationOps([...result.program.ops]);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setContextError(
+          "Explanatory ink was unavailable; Chalk can continue with the visible board.",
+        );
+      });
+    return { requestId };
+  }, []);
+
   useEffect(() => {
     const client = new RealtimeClient({
       apiBaseUrl: API_BASE_URL,
@@ -139,6 +235,8 @@ function App() {
           if (!handler) throw new Error("Lesson generation is not ready.");
           return handler(requestedTopic, studentContext);
         },
+        onDeixisRequested: showDeixis,
+        onAnnotateRequested: requestAnnotation,
       },
     });
     clientRef.current = client;
@@ -146,9 +244,16 @@ function App() {
     return () => {
       clientRef.current = undefined;
       lessonStreamRef.current?.cancel();
+      clearDeixisOverlays();
+      clearAnnotations();
       void client.disconnect();
     };
-  }, []);
+  }, [clearAnnotations, clearDeixisOverlays, requestAnnotation, showDeixis]);
+
+  useEffect(() => {
+    clearDeixisOverlays();
+    clearAnnotations();
+  }, [activeLesson.requestId, clearAnnotations, clearDeixisOverlays]);
 
   useEffect(() => {
     const client = clientRef.current;
@@ -172,6 +277,11 @@ function App() {
   const recentTrace = useMemo(() => snapshot.trace.slice(-30).reverse(), [snapshot.trace]);
   const activeCheckpoint =
     activeLesson.lesson.steps[lessonSync.state.currentStepIndex]?.checkpoint;
+  const visibleManifestHash = manifestHash(boardManifest);
+  const isOfflineCachedPreview =
+    activeLesson.source === "cached" &&
+    snapshot.status === "disconnected" &&
+    lessonSync.state.phase === "IDLE";
 
   useEffect(() => {
     if (
@@ -215,6 +325,8 @@ function App() {
   };
 
   const disconnect = () => {
+    clearDeixisOverlays();
+    clearAnnotations();
     void clientRef.current?.disconnect();
   };
 
@@ -226,9 +338,30 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    const startSpeakingFromSpace = (event: KeyboardEvent) => {
+      if (
+        snapshot.status !== "connected" ||
+        snapshot.microphoneEnabled ||
+        !isSpaceToSpeakEvent(event)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      try {
+        clientRef.current?.setMicrophoneEnabled(true);
+      } catch {
+        // Connection errors are already represented by the client snapshot.
+      }
+    };
+    window.addEventListener("keydown", startSpeakingFromSpace);
+    return () => window.removeEventListener("keydown", startSpeakingFromSpace);
+  }, [snapshot.microphoneEnabled, snapshot.status]);
+
   const startLesson = () => {
     const client = clientRef.current;
     if (!client) return;
+    clearAnnotations();
     void client
       .setBoardContext(buildBoardManifest(activeLesson.lesson.title, []))
       .then(() => {
@@ -242,9 +375,17 @@ function App() {
       );
   };
 
+  const resumeLesson = () => {
+    clearDeixisOverlays();
+    clearAnnotations();
+    lessonSync.resume();
+  };
+
   const generateLesson = (requestedTopic: string, studentContext = ""): string => {
     const normalizedTopic = requestedTopic.trim();
     if (!normalizedTopic) throw new Error("Enter a math or physics topic first.");
+    clearDeixisOverlays();
+    clearAnnotations();
     const requestId = crypto.randomUUID();
     const timing = { requestId, requestedAtMs: performance.now() };
     generationTimingRef.current = timing;
@@ -365,7 +506,7 @@ function App() {
     lessonStreamRef.current?.cancel();
     const requestId = crypto.randomUUID();
     setActiveLesson({
-      lesson: PROJECTILE_LESSON,
+      lesson: CACHED_LESSONS[cachedLessonKey],
       requestId,
       complete: true,
       source: "cached",
@@ -427,6 +568,9 @@ function App() {
           browser: navigator.userAgent,
           tokenUsage: snapshot.tokenUsage,
           tokenBudget: snapshot.tokenBudget,
+          contextPublications: snapshot.contextPublications,
+          visibleManifestHash,
+          lastAcknowledgedManifestHash: snapshot.lastAcknowledgedManifestHash,
         }),
       );
       setCopyState("copied");
@@ -555,10 +699,18 @@ function App() {
               className="secondary"
               type="button"
               onClick={useCachedLesson}
-              disabled={snapshot.status !== "connected"}
             >
-              Use cached demo
+              Load cached lesson
             </button>
+            <select
+              aria-label="Cached lesson"
+              value={cachedLessonKey}
+              onChange={(event) => setCachedLessonKey(event.target.value as CachedLessonKey)}
+            >
+              <option value="projectile">Projectile range</option>
+              <option value="derivative">Derivative as slope</option>
+              <option value="unit-circle">Unit circle to sine</option>
+            </select>
           </div>
           {generation.message ? <p role="status">{generation.message}</p> : null}
         </form>
@@ -585,7 +737,7 @@ function App() {
             <button
               className="secondary"
               type="button"
-              onClick={lessonSync.resume}
+              onClick={resumeLesson}
               disabled={
                 lessonSync.state.phase !== "QA" ||
                 snapshot.status !== "connected" ||
@@ -602,13 +754,25 @@ function App() {
           currentStepIndex={
             activeLesson.source === "review"
               ? reviewStepIndex
+              : isOfflineCachedPreview
+                ? activeLesson.lesson.steps.length - 1
               : lessonSync.state.currentStepIndex
           }
           currentStepProgress={
-            activeLesson.source === "review" ? 1 : lessonSync.state.currentStepProgress
+            activeLesson.source === "review" || isOfflineCachedPreview
+              ? 1
+              : lessonSync.state.currentStepProgress
           }
-          phase={activeLesson.source === "review" ? "REVIEW" : lessonSync.state.phase}
-          onManifestChange={setBoardManifest}
+          phase={
+            activeLesson.source === "review"
+              ? "REVIEW"
+              : isOfflineCachedPreview
+                ? "PREVIEW"
+                : lessonSync.state.phase
+          }
+          onVisibleStateChange={handleVisibleStateChange}
+          overlays={deixisOverlays}
+          annotations={annotationOps}
           measurementId={activeLesson.source === "live" ? activeLesson.requestId : undefined}
           onFirstVisibleInk={recordFirstVisibleInk}
         />
@@ -676,6 +840,9 @@ function App() {
             </div>
             <span>{Math.round(lessonSync.state.currentStepProgress * 100)}% current step</span>
             <span><strong>{lessonSync.state.completedRuns} / 3</strong> completed runs</span>
+            <span>
+              grounding {snapshot.lastAcknowledgedManifestHash === visibleManifestHash ? "acknowledged" : "pending"}
+            </span>
             {lessonSync.state.ignoredEvents > 0 ? <span>{lessonSync.state.ignoredEvents} stale/invalid events ignored</span> : null}
           </div>
         ) : null}
@@ -726,7 +893,7 @@ function App() {
             {snapshot.status === "connected"
               ? snapshot.microphoneEnabled
                 ? "Speak now. The microphone pauses automatically when your turn ends."
-                : "Click Speak when you want to answer or interrupt Chalk."
+                : "Press Space when you want to answer or interrupt Chalk."
               : "The browser will ask for microphone access after the backend mints a short-lived session credential."}
           </p>
           <div className="button-row">
@@ -739,6 +906,7 @@ function App() {
               onClick={toggleMicrophone}
               disabled={snapshot.status !== "connected"}
               aria-pressed={snapshot.microphoneEnabled}
+              title="You can also press Space anywhere outside a form control"
             >
               {snapshot.microphoneEnabled ? "Stop listening" : "Speak"}
             </button>

@@ -84,7 +84,7 @@ h2 { margin-bottom: 0; font: 650 1.35rem/1.2 Georgia, serif; }
   background: rgba(255, 255, 255, 0.025);
 }
 .topic-form > label { color: #b7c8bc; font-weight: 750; }
-.topic-form > div { display: grid; grid-template-columns: minmax(220px, 1fr) auto auto; gap: 10px; }
+.topic-form > div { display: grid; grid-template-columns: minmax(220px, 1fr) auto auto minmax(150px, 190px); gap: 10px; }
 .topic-form input {
   width: 100%;
   min-height: 44px;
@@ -152,6 +152,14 @@ h2 { margin-bottom: 0; font: 650 1.35rem/1.2 Georgia, serif; }
   text-shadow: 0 0 1px rgba(245, 239, 216, .38), 1px 0 rgba(245, 239, 216, .14);
 }
 .board-equation .katex-display { margin: 0; }
+.board-overlay { pointer-events: none; transform-box: fill-box; transform-origin: center; }
+.board-overlay-point_at, .board-overlay-circle_el, .board-overlay-underline {
+  animation: overlay-enter 180ms ease-out both, overlay-fade 2.2s ease-in forwards;
+}
+.board-overlay-flash { animation: overlay-flash 620ms ease-in-out 3, overlay-fade 2.2s ease-in forwards; }
+.board-annotation { pointer-events: none; animation: annotation-enter 240ms ease-out both; }
+.board-annotation-text { fill: #b9f0cb; pointer-events: none; animation: annotation-enter 240ms ease-out both; }
+.board-annotation-equation { color: #b9f0cb; pointer-events: none; animation: annotation-enter 240ms ease-out both; }
 .board-warning { position: absolute; right: 14px; bottom: 12px; margin: 0; padding: 7px 10px; border-radius: 9px; color: #ffd2c8; background: rgba(93,26,19,.88); font-size: .72rem; }
 
 .sync-strip { min-height: 42px; padding: 0 4px; color: #85988c; font-size: .73rem; }
@@ -252,6 +260,10 @@ select { width: 100%; min-height: 38px; padding: 0 10px; border: 1px solid rgba(
 
 @keyframes breathe { 0%,100% { transform: scale(.98); } 50% { transform: scale(1.035); } }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes overlay-enter { from { opacity: 0; transform: scale(.92); } to { opacity: 1; transform: scale(1); } }
+@keyframes overlay-flash { 0%,100% { opacity: .28; } 50% { opacity: 1; } }
+@keyframes overlay-fade { 0%,78% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes annotation-enter { from { opacity: 0; } to { opacity: 1; } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }

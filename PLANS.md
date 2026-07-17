@@ -3,7 +3,7 @@
 Status: active  
 Owner: repository team  
 Started: 2026-07-15  
-Last updated: 2026-07-16
+Last updated: 2026-07-17
 Target: working localhost demo and three-minute hackathon video
 
 ## How to use this plan
@@ -71,6 +71,8 @@ Non-goals: accounts, authentication, persistence, deployment, mobile, multi-user
 | M7 | Demo, documentation, and submission | Final video, uncut proof take, README, and submission complete | Pending |
 
 Only one milestone may be active at a time. M5 and M6 are optional; M7 may not be consumed by feature work.
+
+Planned follow-on feature plan (after the M4 gate): `docs/exec-plans/active/natural-drawing.md` — live-generation resilience, backend/browser validation parity, board-engine prompt v2 spatial contract, prefix-stable layout and stroke choreography, and mid-lesson topic switching, based on the 2026-07-17 bug audit.
 
 ## M0 — Planning and repository baseline
 
@@ -262,6 +264,7 @@ The first separately approved connected timing attempt stopped at an origin-mism
 Objective: pass the MVP demo gate.
 
 Completed cached-interaction slice: `docs/exec-plans/completed/m4-cached-interaction-loop.md`.
+Active broader execution plan: `docs/exec-plans/active/m4-full-interruption-grounding.md`.
 
 ### Work
 
@@ -269,14 +272,14 @@ Completed cached-interaction slice: `docs/exec-plans/completed/m4-cached-interac
 - [x] Publish manifest state through `BoardContextPublisher`.
 - [x] Require and deterministically test serialized `session.updated` acknowledgement before dependent scripted responses.
 - [ ] Measure instruction-publication timing in the live rehearsal.
-- [ ] Implement `point_at`, `circle_el`, `underline`, and `flash` as local overlay tools.
-- [ ] Validate all deixis IDs against committed or deliberately partial visible state.
-- [ ] Implement bounded `POST /annotate` with overlay-only output.
+- [x] Implement `point_at`, `circle_el`, `underline`, and `flash` as local overlay tools.
+- [x] Validate all deixis IDs against committed or deliberately partial visible state.
+- [x] Implement bounded `POST /annotate` with overlay-only output.
 - [x] Complete the `TEACHING -> FROZEN -> QA -> TEACHING` path and add one checkpoint asking/listening/feedback loop.
 - [x] Gate microphone input behind **Speak** and auto-mute at `speech_stopped`/assistant playback to prevent self-response loops.
 - [ ] Decide, from rehearsal evidence, whether resume continues frozen ink or replays the current step.
 - [ ] Implement `SYNC_MODE=paced` only after the fixed path remains passing.
-- [ ] Cache projectile, derivative, and unit-circle lessons through the same validation path.
+- [x] Cache projectile, derivative, and unit-circle lessons through the same validation path.
 
 ### Exit gate
 
@@ -295,6 +298,8 @@ The last acknowledged manifest must match the visible committed board. The three
 ### Validation record
 
 The deterministic slice passed on 2026-07-16 and the first live attempt exposed an always-open-microphone feedback loop. Commit `c0d6f48` keeps input muted until **Speak** and auto-mutes at the documented VAD turn boundary or assistant playback. The post-fix gate passes 116 frontend and 38 backend tests, lint/format, TypeScript/Vite build, Python compileall, zero production npm vulnerabilities, and clean diff hygiene. The owner then reran the published minimal checklist and reported that the turn-gated microphone, interruption flow, checkpoint response, and automatic advancement passed. This accepts the cached-interaction slice; the broader three-run, multi-lesson, and overlay M4 gate remains pending. Retain future rehearsal checklists, redacted traces, manifest snapshots, and runtime flags when those broader gates run.
+
+The broader deterministic implementation now includes the committed target inventory, four local tools, bounded annotation endpoint and overlay renderer, and all three recording caches. Its 2026-07-17 no-spend gate passes 179 frontend and 148 backend tests, static checks, production build, schema regeneration, compileall, zero production npm vulnerabilities, secret-pattern review, and diff hygiene. The credentialed three-run gate, live publication timing/hash evidence, and final cache screenshot review remain pending.
 
 ### Rollback
 

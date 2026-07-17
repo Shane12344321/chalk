@@ -28,7 +28,7 @@ describe("Realtime protocol builders", () => {
     expect(() => createNarrationResponse("x".repeat(241), "evt_1", {})).toThrow(/budget/i);
   });
 
-  it("builds the demo session with teach but without diagnostic tools", () => {
+  it("builds the demo session with teach and local deixis but without diagnostic tools", () => {
     const event = createSessionUpdate("gpt-realtime-2.1-mini", "marin");
 
     expect(event).toMatchObject({
@@ -48,7 +48,6 @@ describe("Realtime protocol builders", () => {
           },
           output: { voice: "marin" },
         },
-        tools: [expect.objectContaining({ name: "teach" })],
         tool_choice: "auto",
         truncation: {
           type: "retention_ratio",
@@ -58,6 +57,14 @@ describe("Realtime protocol builders", () => {
       },
     });
     expect(event.session.instructions).toContain("conducting a live whiteboard lesson");
+    expect(event.session.tools.map((tool) => tool.name)).toEqual([
+      "teach",
+      "point_at",
+      "circle_el",
+      "underline",
+      "flash",
+      "annotate",
+    ]);
     expect(event.session.instructions).not.toContain("debug echo");
   });
 
@@ -67,9 +74,14 @@ describe("Realtime protocol builders", () => {
       "marin",
       "diagnostics",
     );
-    expect(event.session.tools).toEqual([
-      expect.objectContaining({ type: "function", name: "teach" }),
-      expect.objectContaining({ type: "function", name: "debug_echo" }),
+    expect(event.session.tools.map((tool) => tool.name)).toEqual([
+      "teach",
+      "point_at",
+      "circle_el",
+      "underline",
+      "flash",
+      "annotate",
+      "debug_echo",
     ]);
     expect(event.session.instructions).toContain("Diagnostics mode is active");
   });
@@ -84,7 +96,6 @@ describe("Realtime protocol builders", () => {
       type: "session.update",
       session: {
         type: "realtime",
-        tools: [expect.objectContaining({ name: "teach" })],
         tool_choice: "auto",
       },
     });

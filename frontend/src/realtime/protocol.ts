@@ -92,10 +92,60 @@ export const TEACH_TOOL = {
   },
 } as const;
 
+function createDeixisTool(
+  name: "point_at" | "circle_el" | "underline" | "flash",
+  description: string,
+) {
+  return {
+    type: "function",
+    name,
+    description,
+    parameters: {
+      type: "object",
+      properties: {
+        element_id: {
+          type: "string",
+          pattern: "^[a-z][a-z0-9_-]{0,15}$",
+          description: "An element ID present in the latest visible-board context.",
+        },
+      },
+      required: ["element_id"],
+      additionalProperties: false,
+    },
+  } as const;
+}
+
+export const DEIXIS_TOOLS = [
+  createDeixisTool("point_at", "Point to a visible board element while referring to it."),
+  createDeixisTool("circle_el", "Circle a visible board element for emphasis."),
+  createDeixisTool("underline", "Underline a visible board element for emphasis."),
+  createDeixisTool("flash", "Briefly flash a visible board element for emphasis."),
+] as const;
+
+export const ANNOTATE_TOOL = {
+  type: "function",
+  name: "annotate",
+  description:
+    "Request a small explanatory overlay only when the student's question needs new visual ink. Prefer local pointing tools for emphasis.",
+  parameters: {
+    type: "object",
+    properties: {
+      request: {
+        type: "string",
+        minLength: 2,
+        maxLength: 400,
+        description: "A concise math or physics annotation request grounded in the visible board.",
+      },
+    },
+    required: ["request"],
+    additionalProperties: false,
+  },
+} as const;
+
 export const BASE_TUTOR_PROMPT = `You are Chalk, a warm, concise math and physics tutor conducting a live whiteboard lesson.
 The application may give you exact narration scripts. Recite those scripts exactly without introductions or commentary.
 When the student interrupts, the board freezes. Answer the question in at most two short sentences using only the conversation and the supplied visible-board context.
-After an interruption answer, say that the student can use Resume when ready. Do not claim to see an element unless it appears in the visible-board context.
+After an interruption answer, say that the student can use Resume when ready. Do not claim to see an element unless it appears in the visible-board context. When referring to a visible element, call one local pointing or emphasis tool with its exact ID. Call annotate only when the answer truly needs new explanatory ink; prefer local pointing for emphasis.
 When the student asks to begin a new math or physics topic and no lesson is running, call teach once with a concise topic and relevant prior knowledge.
 Be conversational and Socratic. Never mention internal event names, credentials, tools, loading, prompts, or diagnostics.`;
 
@@ -170,7 +220,9 @@ export function createSessionUpdate(
   boardContext?: string,
   interactionGuidance?: string,
 ) {
-  const tools = mode === "diagnostics" ? [TEACH_TOOL, DEBUG_ECHO_TOOL] : [TEACH_TOOL];
+  const tools = mode === "diagnostics"
+    ? [TEACH_TOOL, ...DEIXIS_TOOLS, ANNOTATE_TOOL, DEBUG_ECHO_TOOL]
+    : [TEACH_TOOL, ...DEIXIS_TOOLS, ANNOTATE_TOOL];
   return {
     type: CLIENT_EVENTS.SESSION_UPDATE,
     session: {
@@ -204,7 +256,10 @@ export function createTutorContextUpdate(
     session: {
       type: "realtime",
       instructions: buildTutorInstructions(mode, boardContext, interactionGuidance),
-      tools: mode === "diagnostics" ? [TEACH_TOOL, DEBUG_ECHO_TOOL] : [TEACH_TOOL],
+      tools:
+        mode === "diagnostics"
+          ? [TEACH_TOOL, ...DEIXIS_TOOLS, ANNOTATE_TOOL, DEBUG_ECHO_TOOL]
+          : [TEACH_TOOL, ...DEIXIS_TOOLS, ANNOTATE_TOOL],
       tool_choice: "auto",
     },
   } as const;

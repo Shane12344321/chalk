@@ -100,6 +100,20 @@ export function serializeRedactedTrace(
         1_000_000_000,
       ),
       session_token_usage: sanitizeTokenUsage(context.tokenUsage),
+      board_context: {
+        visible_manifest_hash: sanitizeManifestHash(context.visibleManifestHash),
+        acknowledged_manifest_hash: sanitizeManifestHash(
+          context.lastAcknowledgedManifestHash,
+        ),
+        hashes_match:
+          sanitizeManifestHash(context.visibleManifestHash) !== undefined &&
+          sanitizeManifestHash(context.visibleManifestHash) ===
+            sanitizeManifestHash(context.lastAcknowledgedManifestHash),
+        publications: (context.contextPublications ?? []).slice(-32).map((item) => ({
+          manifest_hash: sanitizeManifestHash(item.manifest_hash) ?? "invalid",
+          latency_ms: boundedNumber(item.latency_ms, 0, 60_000),
+        })),
+      },
       browser: sanitizeBrowserLabel(context.browser),
       trace: trace
         .slice(-MAX_EXPORTED_TRACE_ENTRIES)
@@ -252,6 +266,10 @@ function sanitizeBrowserLabel(value: unknown): string | undefined {
   if (typeof value !== "string" || value.length === 0) return undefined;
   const printable = value.replace(/[^\x20-\x7E]/g, "");
   return printable.length > 0 ? printable.slice(0, 256) : undefined;
+}
+
+function sanitizeManifestHash(value: unknown): string | undefined {
+  return typeof value === "string" && /^[0-9a-f]{8}$/u.test(value) ? value : undefined;
 }
 
 function boundedNumber(value: unknown, minimum: number, maximum: number): number {
