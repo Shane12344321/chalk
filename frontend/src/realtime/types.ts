@@ -29,6 +29,10 @@ export interface FunctionCall {
   argumentsJson: string;
 }
 
+export interface TeachStartResult {
+  requestId: string;
+}
+
 export interface ServerEvent {
   type: string;
   event_id?: string;
@@ -102,6 +106,7 @@ export interface RealtimeSnapshot {
 export interface RealtimeClientCallbacks {
   onSnapshot: (snapshot: RealtimeSnapshot) => void;
   onSemanticEvent?: (event: RealtimeSemanticEvent) => void;
+  onTeachRequested?: (topic: string, studentContext: string) => TeachStartResult;
 }
 
 export interface NarrationContext {

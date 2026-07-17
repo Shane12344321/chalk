@@ -1,10 +1,18 @@
 """FastAPI application factory for CHALK."""
 
+import asyncio
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import Settings, get_settings
-from app.middleware import SESSION_BODY_MAX_BYTES, SessionBodyLimitMiddleware
+from app.lessons import router as lesson_router
+from app.middleware import (
+    LESSON_BODY_MAX_BYTES,
+    SESSION_BODY_MAX_BYTES,
+    SessionBodyLimitMiddleware,
+)
 from app.sessions import router
 
 
@@ -19,10 +27,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
     )
     application.state.settings = resolved_settings
+    application.state.lesson_generation_semaphore = asyncio.Semaphore(
+        resolved_settings.lesson_max_concurrent
+    )
     application.dependency_overrides[get_settings] = lambda: application.state.settings
     application.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=["localhost", "127.0.0.1", "testserver"],
+    )
+    application.add_middleware(
         SessionBodyLimitMiddleware,
-        max_body_bytes=SESSION_BODY_MAX_BYTES,
+        path_limits={
+            "/session": SESSION_BODY_MAX_BYTES,
+            "/lesson": LESSON_BODY_MAX_BYTES,
+        },
     )
     application.add_middleware(
         CORSMiddleware,
@@ -30,8 +48,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_credentials=False,
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["Content-Type"],
+        expose_headers=[
+            "X-Chalk-Board-Model",
+            "X-Chalk-Board-Reasoning-Effort",
+            "X-Chalk-Board-Prompt-SHA256",
+            "X-Chalk-Repair-Prompt-SHA256",
+        ],
     )
     application.include_router(router)
+    application.include_router(lesson_router)
     return application
 
 

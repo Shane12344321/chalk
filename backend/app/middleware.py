@@ -5,6 +5,7 @@ import json
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 SESSION_BODY_MAX_BYTES = 4 * 1024
+LESSON_BODY_MAX_BYTES = 8 * 1024
 
 
 class _RequestBodyTooLarge(Exception):
@@ -23,12 +24,15 @@ class SessionBodyLimitMiddleware:
         self,
         app: ASGIApp,
         max_body_bytes: int = SESSION_BODY_MAX_BYTES,
+        path_limits: dict[str, int] | None = None,
     ) -> None:
         self.app = app
         self.max_body_bytes = max_body_bytes
+        self.path_limits = path_limits or {"/session": max_body_bytes}
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if not self._guards_session_request(scope):
+        max_body_bytes = self._body_limit(scope)
+        if max_body_bytes is None:
             await self.app(scope, receive, send)
             return
 
@@ -44,8 +48,8 @@ class SessionBodyLimitMiddleware:
                     message="Invalid Content-Length header.",
                 )
                 return
-            if int(content_lengths[0]) > self.max_body_bytes:
-                await self._send_too_large(send)
+            if int(content_lengths[0]) > max_body_bytes:
+                await self._send_too_large(send, max_body_bytes)
                 return
 
         observed_bytes = 0
@@ -55,29 +59,26 @@ class SessionBodyLimitMiddleware:
             message = await receive()
             if message["type"] == "http.request":
                 observed_bytes += len(message.get("body", b""))
-                if observed_bytes > self.max_body_bytes:
+                if observed_bytes > max_body_bytes:
                     raise _RequestBodyTooLarge
             return message
 
         try:
             await self.app(scope, limited_receive, send)
         except _RequestBodyTooLarge:
-            await self._send_too_large(send)
+            await self._send_too_large(send, max_body_bytes)
 
-    @staticmethod
-    def _guards_session_request(scope: Scope) -> bool:
-        return (
-            scope["type"] == "http"
-            and scope.get("method") == "POST"
-            and scope.get("path") == "/session"
-        )
+    def _body_limit(self, scope: Scope) -> int | None:
+        if scope["type"] != "http" or scope.get("method") != "POST":
+            return None
+        return self.path_limits.get(scope.get("path", ""))
 
-    async def _send_too_large(self, send: Send) -> None:
+    async def _send_too_large(self, send: Send, max_body_bytes: int) -> None:
         await self._send_error(
             send,
             status_code=413,
             code="request_too_large",
-            message=f"Request body exceeds {self.max_body_bytes} bytes.",
+            message=f"Request body exceeds {max_body_bytes} bytes.",
         )
 
     @staticmethod

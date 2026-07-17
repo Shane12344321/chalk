@@ -13,6 +13,8 @@ const AUDIO_DRAIN_GUARD_MS = 260;
 
 interface UseFixedLessonSyncOptions {
   lesson: NormalizedLesson;
+  lessonRequestId?: string;
+  lessonComplete?: boolean;
   clientRef: React.MutableRefObject<RealtimeClient | undefined>;
   connectionStatus: ConnectionStatus;
   responseIdle: boolean;
@@ -20,32 +22,52 @@ interface UseFixedLessonSyncOptions {
 
 export function useFixedLessonSync({
   lesson,
+  lessonRequestId,
+  lessonComplete = true,
   clientRef,
   connectionStatus,
   responseIdle,
 }: UseFixedLessonSyncOptions) {
-  const requestIdRef = useRef<string>();
-  if (!requestIdRef.current) requestIdRef.current = crypto.randomUUID();
-  const requestId = requestIdRef.current;
+  const fallbackRequestIdRef = useRef<string>();
+  if (!fallbackRequestIdRef.current) fallbackRequestIdRef.current = crypto.randomUUID();
+  const requestId = lessonRequestId ?? fallbackRequestIdRef.current;
   const [state, dispatch] = useReducer(fixedSyncReducer, EMPTY_SYNC_STATE);
   const stateRef = useRef(state);
   const narrationKeyRef = useRef<string>();
   const checkpointKeyRef = useRef<string>();
   const wasConnectedRef = useRef(false);
+  const loadedRequestIdRef = useRef<string>();
+  const loadedStepIdsRef = useRef<string[]>([]);
   stateRef.current = state;
 
   useEffect(() => {
-    narrationKeyRef.current = undefined;
-    checkpointKeyRef.current = undefined;
-    dispatch({
-      type: "LOAD",
-      requestId,
-      stepIds: lesson.steps.map((step) => step.id),
-      checkpointStepIds: lesson.steps
-        .filter((step) => step.checkpoint !== null)
-        .map((step) => step.id),
-    });
-  }, [lesson, requestId]);
+    const stepIds = lesson.steps.map((step) => step.id);
+    const checkpointStepIds = lesson.steps
+      .filter((step) => step.checkpoint !== null)
+      .map((step) => step.id);
+    if (loadedRequestIdRef.current !== requestId) {
+      narrationKeyRef.current = undefined;
+      checkpointKeyRef.current = undefined;
+      loadedRequestIdRef.current = requestId;
+      loadedStepIdsRef.current = stepIds;
+      dispatch({
+        type: "LOAD",
+        requestId,
+        stepIds,
+        checkpointStepIds,
+        sourceComplete: lessonComplete,
+      });
+      return;
+    }
+    if (
+      stepIds.length !== loadedStepIdsRef.current.length ||
+      stepIds.some((id, index) => loadedStepIdsRef.current[index] !== id)
+    ) {
+      loadedStepIdsRef.current = stepIds;
+      dispatch({ type: "APPEND_STEPS", requestId, stepIds, checkpointStepIds });
+    }
+    if (lessonComplete) dispatch({ type: "SOURCE_DONE", requestId });
+  }, [lesson.steps, lessonComplete, requestId]);
 
   useEffect(() => {
     if (connectionStatus === "connected") {

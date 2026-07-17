@@ -37,7 +37,8 @@ API details are version-sensitive. Verify them against official OpenAI documenta
 
 - Development voice: `gpt-realtime-2.1-mini`
 - Recording voice: `gpt-realtime-2.1`
-- Default board model: `gpt-5.6-terra`; escalate to `gpt-5.6-sol` only if the golden-topic evaluation demonstrates a material quality gain
+- Default board model: `gpt-5.6-luna`; evaluate failed Luna topics on `gpt-5.6-terra` only if the unchanged golden-topic gate demonstrates a material quality failure, and use `gpt-5.6-sol` only after both lower-cost tiers are evidenced inadequate
+- Board reasoning baseline: `none` for the six-second latency gate; retain `low` as an allowlisted comparison only if `none` causes a measured lesson-quality regression
 
 Relevant official references:
 
@@ -46,7 +47,9 @@ Relevant official references:
 - `https://developers.openai.com/api/docs/guides/realtime-vad`
 - `https://developers.openai.com/api/docs/models/gpt-realtime-2.1`
 - `https://developers.openai.com/api/docs/models/gpt-realtime-2.1-mini`
+- `https://developers.openai.com/api/docs/models/gpt-5.6-luna`
 - `https://developers.openai.com/api/docs/models/gpt-5.6-terra`
+- `https://developers.openai.com/api/docs/guides/latest-model`
 
 Keep all OpenAI event names and payload construction inside `frontend/src/realtime/`; do not scatter protocol strings through UI components. Before considering the Realtime layer complete, capture in `PROGRESS.md` the model ID, session payload, events observed in a live smoke test, browser used, and date.
 
@@ -121,7 +124,7 @@ For each complete incoming line:
 6. normalize the step;
 7. emit it to the browser and add its IDs to accepted state.
 
-On failure, run at most two scoped repair requests with the invalid line, validation errors, and current accepted-ID inventory. A repair must return exactly one step object. If repair still fails, log and drop the step. Continue validating later lines against accepted state only.
+On failure, run at most two scoped repair requests for that line and at most four repair calls across the entire lesson, using the invalid line, validation errors, and current accepted-ID inventory. Count each repair before dispatch so timeouts and HTTP/transport failures cannot disappear from cost evidence. Keep repair generation on plain text; the live Luna batch rejected the repair-only `text.format=json_object` request, and local schema/semantic validation is the actual trust boundary. A repair must return exactly one step object. If repair still fails or the lesson budget is exhausted, log and drop the step. Continue validating later lines against accepted state only. Terminal evidence may retain only the closed failure origin (`generation` or `repair`) and bounded repair-call count, never repair content or upstream messages.
 
 The client parser must tolerate arbitrary network chunk boundaries, blank lines, a final line without a newline, cancellation, and a truncated final line. It must never attempt to render a partial JSON line.
 
@@ -195,6 +198,10 @@ Live API checks require `OPENAI_API_KEY` and never run in default CI. Record res
 
 Live API usage is a scarce, explicitly controlled test resource. Use `gpt-realtime-2.1-mini`, short synthetic prompts, short responses, and the minimum number of calls needed for the active acceptance gate. Never run credentialed tests in loops, retries, broad topic matrices, or default automation. Disconnect as soon as the required observation is captured. A failed handshake or access error stops the live run for diagnosis; do not burn tokens retrying automatically. Switching to a larger model, running lesson-evaluation batches, or materially extending a live session requires the project owner's explicit approval.
 
+The M3 evaluation CLI keeps one-repair-call `repair-smoke`, one-topic `smoke`, and ten-topic `batch` as separate subcommands. Each requires its own `--approved-by-owner` acknowledgement, and approval for one mode never authorizes another. Repair smoke retains no generated content and cannot route to a topic mode. A topic uses one primary board-model call and may use up to four paid repair calls; describe both topic attempts and this underlying call ceiling before approval.
+
+Keep M3 upstream outcomes semantically distinct. HTTP rejection, transport unavailability, `response.incomplete`, `response.failed`, and generic streaming `error` are not interchangeable. Emit only CHALK-owned terminal codes plus an optional closed, non-sensitive reason; never forward upstream messages or arbitrary error codes. The batch may continue to later topics without retry only for the clearly topic-scoped `max_output_tokens` and `content_filter` reasons. It must stop on model/reasoning mismatch, missing configuration, HTTP rejection, transport unavailability, or any other upstream reason, including a missing or unknown reason. It must also stop after the third machine-failed topic because the required 8/10 result is then mathematically unreachable. After any paid topic attempt, even a local harness exception must leave a redacted summary with a closed failure category.
+
 - Realtime smoke: connect, converse, interrupt five times, execute a dummy tool, and confirm the observed event sequence.
 - Lesson evaluation: run all ten golden topics; retain raw generated NDJSON, validator results, render screenshots, time-to-first-valid-step, and a human pass/fail rubric.
 - MVP rehearsal: complete three uninterrupted full loops on a cached lesson: ask, generate/load, speak with ink, interrupt mid-stroke, use deixis, answer, resume, finish.
@@ -220,7 +227,7 @@ If the MVP gate is not stable, cut in this order: direct image input, student dr
 - Commit `.env.example`, never `.env` or credentials.
 - Redact authorization headers, client-secret values, audio payloads, image data URLs, and raw student utterances from logs.
 - Keep generated student names/context in memory only. Do not persist audio, sketches, or identifying information.
-- Bind backend CORS to the explicit local frontend origin; do not use wildcard origins with credentials.
+- Bind backend CORS to the explicit local frontend origin and reject Host headers outside the localhost allowlist; do not use wildcard origins with credentials.
 - Limit request sizes, generation duration, repair attempts, concurrent generations, and expression sampling work.
 - The application is a localhost hackathon prototype. README must not describe it as production-ready or suitable for unsupervised use by children.
 

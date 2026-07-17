@@ -28,7 +28,7 @@ describe("Realtime protocol builders", () => {
     expect(() => createNarrationResponse("x".repeat(241), "evt_1", {})).toThrow(/budget/i);
   });
 
-  it("builds the demo session without diagnostic tools", () => {
+  it("builds the demo session with teach but without diagnostic tools", () => {
     const event = createSessionUpdate("gpt-realtime-2.1-mini", "marin");
 
     expect(event).toMatchObject({
@@ -48,7 +48,7 @@ describe("Realtime protocol builders", () => {
           },
           output: { voice: "marin" },
         },
-        tools: [],
+        tools: [expect.objectContaining({ name: "teach" })],
         tool_choice: "auto",
         truncation: {
           type: "retention_ratio",
@@ -68,6 +68,7 @@ describe("Realtime protocol builders", () => {
       "diagnostics",
     );
     expect(event.session.tools).toEqual([
+      expect.objectContaining({ type: "function", name: "teach" }),
       expect.objectContaining({ type: "function", name: "debug_echo" }),
     ]);
     expect(event.session.instructions).toContain("Diagnostics mode is active");
@@ -81,7 +82,11 @@ describe("Realtime protocol builders", () => {
     );
     expect(event).toMatchObject({
       type: "session.update",
-      session: { type: "realtime", tools: [], tool_choice: "auto" },
+      session: {
+        type: "realtime",
+        tools: [expect.objectContaining({ name: "teach" })],
+        tool_choice: "auto",
+      },
     });
     expect(event.session.instructions).toContain("VISIBLE BOARD");
     expect(event.session.instructions).toContain("rangeaxes");

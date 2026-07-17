@@ -811,24 +811,37 @@ export class RealtimeClient implements BoardContextPublisher {
     if (calls.length === 0) return;
 
     let successfulEchoes = 0;
-    const clientEventId = `evt_diagnostic_tool_${crypto.randomUUID()}`;
+    let lessonStarted = false;
+    const clientEventId = `evt_tool_continuation_${crypto.randomUUID()}`;
     try {
       for (const call of calls) {
-        const result = routeToolCall(call);
+        const result = routeToolCall(call, {
+          teach: this.callbacks.onTeachRequested,
+        });
         this.sendEvent(createFunctionCallOutput(call.callId, result));
         this.addLocalTrace("tool.output_sent", {
           call_id: call.callId,
           status: result.ok ? "ok" : result.reason,
         });
-        if (result.ok) successfulEchoes += 1;
+        if (result.ok && "echo" in result) successfulEchoes += 1;
+        if (result.ok && "status" in result && result.status === "started") {
+          lessonStarted = true;
+        }
       }
+      const purpose = lessonStarted ? "tool_continuation" : "diagnostic_tool";
       this.responseCoordinator.registerManual({
-        purpose: "diagnostic_tool",
+        purpose,
         clientEventId,
         successfulEchoes,
       });
       this.sendEvent(
-        createResponseAfterTool(clientEventId, { chalk_kind: "diagnostic_tool" }),
+        createResponseAfterTool(
+          clientEventId,
+          { chalk_kind: purpose },
+          lessonStarted
+            ? "Say one short, engaging sentence that frames the requested topic while the board is prepared. Do not mention tools or loading."
+            : undefined,
+        ),
       );
     } catch (error) {
       this.responseCoordinator.failByClientEventId(clientEventId);

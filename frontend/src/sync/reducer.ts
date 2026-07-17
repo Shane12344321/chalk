@@ -25,6 +25,7 @@ export interface FixedSyncState {
   drainElapsed: boolean;
   ignoredEvents: number;
   completedRuns: number;
+  sourceComplete: boolean;
 }
 
 interface CorrelatedEvent {
@@ -39,7 +40,15 @@ export type FixedSyncEvent =
       requestId: string;
       stepIds: string[];
       checkpointStepIds: string[];
+      sourceComplete: boolean;
     }
+  | {
+      type: "APPEND_STEPS";
+      requestId: string;
+      stepIds: string[];
+      checkpointStepIds: string[];
+    }
+  | { type: "SOURCE_DONE"; requestId: string }
   | { type: "START"; requestId: string }
   | ({ type: "NARRATION_ACTIVITY" } & CorrelatedEvent)
   | ({ type: "TICK"; progress: number } & CorrelatedEvent)
@@ -77,6 +86,7 @@ export const EMPTY_SYNC_STATE: FixedSyncState = {
   drainElapsed: false,
   ignoredEvents: 0,
   completedRuns: 0,
+  sourceComplete: true,
 };
 
 export function fixedSyncReducer(
@@ -93,7 +103,42 @@ export function fixedSyncReducer(
       checkpointStepIds: [...new Set(event.checkpointStepIds)].filter((id) =>
         knownSteps.has(id),
       ),
+      sourceComplete: event.sourceComplete,
     };
+  }
+  if (event.type === "APPEND_STEPS") {
+    if (
+      event.requestId !== state.requestId ||
+      event.stepIds.length < state.stepIds.length ||
+      new Set(event.stepIds).size !== event.stepIds.length ||
+      !state.stepIds.every((id, index) => event.stepIds[index] === id)
+    ) {
+      return ignored(state);
+    }
+    const knownSteps = new Set(event.stepIds);
+    const appended = {
+      ...state,
+      stepIds: [...event.stepIds],
+      checkpointStepIds: [...new Set(event.checkpointStepIds)].filter((id) =>
+        knownSteps.has(id),
+      ),
+    };
+    if (
+      state.phase === "GENERATING" &&
+      state.currentStepIndex + 1 < event.stepIds.length
+    ) {
+      return teachingState(appended, state.currentStepIndex + 1, state.cycle + 1, 0);
+    }
+    return appended;
+  }
+  if (event.type === "SOURCE_DONE") {
+    if (event.requestId !== state.requestId) return ignored(state);
+    const completed = { ...state, sourceComplete: true };
+    if (state.phase !== "GENERATING") return completed;
+    if (state.currentStepIndex + 1 < state.stepIds.length) {
+      return teachingState(completed, state.currentStepIndex + 1, state.cycle + 1, 0);
+    }
+    return finishLesson(completed);
   }
   if (event.type === "RESET") {
     return event.requestId === state.requestId
@@ -102,6 +147,7 @@ export function fixedSyncReducer(
           requestId: state.requestId,
           stepIds: state.stepIds,
           checkpointStepIds: state.checkpointStepIds,
+          sourceComplete: state.sourceComplete,
         }
       : ignored(state);
   }
@@ -246,14 +292,29 @@ function advanceAfterCheckpoint(state: FixedSyncState): FixedSyncState {
 function advanceStep(state: FixedSyncState): FixedSyncState {
   const nextIndex = state.currentStepIndex + 1;
   if (nextIndex >= state.stepIds.length) {
-    return {
-      ...state,
-      phase: "DONE",
-      currentStepProgress: 1,
-      completedRuns: state.completedRuns + 1,
-    };
+    return state.sourceComplete
+      ? finishLesson(state)
+      : {
+          ...state,
+          phase: "GENERATING",
+          currentStepProgress: 1,
+          animationStarted: false,
+          animationDone: true,
+          narrationDone: false,
+          audioStopped: false,
+          drainElapsed: false,
+        };
   }
   return teachingState(state, nextIndex, state.cycle + 1, 0);
+}
+
+function finishLesson(state: FixedSyncState): FixedSyncState {
+  return {
+    ...state,
+    phase: "DONE",
+    currentStepProgress: 1,
+    completedRuns: state.completedRuns + 1,
+  };
 }
 
 function checkpointAskingState(state: FixedSyncState): FixedSyncState {

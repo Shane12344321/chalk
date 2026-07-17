@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "title": "Integral as accumulated area",
+  "steps": [
+    {
+      "id": "s1",
+      "script": "An integral adds many thin slices to measure accumulated area.",
+      "ops": [
+        { "op": "text", "id": "title", "region": "A1", "content": "Integral = accumulated area" },
+        { "op": "axes", "id": "axes1", "region": "right", "x": { "min": 0, "max": 3, "label": "x" }, "y": { "min": 0, "max": 3, "label": "f(x)" } }
+      ],
+      "checkpoint": null
+    },
+    {
+      "id": "s2",
+      "script": "For f of x equals x, the area from zero to two is two.",
+      "ops": [
+        { "op": "curve", "id": "curve1", "axes_id": "axes1", "expr": "x", "domain": [0, 2] },
+        { "op": "equation", "id": "eq1", "region": "B2", "latex": "\\int_0^2 x\\,dx=2" }
+      ],
+      "checkpoint": { "question": "What geometric shape lies under this line?", "expected_gist": "triangle" }
+    }
+  ]
+}

@@ -1,12 +1,12 @@
 # CHALK
 
-CHALK is a localhost hackathon prototype for a math and physics tutor that talks while drawing and stops when the student interrupts. Milestone M1 proves the browser-to-OpenAI Realtime WebRTC voice foundation. M2 adds a deterministic SVG whiteboard, a schema-validated hardcoded projectile lesson, and fixed concurrent voice/ink synchronization. The active M4 slice adds visible-board grounding and a tutor-initiated checkpoint to that cached lesson.
+CHALK is a localhost hackathon prototype for a math and physics tutor that talks while drawing and stops when the student interrupts. M1 proves the browser-to-OpenAI Realtime WebRTC voice foundation. M2 adds the deterministic SVG whiteboard and concurrent voice/ink synchronization. The accepted cached M4 slice adds visible-board grounding, turn-gated speech, and a tutor-initiated checkpoint. M3 now adds bounded topic-driven lesson generation through a validated NDJSON stream.
 
 This is not a production service and is not suitable for unsupervised use by children. It has no authentication, persistence, deployment hardening, or production privacy controls.
 
 ## Current status
 
-M1 and M2 are complete, and the M4 cached-interaction slice has passed its deterministic and owner-observed live gates: product-facing demo mode, turn-gated microphone input, sequential sketch strokes, a renderer-derived visible-board manifest, response-purpose coordination, and the step-2 checkpoint. Broader M4 overlays and multi-lesson rehearsals remain future work; the next product-enabling milestone is M3 live lesson generation. Automated checks do not call the live API or require a key. See `PROGRESS.md` for evidence actually collected.
+M1, M2, and M3 are complete, and the cached-interaction M4 slice has passed. M3's approved accumulated-whiteboard v2 Luna/`none` evidence completed all ten fixed topics with 39 accepted steps, zero repairs/drops/retries/errors, zero renderer crashes, and exactly 8/10 human layout passes. Unit circle and standing waves retain explicit collision failures. A separate connected product run measured 1.36 seconds to the first validated step and 2.72 seconds to first visible ink, passing the six-second target. The read-only verifier accepts the redacted package at `artifacts/evidence/m3-luna-v2-batch-20260717-0635/`. Automated checks never call the live API. See `PROGRESS.md` for exact evidence and remaining M4 work.
 
 ## Local setup
 
@@ -15,7 +15,7 @@ Prerequisites:
 - Node.js `^20.19.0` or `>=22.12.0` with npm (the current development machine uses Node 25 and npm 11).
 - [`uv`](https://docs.astral.sh/uv/) for the Python environment.
 - A current Chromium-family browser with localhost microphone permission for the live check.
-- An OpenAI API key with access to `gpt-realtime-2.1-mini` for live voice and M4 interaction validation.
+- An OpenAI API key with access to `gpt-realtime-2.1-mini` for voice and `gpt-5.6-luna` for live M3 lesson generation.
 
 From the repository root:
 
@@ -34,13 +34,15 @@ Add `OPENAI_API_KEY` to the root `.env`. Keep it server-only: never put it in `f
 REALTIME_MODEL=gpt-realtime-2.1-mini
 REALTIME_VOICE=marin
 SAFETY_IDENTIFIER_SALT=chalk-local-development-v1
-BOARD_MODEL=gpt-5.6-terra
+BOARD_MODEL=gpt-5.6-luna
+BOARD_REASONING_EFFORT=none
+BOARD_PROMPT_VERSION=v2
 SYNC_MODE=fixed
 DRAWBACK_MODE=vision
 FRONTEND_ORIGIN=http://localhost:5173
 ```
 
-`SAFETY_IDENTIFIER_SALT` is a non-secret domain-separation value, not an authentication credential. Choose a deliberate per-app value if this prototype is ever adapted beyond local development. `SYNC_MODE=fixed` is the M2 implementation; `BOARD_MODEL` and `DRAWBACK_MODE` are forward configuration for later milestones. Audition `cedar` against `marin` before recording. Use `gpt-realtime-2.1` only if the owner explicitly approves the higher recording cost after the mini-model flow passes.
+`SAFETY_IDENTIFIER_SALT` is a non-secret domain-separation value, not an authentication credential. Choose a deliberate per-app value if this prototype is ever adapted beyond local development. `SYNC_MODE=fixed` is the passing synchronization mode; `BOARD_MODEL` selects the M3 lesson generator, and `BOARD_REASONING_EFFORT=none` is the documented six-second latency baseline. `BOARD_PROMPT_VERSION=v2` enables the accumulated-whiteboard spatial playbook; `v1` is the exact retained-batch prompt and known-good fallback. Prompt hashes always identify the selected version, and evidence from different versions must not be combined. `low` remains allowlisted only for a measured quality comparison. `DRAWBACK_MODE` remains forward configuration. Audition `cedar` against `marin` before recording. If Luna misses the unchanged rubric, compare only the failed topics on Terra before changing the default; Sol remains a last escalation. Any further live model evaluation requires explicit owner approval.
 
 ## Run locally
 
@@ -54,7 +56,7 @@ make dev-backend
 make dev-frontend
 ```
 
-Then open [http://localhost:5173](http://localhost:5173). The backend binds to `127.0.0.1:8000`, and CORS permits exactly `http://localhost:5173`. Do not expose either service to a LAN or the public internet. The frontend uses `VITE_API_BASE_URL=http://127.0.0.1:8000` by default; a non-default value must still be a trusted localhost URL for this prototype.
+Then open [http://localhost:5173](http://localhost:5173). The backend binds to `127.0.0.1:8000`, CORS permits exactly `http://localhost:5173`, and Host validation accepts only `localhost`, `127.0.0.1`, and the in-process test host. Do not expose either service to a LAN or the public internet. The frontend uses `VITE_API_BASE_URL=http://127.0.0.1:8000` by default; a non-default value must still be a trusted localhost URL for this prototype.
 
 The default frontend mode is the product-facing demo. It hides the evidence dashboard and does not expose the `debug_echo` tool. Start the diagnostic UI only when collecting protocol evidence:
 
@@ -64,7 +66,7 @@ VITE_CHALK_MODE=diagnostics make dev-frontend
 
 `VITE_*` variables are browser-visible. Never place a credential in one.
 
-The health endpoint does not require a key and must not reveal its value:
+The health endpoint does not require a key and must not reveal its value. It reports the non-secret Realtime and board model IDs so the M3 harness can reject a stale server before spending a lesson request:
 
 ```bash
 curl --fail http://127.0.0.1:8000/health
@@ -91,6 +93,60 @@ The Make targets below are thin wrappers around the native project commands.
 | All lint/build checks | `make lint` / `make build` | the corresponding commands above |
 
 The production frontend build is a static validation artifact only; deployment is out of scope.
+
+## Trying M3 topic generation
+
+Start both services, connect, enter a bounded math or physics topic under **What should Chalk teach?**, and select **Generate & teach**. The browser starts once the first validated step arrives; raw model output is never rendered. **Use cached demo** cancels active generation. If generation fails before any valid step, CHALK loads the cached projectile lesson; if it fails later, CHALK finishes the already-accepted prefix.
+
+The Realtime tutor can invoke the same path through its `teach` tool. The tool returns immediately with `status=started`, allowing one short filler sentence while the backend generates. Do not run the ten-topic live rubric repeatedly or in CI; it is a separately approved, budgeted acceptance check.
+
+### Owner-approved M3 evaluation
+
+The live evaluation harness is intentionally not a test or Make target. Its `repair-smoke`, `smoke`, and `batch` modes have independent approvals. Repair smoke makes exactly one synthetic repair call with no primary generation call and retains no generated content. Topic smoke cannot launch the ten-topic rubric. Topic modes perform the no-cost Luna health preflight, never retry a topic, and never run topics in parallel. One topic always makes one primary Responses API call and may make up to four additional scoped repair calls, so approval language must distinguish topic attempts from underlying paid API calls. Batch proceeds after a failed topic only for the clearly topic-scoped `max_output_tokens` and `content_filter` reasons, and it stops as soon as a third machine failure makes the 8/10 gate unreachable. Identity, access, configuration, transport, server, invalid-request, missing, and unknown upstream outcomes stop the remaining calls immediately.
+
+After explicit approval for exactly one repair-path probe, run it without starting the backend:
+
+```bash
+PYTHONPATH=backend uv run --project backend python -m app.m3_evaluation \
+  repair-smoke \
+  --approved-by-owner \
+  --output-dir artifacts/evidence/m3-repair-smoke-YYYYMMDD-HHMM
+```
+
+The probe sends one fixed invalid synthetic step directly through the production repair function, validates the returned step locally, and writes only bounded status, timing, model, and prompt-hash metadata. It never stores the repaired content and cannot route to topic smoke or batch. The retained passing probe is `artifacts/evidence/m3-repair-smoke-20260716-223721/`; do not run another without fresh approval.
+
+After the owner approves exactly one Luna access/stream smoke, run from the repository root with the backend already running:
+
+```bash
+PYTHONPATH=backend uv run --project backend python -m app.m3_evaluation \
+  smoke \
+  --approved-by-owner \
+  --output-dir artifacts/evidence/m3-smoke-YYYYMMDD-HHMM
+```
+
+Smoke mode makes exactly one paid `POST /lesson` topic request for synthetic projectile content, does not connect Realtime, and writes its validated raw NDJSON plus a `chalk.m3-live-smoke.v2` `summary.json`. That request makes one primary model call and can make up to four paid repair calls if generated lines are invalid; it never retries the topic. Review the captured file in diagnostics mode without regenerating it. A smoke can prove model access and the server stream path; it does not establish the ten-topic quality gate or browser first-visible-ink timing. The retained historical v1 smoke at `artifacts/evidence/m3-smoke-20260716-202350/` verified Luna access but failed its terminal and latency gates. Do not run another smoke without fresh explicit approval.
+
+Only after the corrected access smoke and the current repair-path smoke have passed—and the owner separately approves a new full batch—run:
+
+```bash
+PYTHONPATH=backend uv run --project backend python -m app.m3_evaluation \
+  batch \
+  --approved-by-owner \
+  --output-dir artifacts/evidence/m3-live-YYYYMMDD-HHMM
+```
+
+Use a new output directory. Batch mode submits the fixed ten synthetic topics sequentially and retains server-owned raw NDJSON plus a `chalk.m3-live-evaluation.v2` `summary.json` containing model/prompt hashes, first-valid-step timing, repair/drop counts, failure origin, stop reason, and empty human-review fields. A paid-path harness exception is reduced to a closed category and still produces a summary; exception text is never retained. It does not connect Realtime or generate narration. A smoke directory is intentionally not treated as batch acceptance evidence.
+
+For layout review, start the frontend with `VITE_CHALK_MODE=diagnostics`, use **Review captured lesson without regenerating**, and load each file from the evaluation directory's `raw/` folder. The browser revalidates the stream locally and reveals the accepted lesson through the selected step without another API call. Capture the board screenshot and fill the matching summary fields. Separately run one representative connected lesson and use **Copy M3 timing** after the stream and first ink complete; that evidence measures request-to-first-valid-step and first-valid-step-to-first-visible-ink from the actual product path.
+
+After all review fields and the representative timing file have been added to `summary.json`, run the read-only verifier:
+
+```bash
+PYTHONPATH=backend uv run --project backend python -m app.m3_evidence \
+  --evidence-dir artifacts/evidence/m3-live-YYYYMMDD-HHMM
+```
+
+It returns success only for exactly ten fixed topics, consistent Luna/prompt identity, complete raw streams, bounded reviewer notes, screenshots for rendered lessons, zero renderer crashes, at least eight schema/render/layout passes, and representative first visible ink under six seconds. Missing or ambiguous evidence is a failure; the verifier never edits the package. Before issuing any lesson request, the harness checks the no-cost health response and refuses an unconfigured or non-Luna backend. It also rechecks the model on every lesson response in case configuration changes mid-run.
 
 ## Reproducing the M2 projectile lesson gate
 

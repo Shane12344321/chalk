@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "title": "Standing waves",
+  "steps": [
+    {
+      "id": "s1",
+      "script": "A standing wave forms when opposite traveling waves interfere at fixed nodes.",
+      "ops": [
+        { "op": "text", "id": "title", "region": "A1", "content": "Nodes stay still" },
+        { "op": "axes", "id": "axes1", "region": "right", "x": { "min": 0, "max": 2, "label": "position" }, "y": { "min": -1.2, "max": 1.2, "label": "displacement" } }
+      ],
+      "checkpoint": null
+    },
+    {
+      "id": "s2",
+      "script": "Between neighboring nodes, an antinode reaches the greatest oscillation amplitude.",
+      "ops": [
+        { "op": "curve", "id": "curve1", "axes_id": "axes1", "expr": "sin(pi*x)", "domain": [0, 2] },
+        { "op": "equation", "id": "eq1", "region": "B2", "latex": "y=\\sin(\\pi x)" }
+      ],
+      "checkpoint": { "question": "What do we call a point that never moves?", "expected_gist": "node" }
+    }
+  ]
+}

@@ -72,8 +72,39 @@ def test_health_reports_configuration_without_secret_values() -> None:
             "model": "gpt-realtime-2.1-mini",
             "voice": "marin",
         },
+        "board": {
+            "configured": True,
+            "model": "gpt-5.6-luna",
+            "reasoning_effort": "none",
+        },
     }
     assert API_KEY not in response.text
+
+
+def test_untrusted_host_is_rejected_before_a_paid_lesson_call() -> None:
+    called = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return httpx.Response(500)
+
+    with client_with_transport(handler) as client:
+        response = client.post(
+            "/lesson",
+            headers={"Host": "attacker.example", "Content-Type": "application/json"},
+            json={
+                "request_id": REQUEST_ID,
+                "client_id": CLIENT_ID,
+                "topic": "Synthetic derivative topic",
+                "student_context": "",
+                "board_state": "",
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.text == "Invalid host header"
+    assert called is False
 
 
 def test_session_fails_cleanly_when_api_key_is_missing() -> None:
@@ -89,6 +120,7 @@ def test_session_fails_cleanly_when_api_key_is_missing() -> None:
         response = client.post("/session", json=session_payload())
 
     assert health_response.json()["realtime"]["configured"] is False
+    assert health_response.json()["board"]["configured"] is False
     assert response.status_code == 503
     assert response.json() == {
         "detail": {
@@ -340,8 +372,12 @@ def test_settings_prevent_api_key_destination_environment_override(
     [
         ("realtime_model", "sk-secret-placed-in-wrong-variable"),
         ("realtime_voice", "sk-secret-placed-in-wrong-variable"),
+        ("board_model", "sk-secret-placed-in-wrong-variable"),
+        ("board_reasoning_effort", "sk-secret-placed-in-wrong-variable"),
         ("realtime_model", "unreviewed-realtime-model"),
         ("realtime_voice", "unreviewed-voice"),
+        ("board_model", "unreviewed-board-model"),
+        ("board_reasoning_effort", "high"),
     ],
 )
 def test_settings_reject_secret_like_or_unreviewed_public_configuration(

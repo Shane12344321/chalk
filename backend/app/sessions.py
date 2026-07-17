@@ -77,10 +77,17 @@ class HealthRealtimeStatus(BaseModel):
     voice: str
 
 
+class HealthBoardStatus(BaseModel):
+    configured: bool
+    model: str
+    reasoning_effort: str
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
     service: Literal["chalk-backend"] = "chalk-backend"
     realtime: HealthRealtimeStatus
+    board: HealthBoardStatus
 
 
 class _UpstreamClientSecret(BaseModel):
@@ -120,7 +127,12 @@ async def health(
             configured=settings.has_openai_api_key,
             model=settings.realtime_model,
             voice=settings.realtime_voice,
-        )
+        ),
+        board=HealthBoardStatus(
+            configured=settings.has_openai_api_key,
+            model=settings.board_model,
+            reasoning_effort=settings.board_reasoning_effort,
+        ),
     )
 
 

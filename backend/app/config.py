@@ -34,6 +34,15 @@ class Settings(BaseSettings):
         "gpt-realtime-2.1",
     ] = "gpt-realtime-2.1-mini"
     realtime_voice: Literal["marin", "cedar"] = "marin"
+    board_model: Literal[
+        "gpt-5.6-luna",
+        "gpt-5.6-terra",
+        "gpt-5.6-sol",
+    ] = "gpt-5.6-luna"
+    board_reasoning_effort: Literal["none", "low"] = "none"
+    board_prompt_version: Literal["v1", "v2"] = "v2"
+    lesson_generation_timeout_seconds: float = Field(default=30.0, gt=0, le=60)
+    lesson_max_concurrent: int = Field(default=2, ge=1, le=4)
     frontend_origin: str = "http://localhost:5173"
     safety_identifier_salt: str = Field(
         default="chalk-local-development-v1",
@@ -76,6 +85,12 @@ class Settings(BaseSettings):
         """Report configuration state without exposing the configured value."""
 
         return bool(self.openai_api_key and self.openai_api_key.get_secret_value().strip())
+
+    @property
+    def board_prompt_name(self) -> str:
+        """Select the qualified fallback or accumulated-whiteboard prompt."""
+
+        return "board_engine_v1.md" if self.board_prompt_version == "v1" else "board_engine.md"
 
 
 @lru_cache(maxsize=1)

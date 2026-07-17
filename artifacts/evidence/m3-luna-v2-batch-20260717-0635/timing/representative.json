@@ -1,0 +1,18 @@
+{
+  "schema": "chalk.m3-browser-timing.v1",
+  "generated_at": "2026-07-17T08:33:07Z",
+  "request_id_suffix": "redacted",
+  "board_model": "gpt-5.6-luna",
+  "board_reasoning_effort": "none",
+  "board_prompt_sha256": "bdcb2d54250af75cec3877a684f46292e79f52b54bca4705302885275aeaaa5c",
+  "repair_prompt_sha256": "6c23d97b3ded5f0b8763b0f11452cf075706468d0186213a9730c1a5537daf4c",
+  "request_to_first_valid_step_ms": 1355.7,
+  "first_valid_step_to_first_visible_ink_ms": 1363.4,
+  "request_to_first_visible_ink_ms": 2719.1,
+  "accepted_steps": 4,
+  "repairs": 0,
+  "dropped_steps": 0,
+  "partial": false,
+  "capture_note": "Exact values were retained from visible product diagnostics; the automation clipboard bridge returned empty after the UI confirmed Timing copied.",
+  "browser_screenshot": "../timing-browser.png"
+}

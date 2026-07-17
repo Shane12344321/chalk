@@ -110,6 +110,33 @@ describe("fixed lesson sync reducer", () => {
     expect(stale.animationStarted).toBe(false);
     expect(stale.ignoredEvents).toBe(1);
   });
+
+  it("waits for streamed steps and resumes when the next accepted step arrives", () => {
+    const requestId = "request-live";
+    let state = fixedSyncReducer(EMPTY_SYNC_STATE, {
+      type: "LOAD",
+      requestId,
+      stepIds: ["s1"],
+      checkpointStepIds: [],
+      sourceComplete: false,
+    });
+    state = fixedSyncReducer(state, { type: "START", requestId });
+    state = finishCurrentStep(state);
+    expect(state).toMatchObject({ phase: "GENERATING", currentStepIndex: 0 });
+
+    state = fixedSyncReducer(state, {
+      type: "APPEND_STEPS",
+      requestId,
+      stepIds: ["s1", "s2"],
+      checkpointStepIds: [],
+    });
+    expect(state).toMatchObject({ phase: "TEACHING", currentStepIndex: 1 });
+    state = finishCurrentStep(state);
+    expect(state.phase).toBe("GENERATING");
+
+    state = fixedSyncReducer(state, { type: "SOURCE_DONE", requestId });
+    expect(state).toMatchObject({ phase: "DONE", completedRuns: 1 });
+  });
 });
 
 function startState(
@@ -121,6 +148,7 @@ function startState(
     requestId,
     stepIds: STEP_IDS,
     checkpointStepIds,
+    sourceComplete: true,
   });
   return fixedSyncReducer(loaded, { type: "START", requestId });
 }
@@ -146,4 +174,7 @@ function send(
   return fixedSyncReducer(state, correlated);
 }
 
-type CorrelatedType = Exclude<FixedSyncEvent["type"], "LOAD" | "START" | "RESET">;
+type CorrelatedType = Exclude<
+  FixedSyncEvent["type"],
+  "LOAD" | "APPEND_STEPS" | "SOURCE_DONE" | "START" | "RESET"
+>;

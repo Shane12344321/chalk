@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://chalk.local/schema/lesson-stream.schema.json",
+  "title": "LessonStreamEnvelope",
+  "description": "Validated backend-to-browser NDJSON envelopes for live lesson generation.",
+  "oneOf": [
+    { "$ref": "#/$defs/started" },
+    { "$ref": "#/$defs/step" },
+    { "$ref": "#/$defs/warning" },
+    { "$ref": "#/$defs/done" },
+    { "$ref": "#/$defs/error" }
+  ],
+  "$defs": {
+    "requestId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "started": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "request_id", "title"],
+      "properties": {
+        "type": { "const": "lesson.started" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 80 }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "request_id", "step"],
+      "properties": {
+        "type": { "const": "lesson.step" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "step": {
+          "$ref": "lesson.schema.json#/$defs/step"
+        }
+      }
+    },
+    "warning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "request_id", "code"],
+      "properties": {
+        "type": { "const": "lesson.warning" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "code": {
+          "enum": ["step_repaired", "step_dropped", "truncated_output"]
+        },
+        "step_hint": { "type": "string", "maxLength": 16 }
+      }
+    },
+    "done": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "request_id", "accepted_steps", "repairs", "dropped_steps"],
+      "properties": {
+        "type": { "const": "lesson.done" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "accepted_steps": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "repairs": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "dropped_steps": { "type": "integer", "minimum": 0, "maximum": 8 }
+      }
+    },
+    "error": {
+      "oneOf": [
+        { "$ref": "#/$defs/upstreamError" },
+        { "$ref": "#/$defs/localError" }
+      ]
+    },
+    "upstreamError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "request_id", "code", "fallback_available"],
+      "properties": {
+        "type": { "const": "lesson.error" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "code": {
+          "enum": [
+            "upstream_rejected",
+            "upstream_failed",
+            "upstream_incomplete",
+            "upstream_error"
+          ]
+        },
+        "upstream_reason": {
+          "enum": [
+            "max_output_tokens",
+            "content_filter",
+            "rate_limit",
+            "authentication",
+            "permission",
+            "server_error",
+            "invalid_request",
+            "unknown"
+          ]
+        },
+        "failure_origin": { "enum": ["generation", "repair"] },
+        "repair_attempts": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "fallback_available": { "const": true }
+      }
+    },
+    "localError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "request_id", "code", "fallback_available"],
+      "properties": {
+        "type": { "const": "lesson.error" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "code": {
+          "enum": [
+            "not_configured",
+            "upstream_unavailable",
+            "generation_timeout",
+            "invalid_stream",
+            "no_valid_steps"
+          ]
+        },
+        "failure_origin": { "enum": ["generation", "repair"] },
+        "repair_attempts": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "fallback_available": { "const": true }
+      }
+    }
+  }
+}

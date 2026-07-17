@@ -1,0 +1,719 @@
+"""Validated live lesson streaming over CHALK-owned NDJSON envelopes."""
+
+from __future__ import annotations
+
+import asyncio
+import codecs
+import hashlib
+import json
+import logging
+import time
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Annotated, Any, Literal
+
+import httpx
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.config import Settings, get_settings
+from app.dependencies import get_openai_http_client
+from app.lesson_validation import (
+    LessonValidationState,
+    StepValidationError,
+    validate_envelope,
+    validate_step,
+)
+from app.sessions import CanonicalUuid4, _safety_identifier
+
+logger = logging.getLogger(__name__)
+router = APIRouter(tags=["lessons"])
+
+OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+MAX_MODEL_LINE_BYTES = 16 * 1024
+MAX_MODEL_OUTPUT_BYTES = 128 * 1024
+MAX_UPSTREAM_STREAM_BYTES = 2 * 1024 * 1024
+MAX_REPAIR_OUTPUT_BYTES = 32 * 1024
+MAX_REPAIR_ATTEMPTS = 2
+MAX_REPAIR_CALLS_PER_LESSON = 4
+MAX_OUTPUT_TOKENS = 3_200
+PROMPT_DIR = Path(__file__).resolve().parent / "prompts"
+
+type LessonErrorCode = Literal[
+    "not_configured",
+    "upstream_rejected",
+    "upstream_failed",
+    "upstream_incomplete",
+    "upstream_error",
+    "upstream_unavailable",
+    "generation_timeout",
+    "invalid_stream",
+    "no_valid_steps",
+]
+type UpstreamReason = Literal[
+    "max_output_tokens",
+    "content_filter",
+    "rate_limit",
+    "authentication",
+    "permission",
+    "server_error",
+    "invalid_request",
+    "unknown",
+]
+type FailureOrigin = Literal["generation", "repair"]
+
+_UPSTREAM_REASON_CODES: dict[str, UpstreamReason] = {
+    "max_output_tokens": "max_output_tokens",
+    "max_tokens": "max_output_tokens",
+    "content_filter": "content_filter",
+    "rate_limit": "rate_limit",
+    "rate_limit_exceeded": "rate_limit",
+    "authentication": "authentication",
+    "authentication_error": "authentication",
+    "invalid_api_key": "authentication",
+    "invalid_authentication": "authentication",
+    "permission": "permission",
+    "permission_denied": "permission",
+    "insufficient_permissions": "permission",
+    "model_not_found": "permission",
+    "server_error": "server_error",
+    "invalid_request": "invalid_request",
+    "invalid_request_error": "invalid_request",
+    "invalid_prompt": "invalid_request",
+}
+
+
+class LessonRequest(BaseModel):
+    """Bounded student request; raw content is never written to logs."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, strict=True)
+
+    request_id: CanonicalUuid4
+    client_id: CanonicalUuid4 = Field(repr=False)
+    topic: str = Field(min_length=2, max_length=80, repr=False)
+    student_context: str = Field(default="", max_length=500, repr=False)
+    board_state: str = Field(default="", max_length=1_000, repr=False)
+
+
+class _GenerationFailure(Exception):
+    def __init__(
+        self,
+        code: LessonErrorCode,
+        upstream_reason: UpstreamReason | None = None,
+        *,
+        origin: FailureOrigin = "generation",
+    ) -> None:
+        self.code = code
+        self.upstream_reason = upstream_reason
+        self.origin = origin
+        super().__init__(code)
+
+
+@dataclass
+class _RepairBudget:
+    limit: int = MAX_REPAIR_CALLS_PER_LESSON
+    attempts: int = 0
+    in_flight: bool = False
+
+    @property
+    def remaining(self) -> int:
+        return max(0, self.limit - self.attempts)
+
+    def record_attempt(self) -> None:
+        if self.remaining == 0:
+            raise RuntimeError("repair budget exhausted")
+        self.attempts += 1
+        self.in_flight = True
+
+    def finish_attempt(self) -> None:
+        self.in_flight = False
+
+
+@router.post("/lesson", response_class=StreamingResponse)
+async def create_lesson(
+    payload: LessonRequest,
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+    client: Annotated[httpx.AsyncClient, Depends(get_openai_http_client)],
+) -> StreamingResponse:
+    """Stream only accepted lesson steps; upstream SSE never reaches the browser."""
+
+    return StreamingResponse(
+        _lesson_envelopes(payload, request, settings, client),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+            "X-Chalk-Board-Model": settings.board_model,
+            "X-Chalk-Board-Reasoning-Effort": settings.board_reasoning_effort,
+            "X-Chalk-Board-Prompt-SHA256": _prompt_sha256(settings.board_prompt_name),
+            "X-Chalk-Repair-Prompt-SHA256": _prompt_sha256("repair.md"),
+        },
+    )
+
+
+async def _lesson_envelopes(
+    payload: LessonRequest,
+    request: Request,
+    settings: Settings,
+    client: httpx.AsyncClient,
+) -> AsyncIterator[bytes]:
+    request_id = payload.request_id
+    started_at = time.monotonic()
+    first_valid_step_recorded = False
+    logger.info(
+        "lesson_generation_started request_id=%s model=%s reasoning_effort=%s",
+        request_id,
+        settings.board_model,
+        settings.board_reasoning_effort,
+    )
+    yield _encode_envelope(
+        {"type": "lesson.started", "request_id": request_id, "title": payload.topic}
+    )
+
+    if not settings.has_openai_api_key:
+        logger.warning("lesson_generation_failed reason=not_configured request_id=%s", request_id)
+        yield _error_envelope(request_id, "not_configured", repair_attempts=0)
+        return
+
+    semaphore: asyncio.Semaphore = request.app.state.lesson_generation_semaphore
+    state = LessonValidationState()
+    repair_budget = _RepairBudget()
+    dropped_steps = 0
+    processed_steps = 0
+
+    try:
+        async with asyncio.timeout(settings.lesson_generation_timeout_seconds):
+            async with semaphore:
+                async for raw_line in _stream_model_lines(payload, settings, client):
+                    if await request.is_disconnected():
+                        logger.info("lesson_generation_cancelled request_id=%s", request_id)
+                        return
+                    if state.accepted_steps >= 8 or processed_steps >= 8:
+                        break
+                    processed_steps += 1
+
+                    accepted, repair_attempts = await _accept_or_repair(
+                        raw_line,
+                        state,
+                        payload,
+                        settings,
+                        client,
+                        repair_budget=repair_budget,
+                    )
+                    if accepted is None:
+                        dropped_steps += 1
+                        yield _encode_envelope(
+                            {
+                                "type": "lesson.warning",
+                                "request_id": request_id,
+                                "code": "step_dropped",
+                                **_step_hint(raw_line),
+                            }
+                        )
+                        continue
+                    if repair_attempts:
+                        yield _encode_envelope(
+                            {
+                                "type": "lesson.warning",
+                                "request_id": request_id,
+                                "code": "step_repaired",
+                                "step_hint": accepted["id"],
+                            }
+                        )
+                    if not first_valid_step_recorded:
+                        first_valid_step_recorded = True
+                        logger.info(
+                            "lesson_generation_first_valid_step request_id=%s latency_ms=%.1f",
+                            request_id,
+                            (time.monotonic() - started_at) * 1_000,
+                        )
+                    yield _encode_envelope(
+                        {
+                            "type": "lesson.step",
+                            "request_id": request_id,
+                            "step": accepted,
+                        }
+                    )
+    except TimeoutError:
+        logger.warning("lesson_generation_failed reason=timeout request_id=%s", request_id)
+        yield _error_envelope(
+            request_id,
+            "generation_timeout",
+            failure_origin="repair" if repair_budget.in_flight else "generation",
+            repair_attempts=repair_budget.attempts,
+        )
+        return
+    except _GenerationFailure as error:
+        logger.warning(
+            "lesson_generation_failed reason=%s upstream_reason=%s origin=%s repairs=%s "
+            "request_id=%s",
+            error.code,
+            error.upstream_reason or "none",
+            error.origin,
+            repair_budget.attempts,
+            request_id,
+        )
+        yield _error_envelope(
+            request_id,
+            error.code,
+            error.upstream_reason,
+            failure_origin=error.origin,
+            repair_attempts=repair_budget.attempts,
+        )
+        return
+    except asyncio.CancelledError:
+        logger.info("lesson_generation_cancelled request_id=%s", request_id)
+        raise
+
+    if state.accepted_steps == 0:
+        logger.warning("lesson_generation_failed reason=no_valid_steps request_id=%s", request_id)
+        yield _error_envelope(
+            request_id,
+            "no_valid_steps",
+            repair_attempts=repair_budget.attempts,
+        )
+        return
+
+    logger.info(
+        "lesson_generation_succeeded request_id=%s accepted=%s repairs=%s dropped=%s",
+        request_id,
+        state.accepted_steps,
+        repair_budget.attempts,
+        dropped_steps,
+    )
+    yield _encode_envelope(
+        {
+            "type": "lesson.done",
+            "request_id": request_id,
+            "accepted_steps": state.accepted_steps,
+            "repairs": repair_budget.attempts,
+            "dropped_steps": dropped_steps,
+        }
+    )
+
+
+async def _stream_model_lines(
+    payload: LessonRequest,
+    settings: Settings,
+    client: httpx.AsyncClient,
+) -> AsyncIterator[str]:
+    api_key = settings.openai_api_key
+    assert api_key is not None
+    headers = {
+        "Authorization": f"Bearer {api_key.get_secret_value()}",
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "OpenAI-Safety-Identifier": _safety_identifier(settings, payload.client_id),
+    }
+    body = {
+        "model": settings.board_model,
+        "instructions": _prompt(settings.board_prompt_name),
+        "input": [
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "topic": payload.topic,
+                        "student_context": payload.student_context,
+                        "visible_board": payload.board_state,
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+            }
+        ],
+        "reasoning": {"effort": settings.board_reasoning_effort},
+        "max_output_tokens": MAX_OUTPUT_TOKENS,
+        "store": False,
+        "stream": True,
+    }
+    timeout = httpx.Timeout(settings.lesson_generation_timeout_seconds)
+    try:
+        async with client.stream(
+            "POST",
+            OPENAI_RESPONSES_URL,
+            headers=headers,
+            json=body,
+            timeout=timeout,
+        ) as response:
+            if response.is_error:
+                raise _GenerationFailure(
+                    "upstream_rejected",
+                    _http_upstream_reason(response.status_code),
+                )
+            sse = _SseParser()
+            lines = _JsonlBuffer()
+            completed = False
+            try:
+                async for chunk in response.aiter_bytes():
+                    for event_data in sse.feed(chunk):
+                        event = _parse_sse_event(event_data)
+                        event_type = event.get("type")
+                        if completed and event_type != "done.sentinel":
+                            raise _GenerationFailure("invalid_stream")
+                        if event_type == "response.output_text.delta":
+                            delta = event.get("delta")
+                            if not isinstance(delta, str):
+                                raise _GenerationFailure("invalid_stream")
+                            for line in lines.feed(delta):
+                                yield line
+                        elif event_type == "response.completed":
+                            completed = True
+                        else:
+                            failure = _terminal_failure(event)
+                            if failure is not None:
+                                raise failure
+                for event_data in sse.finish():
+                    event = _parse_sse_event(event_data)
+                    event_type = event.get("type")
+                    if completed and event_type != "done.sentinel":
+                        raise _GenerationFailure("invalid_stream")
+                    if event_type == "response.output_text.delta":
+                        delta = event.get("delta")
+                        if not isinstance(delta, str):
+                            raise _GenerationFailure("invalid_stream")
+                        for line in lines.feed(delta):
+                            yield line
+                    elif event_type == "response.completed":
+                        completed = True
+                    else:
+                        failure = _terminal_failure(event)
+                        if failure is not None:
+                            raise failure
+                final_line = lines.finish()
+                if final_line is not None:
+                    yield final_line
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                raise _GenerationFailure("invalid_stream") from None
+            if not completed:
+                raise _GenerationFailure("invalid_stream")
+    except _GenerationFailure:
+        raise
+    except (httpx.TimeoutException, httpx.RequestError):
+        raise _GenerationFailure("upstream_unavailable") from None
+
+
+async def _accept_or_repair(
+    raw_line: str,
+    state: LessonValidationState,
+    payload: LessonRequest,
+    settings: Settings,
+    client: httpx.AsyncClient,
+    *,
+    repair_budget: _RepairBudget,
+) -> tuple[dict[str, Any] | None, int]:
+    candidate_text = raw_line
+    issues: list[str]
+    repair_attempts = 0
+    allowed_repairs = min(MAX_REPAIR_ATTEMPTS, repair_budget.remaining)
+    while True:
+        try:
+            candidate = json.loads(candidate_text)
+            return validate_step(candidate, state), repair_attempts
+        except json.JSONDecodeError:
+            issues = ["line is not one complete JSON object"]
+        except StepValidationError as error:
+            issues = error.issues
+        if repair_attempts >= allowed_repairs:
+            return None, repair_attempts
+        repair_attempts += 1
+        repair_budget.record_attempt()
+        try:
+            candidate_text = await _repair_step(
+                candidate_text,
+                issues,
+                state,
+                payload,
+                settings,
+                client,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            repair_budget.finish_attempt()
+            raise
+        repair_budget.finish_attempt()
+
+
+async def _repair_step(
+    invalid_line: str,
+    issues: list[str],
+    state: LessonValidationState,
+    payload: LessonRequest,
+    settings: Settings,
+    client: httpx.AsyncClient,
+) -> str:
+    api_key = settings.openai_api_key
+    assert api_key is not None
+    body = {
+        "model": settings.board_model,
+        "instructions": _prompt("repair.md"),
+        "input": [
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "invalid_step": invalid_line,
+                        "validation_errors": issues[:12],
+                        "accepted_element_ids": state.inventory(),
+                        "topic": payload.topic,
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+            }
+        ],
+        # Keep repair generation on the same broadly supported plain-text
+        # Responses surface as primary generation. The prompt requests one
+        # JSON object, but the checked-in schema and semantic validator—not an
+        # upstream formatting mode—remain the authority for every repair.
+        "reasoning": {"effort": settings.board_reasoning_effort},
+        "max_output_tokens": 1_200,
+        "store": False,
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key.get_secret_value()}",
+        "Content-Type": "application/json",
+        "OpenAI-Safety-Identifier": _safety_identifier(settings, payload.client_id),
+    }
+    try:
+        response = await client.post(
+            OPENAI_RESPONSES_URL,
+            headers=headers,
+            json=body,
+            timeout=httpx.Timeout(settings.lesson_generation_timeout_seconds),
+        )
+    except (httpx.TimeoutException, httpx.RequestError):
+        raise _GenerationFailure("upstream_unavailable", origin="repair") from None
+    if response.is_error:
+        raise _GenerationFailure(
+            "upstream_rejected",
+            _http_upstream_reason(response.status_code),
+            origin="repair",
+        )
+    if len(response.content) > MAX_REPAIR_OUTPUT_BYTES:
+        raise _GenerationFailure("invalid_stream", origin="repair")
+    try:
+        return _extract_output_text(response.json())
+    except (ValueError, TypeError, json.JSONDecodeError):
+        raise _GenerationFailure("invalid_stream", origin="repair") from None
+
+
+def _extract_output_text(value: Any) -> str:
+    if not isinstance(value, dict) or value.get("status") != "completed":
+        raise ValueError("repair response did not complete")
+    output = value.get("output")
+    if not isinstance(output, list):
+        raise ValueError("repair response has no output")
+    texts: list[str] = []
+    for item in output:
+        if not isinstance(item, dict) or item.get("type") != "message":
+            continue
+        content = item.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "output_text":
+                text = part.get("text")
+                if isinstance(text, str):
+                    texts.append(text)
+            elif isinstance(part, dict) and part.get("type") == "refusal":
+                raise ValueError("repair was refused")
+    if len(texts) != 1 or not texts[0].strip():
+        raise ValueError("repair response must contain exactly one text output")
+    return texts[0]
+
+
+class _SseParser:
+    def __init__(self) -> None:
+        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="strict")
+        self._buffer = ""
+        self._data_lines: list[str] = []
+        self._observed_bytes = 0
+
+    def feed(self, chunk: bytes) -> list[str]:
+        self._observed_bytes += len(chunk)
+        if self._observed_bytes > MAX_UPSTREAM_STREAM_BYTES:
+            raise ValueError("upstream stream exceeds byte budget")
+        self._buffer += self._decoder.decode(chunk)
+        return self._drain_complete_lines()
+
+    def finish(self) -> list[str]:
+        self._buffer += self._decoder.decode(b"", final=True)
+        events = self._drain_complete_lines()
+        if self._buffer:
+            self._consume_line(self._buffer.rstrip("\r"), events)
+            self._buffer = ""
+        if self._data_lines:
+            events.append("\n".join(self._data_lines))
+            self._data_lines = []
+        return events
+
+    def _drain_complete_lines(self) -> list[str]:
+        events: list[str] = []
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            self._consume_line(line.rstrip("\r"), events)
+        return events
+
+    def _consume_line(self, line: str, events: list[str]) -> None:
+        if line == "":
+            if self._data_lines:
+                events.append("\n".join(self._data_lines))
+                self._data_lines = []
+            return
+        if line.startswith("data:"):
+            self._data_lines.append(line[5:].lstrip(" "))
+
+
+class _JsonlBuffer:
+    def __init__(self) -> None:
+        self._buffer = ""
+        self._observed_bytes = 0
+
+    def feed(self, delta: str) -> list[str]:
+        self._observed_bytes += len(delta.encode("utf-8"))
+        if self._observed_bytes > MAX_MODEL_OUTPUT_BYTES:
+            raise ValueError("model output exceeds byte budget")
+        self._buffer += delta
+        if len(self._buffer.encode("utf-8")) > MAX_MODEL_LINE_BYTES and "\n" not in self._buffer:
+            raise ValueError("model line exceeds byte budget")
+        lines: list[str] = []
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            line = line.strip()
+            if line:
+                if len(line.encode("utf-8")) > MAX_MODEL_LINE_BYTES:
+                    raise ValueError("model line exceeds byte budget")
+                lines.append(line)
+        return lines
+
+    def finish(self) -> str | None:
+        line = self._buffer.strip()
+        self._buffer = ""
+        if not line:
+            return None
+        if len(line.encode("utf-8")) > MAX_MODEL_LINE_BYTES:
+            raise ValueError("model line exceeds byte budget")
+        return line
+
+
+def _parse_sse_event(data: str) -> dict[str, Any]:
+    if data == "[DONE]":
+        return {"type": "done.sentinel"}
+    value = json.loads(data)
+    if not isinstance(value, dict) or not isinstance(value.get("type"), str):
+        raise ValueError("invalid upstream SSE event")
+    return value
+
+
+def _encode_envelope(value: dict[str, Any]) -> bytes:
+    validate_envelope(value)
+    return (json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
+
+
+def _error_envelope(
+    request_id: str,
+    code: LessonErrorCode,
+    upstream_reason: UpstreamReason | None = None,
+    *,
+    failure_origin: FailureOrigin = "generation",
+    repair_attempts: int,
+) -> bytes:
+    return _encode_envelope(
+        {
+            "type": "lesson.error",
+            "request_id": request_id,
+            "code": code,
+            "fallback_available": True,
+            "failure_origin": failure_origin,
+            "repair_attempts": repair_attempts,
+            **({"upstream_reason": upstream_reason} if upstream_reason is not None else {}),
+        }
+    )
+
+
+def _terminal_failure(event: dict[str, Any]) -> _GenerationFailure | None:
+    event_type = event.get("type")
+    if event_type == "response.incomplete":
+        return _GenerationFailure(
+            "upstream_incomplete",
+            _normalized_upstream_reason(
+                _nested_string(event, "response", "incomplete_details", "reason")
+            ),
+        )
+    if event_type == "response.failed":
+        return _GenerationFailure(
+            "upstream_failed",
+            _normalized_upstream_reason(_nested_string(event, "response", "error", "code")),
+        )
+    if event_type == "error":
+        raw_code = event.get("code")
+        if not isinstance(raw_code, str):
+            raw_code = _nested_string(event, "error", "code")
+        return _GenerationFailure(
+            "upstream_error",
+            _normalized_upstream_reason(raw_code),
+        )
+    return None
+
+
+def _nested_string(value: dict[str, Any], *path: str) -> str | None:
+    current: Any = value
+    for part in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    return current if isinstance(current, str) else None
+
+
+def _normalized_upstream_reason(value: str | None) -> UpstreamReason:
+    if value is None:
+        return "unknown"
+    return _UPSTREAM_REASON_CODES.get(value.lower(), "unknown")
+
+
+def _http_upstream_reason(status_code: int) -> UpstreamReason:
+    if status_code == 401:
+        return "authentication"
+    if status_code in {403, 404}:
+        return "permission"
+    if status_code == 429:
+        return "rate_limit"
+    if 400 <= status_code < 500:
+        return "invalid_request"
+    if status_code >= 500:
+        return "server_error"
+    return "unknown"
+
+
+def _step_hint(raw_line: str) -> dict[str, str]:
+    try:
+        value = json.loads(raw_line)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(value, dict):
+        return {}
+    step_id = value.get("id")
+    if (
+        isinstance(step_id, str)
+        and len(step_id) <= 16
+        and step_id
+        and step_id[0].islower()
+        and all(
+            character.islower() or character.isdigit() or character in "_-" for character in step_id
+        )
+    ):
+        return {"step_hint": step_id}
+    return {}
+
+
+def _prompt(name: str) -> str:
+    return (PROMPT_DIR / name).read_text(encoding="utf-8")
+
+
+def _prompt_sha256(name: str) -> str:
+    return hashlib.sha256(_prompt(name).encode()).hexdigest()

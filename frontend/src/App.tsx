@@ -1,9 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import projectileLessonSource from "../../demo/cached_lessons/projectile-range.lesson.json";
 import { Board } from "./board/Board";
 import { decodeLesson } from "./board/decode";
 import { buildBoardManifest } from "./board/manifest";
 import { isLessonProgram } from "./board/schema";
+import type { NormalizedLesson } from "./board/decode";
+import {
+  decodeLessonNdjson,
+  LessonStreamClient,
+  type LessonStreamProgress,
+} from "./lessonStream";
 import {
   getOrCreateClientId,
   RealtimeClient,
@@ -48,18 +54,72 @@ if (!isLessonProgram(projectileLessonSource) || !PROJECTILE_RESULT.lesson || PRO
 const PROJECTILE_LESSON = PROJECTILE_RESULT.lesson;
 const EMPTY_PROJECTILE_MANIFEST = buildBoardManifest(PROJECTILE_LESSON.title, []);
 
+interface M3GenerationTiming {
+  requestId: string;
+  requestedAtMs: number;
+  firstValidStepAtMs?: number;
+  firstVisibleInkAtMs?: number;
+  boardModel?: string;
+  boardReasoningEffort?: string;
+  boardPromptSha256?: string;
+  repairPromptSha256?: string;
+  acceptedSteps?: number;
+  repairs?: number;
+  droppedSteps?: number;
+  partial?: boolean;
+}
+
 function App() {
   const isDiagnostics = CHALK_MODE === "diagnostics";
+  const clientIdRef = useRef<string>();
+  if (!clientIdRef.current) clientIdRef.current = getOrCreateClientId();
+  const cachedRequestIdRef = useRef<string>();
+  if (!cachedRequestIdRef.current) cachedRequestIdRef.current = crypto.randomUUID();
   const clientRef = useRef<RealtimeClient>();
+  const lessonStreamRef = useRef<LessonStreamClient>();
+  if (!lessonStreamRef.current) {
+    lessonStreamRef.current = new LessonStreamClient(API_BASE_URL, clientIdRef.current);
+  }
   const semanticHandlerRef = useRef<(event: RealtimeSemanticEvent) => void>();
+  const generationTimingRef = useRef<M3GenerationTiming>();
+  const teachHandlerRef = useRef<
+    (topic: string, studentContext: string) => { requestId: string }
+  >();
   const [snapshot, setSnapshot] = useState(INITIAL_SNAPSHOT);
   const [boardManifest, setBoardManifest] = useState(EMPTY_PROJECTILE_MANIFEST);
+  const [topic, setTopic] = useState("Derivative as slope at a point");
+  const [activeLesson, setActiveLesson] = useState<{
+    lesson: NormalizedLesson;
+    requestId: string;
+    complete: boolean;
+    source: "cached" | "live" | "review";
+  }>({
+    lesson: PROJECTILE_LESSON,
+    requestId: cachedRequestIdRef.current,
+    complete: true,
+    source: "cached",
+  });
+  const [generation, setGeneration] = useState<{
+    status: "idle" | "generating" | "ready" | "fallback";
+    message?: string;
+    warnings: number;
+    repairs: number;
+    droppedSteps: number;
+  }>({ status: "idle", warnings: 0, repairs: 0, droppedSteps: 0 });
+  const [autoStartRequestId, setAutoStartRequestId] = useState<string>();
   const [contextError, setContextError] = useState<string>();
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
+  const [m3CopyState, setM3CopyState] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
+  const [generationTiming, setGenerationTiming] = useState<M3GenerationTiming>();
+  const [reviewStepIndex, setReviewStepIndex] = useState(0);
   const lessonSync = useFixedLessonSync({
-    lesson: PROJECTILE_LESSON,
+    lesson: activeLesson.lesson,
+    lessonRequestId: activeLesson.requestId,
+    lessonComplete: activeLesson.complete,
     clientRef,
     connectionStatus: snapshot.status,
     responseIdle: !snapshot.activeResponseId && !snapshot.audioPlaybackActive,
@@ -69,17 +129,23 @@ function App() {
   useEffect(() => {
     const client = new RealtimeClient({
       apiBaseUrl: API_BASE_URL,
-      clientId: getOrCreateClientId(),
+      clientId: clientIdRef.current!,
       mode: CHALK_MODE,
       callbacks: {
         onSnapshot: setSnapshot,
         onSemanticEvent: (event) => semanticHandlerRef.current?.(event),
+        onTeachRequested: (requestedTopic, studentContext) => {
+          const handler = teachHandlerRef.current;
+          if (!handler) throw new Error("Lesson generation is not ready.");
+          return handler(requestedTopic, studentContext);
+        },
       },
     });
     clientRef.current = client;
     void client.setBoardContext(EMPTY_PROJECTILE_MANIFEST);
     return () => {
       clientRef.current = undefined;
+      lessonStreamRef.current?.cancel();
       void client.disconnect();
     };
   }, []);
@@ -105,7 +171,41 @@ function App() {
     snapshot.status !== "disconnected" && snapshot.status !== "disconnecting";
   const recentTrace = useMemo(() => snapshot.trace.slice(-30).reverse(), [snapshot.trace]);
   const activeCheckpoint =
-    PROJECTILE_LESSON.steps[lessonSync.state.currentStepIndex]?.checkpoint;
+    activeLesson.lesson.steps[lessonSync.state.currentStepIndex]?.checkpoint;
+
+  useEffect(() => {
+    if (
+      !autoStartRequestId ||
+      autoStartRequestId !== activeLesson.requestId ||
+      lessonSync.state.requestId !== activeLesson.requestId ||
+      lessonSync.state.phase !== "IDLE" ||
+      snapshot.status !== "connected" ||
+      snapshot.activeResponseId ||
+      snapshot.audioPlaybackActive
+    ) {
+      return;
+    }
+    const emptyManifest = buildBoardManifest(activeLesson.lesson.title, []);
+    void clientRef.current
+      ?.setBoardContext(emptyManifest)
+      .then(() => {
+        setContextError(undefined);
+        setAutoStartRequestId(undefined);
+        lessonSync.start();
+      })
+      .catch(() => {
+        setContextError(
+          "Chalk could not reset its board grounding. Disconnect and reconnect before retrying.",
+        );
+      });
+  }, [
+    activeLesson,
+    autoStartRequestId,
+    lessonSync,
+    snapshot.activeResponseId,
+    snapshot.audioPlaybackActive,
+    snapshot.status,
+  ]);
 
   const connect = () => {
     setCopyState("idle");
@@ -130,7 +230,7 @@ function App() {
     const client = clientRef.current;
     if (!client) return;
     void client
-      .setBoardContext(EMPTY_PROJECTILE_MANIFEST)
+      .setBoardContext(buildBoardManifest(activeLesson.lesson.title, []))
       .then(() => {
         setContextError(undefined);
         lessonSync.start();
@@ -140,6 +240,182 @@ function App() {
           "Chalk could not reset its board grounding. Disconnect and reconnect before retrying.",
         ),
       );
+  };
+
+  const generateLesson = (requestedTopic: string, studentContext = ""): string => {
+    const normalizedTopic = requestedTopic.trim();
+    if (!normalizedTopic) throw new Error("Enter a math or physics topic first.");
+    const requestId = crypto.randomUUID();
+    const timing = { requestId, requestedAtMs: performance.now() };
+    generationTimingRef.current = timing;
+    setGenerationTiming(timing);
+    setM3CopyState("idle");
+    setGeneration({ status: "generating", warnings: 0, repairs: 0, droppedSteps: 0 });
+    setAutoStartRequestId(requestId);
+    void lessonStreamRef.current
+      ?.start(
+        {
+          requestId,
+          topic: normalizedTopic,
+          studentContext,
+          boardState: boardManifest,
+        },
+        (progress: LessonStreamProgress) => {
+          if (progress.steps.length === 0) return;
+          const currentTiming = generationTimingRef.current;
+          if (
+            currentTiming?.requestId === progress.requestId &&
+            currentTiming.firstValidStepAtMs === undefined
+          ) {
+            const updatedTiming = {
+              ...currentTiming,
+              firstValidStepAtMs: performance.now(),
+              ...(progress.boardModel ? { boardModel: progress.boardModel } : {}),
+              ...(progress.boardReasoningEffort
+                ? { boardReasoningEffort: progress.boardReasoningEffort }
+                : {}),
+              ...(progress.boardPromptSha256
+                ? { boardPromptSha256: progress.boardPromptSha256 }
+                : {}),
+              ...(progress.repairPromptSha256
+                ? { repairPromptSha256: progress.repairPromptSha256 }
+                : {}),
+            };
+            generationTimingRef.current = updatedTiming;
+            setGenerationTiming(updatedTiming);
+          }
+          setActiveLesson({
+            lesson: {
+              schemaVersion: "1.0",
+              title: progress.title,
+              steps: progress.steps,
+            },
+            requestId: progress.requestId,
+            complete: progress.complete,
+            source: "live",
+          });
+          setGeneration((current) => ({
+            ...current,
+            status: progress.complete ? "ready" : "generating",
+            warnings: progress.warnings,
+          }));
+        },
+      )
+      .then((result) => {
+        const currentTiming = generationTimingRef.current;
+        if (currentTiming?.requestId === result.requestId) {
+          const updatedTiming = {
+            ...currentTiming,
+            ...(result.boardModel ? { boardModel: result.boardModel } : {}),
+            ...(result.boardReasoningEffort
+              ? { boardReasoningEffort: result.boardReasoningEffort }
+              : {}),
+            ...(result.boardPromptSha256
+              ? { boardPromptSha256: result.boardPromptSha256 }
+              : {}),
+            ...(result.repairPromptSha256
+              ? { repairPromptSha256: result.repairPromptSha256 }
+              : {}),
+            acceptedSteps: result.steps.length,
+            repairs: result.repairs,
+            droppedSteps: result.droppedSteps,
+            partial: result.partial,
+          };
+          generationTimingRef.current = updatedTiming;
+          setGenerationTiming(updatedTiming);
+        }
+        setActiveLesson({
+          lesson: result.lesson,
+          requestId: result.requestId,
+          complete: true,
+          source: "live",
+        });
+        setGeneration({
+          status: "ready",
+          ...(result.partial
+            ? { message: "Generation ended early; Chalk is continuing with the accepted validated steps." }
+            : {}),
+          warnings: result.warnings,
+          repairs: result.repairs,
+          droppedSteps: result.droppedSteps,
+        });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        const fallbackRequestId = crypto.randomUUID();
+        setActiveLesson({
+          lesson: PROJECTILE_LESSON,
+          requestId: fallbackRequestId,
+          complete: true,
+          source: "cached",
+        });
+        setAutoStartRequestId(fallbackRequestId);
+        setGeneration({
+          status: "fallback",
+          message: "Live generation was unavailable, so Chalk loaded the validated cached lesson.",
+          warnings: 0,
+          repairs: 0,
+          droppedSteps: 0,
+        });
+      });
+    return requestId;
+  };
+
+  const useCachedLesson = () => {
+    lessonStreamRef.current?.cancel();
+    const requestId = crypto.randomUUID();
+    setActiveLesson({
+      lesson: PROJECTILE_LESSON,
+      requestId,
+      complete: true,
+      source: "cached",
+    });
+    setGeneration({ status: "idle", warnings: 0, repairs: 0, droppedSteps: 0 });
+    generationTimingRef.current = undefined;
+    setGenerationTiming(undefined);
+    setM3CopyState("idle");
+    setAutoStartRequestId(requestId);
+  };
+
+  const reviewCapturedLesson = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const result = decodeLessonNdjson(await file.text());
+      lessonStreamRef.current?.cancel();
+      generationTimingRef.current = undefined;
+      setGenerationTiming(undefined);
+      setActiveLesson({
+        lesson: result.lesson,
+        requestId: result.requestId,
+        complete: true,
+        source: "review",
+      });
+      setReviewStepIndex(result.lesson.steps.length - 1);
+      setAutoStartRequestId(undefined);
+      setGeneration({
+        status: "ready",
+        message: "Captured validated lesson loaded locally for layout review; no API call was made.",
+        warnings: result.warnings,
+        repairs: result.repairs,
+        droppedSteps: result.droppedSteps,
+      });
+    } catch {
+      setGeneration((current) => ({
+        ...current,
+        message: "The captured lesson failed local stream or lesson validation.",
+      }));
+    }
+  };
+
+  teachHandlerRef.current = (requestedTopic, studentContext) => {
+    if (
+      snapshot.status !== "connected" ||
+      generation.status === "generating" ||
+      !["IDLE", "DONE"].includes(lessonSync.state.phase)
+    ) {
+      throw new Error("A lesson is already active.");
+    }
+    return { requestId: generateLesson(requestedTopic, studentContext) };
   };
 
   const copyTrace = async () => {
@@ -156,6 +432,65 @@ function App() {
       setCopyState("copied");
     } catch {
       setCopyState("failed");
+    }
+  };
+
+  const recordFirstVisibleInk = useCallback(
+    (measurementId: string, observedAtMs: number) => {
+      const currentTiming = generationTimingRef.current;
+      if (
+        currentTiming?.requestId !== measurementId ||
+        currentTiming.firstVisibleInkAtMs !== undefined
+      ) {
+        return;
+      }
+      const updatedTiming = { ...currentTiming, firstVisibleInkAtMs: observedAtMs };
+      generationTimingRef.current = updatedTiming;
+      setGenerationTiming(updatedTiming);
+    },
+    [],
+  );
+
+  const copyM3Timing = async () => {
+    if (!generationTiming) return;
+    const firstStepMs = elapsed(
+      generationTiming.requestedAtMs,
+      generationTiming.firstValidStepAtMs,
+    );
+    const firstVisibleMs = elapsed(
+      generationTiming.requestedAtMs,
+      generationTiming.firstVisibleInkAtMs,
+    );
+    const stepToInkMs = elapsed(
+      generationTiming.firstValidStepAtMs,
+      generationTiming.firstVisibleInkAtMs,
+    );
+    try {
+      await navigator.clipboard.writeText(
+        JSON.stringify(
+          {
+            schema: "chalk.m3-browser-timing.v1",
+            generated_at: new Date().toISOString(),
+            request_id_suffix: generationTiming.requestId.slice(-8),
+            board_model: generationTiming.boardModel ?? null,
+            board_reasoning_effort: generationTiming.boardReasoningEffort ?? null,
+            board_prompt_sha256: generationTiming.boardPromptSha256 ?? null,
+            repair_prompt_sha256: generationTiming.repairPromptSha256 ?? null,
+            request_to_first_valid_step_ms: firstStepMs,
+            first_valid_step_to_first_visible_ink_ms: stepToInkMs,
+            request_to_first_visible_ink_ms: firstVisibleMs,
+            accepted_steps: generationTiming.acceptedSteps ?? null,
+            repairs: generationTiming.repairs ?? null,
+            dropped_steps: generationTiming.droppedSteps ?? null,
+            partial: generationTiming.partial ?? null,
+          },
+          null,
+          2,
+        ),
+      );
+      setM3CopyState("copied");
+    } catch {
+      setM3CopyState("failed");
     }
   };
 
@@ -177,12 +512,66 @@ function App() {
       </header>
 
       <section className="lesson-stage" aria-labelledby="lesson-title">
+        <form
+          className="topic-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            try {
+              generateLesson(topic);
+            } catch (error) {
+              setGeneration({
+                status: "fallback",
+                message: error instanceof Error ? error.message : "Enter a valid topic.",
+                warnings: 0,
+                repairs: 0,
+                droppedSteps: 0,
+              });
+            }
+          }}
+        >
+          <label htmlFor="lesson-topic">What should Chalk teach?</label>
+          <div>
+            <input
+              id="lesson-topic"
+              value={topic}
+              maxLength={80}
+              onChange={(event) => setTopic(event.target.value)}
+              placeholder="A math or physics topic"
+            />
+            <button
+              className="primary"
+              type="submit"
+              disabled={
+                snapshot.status !== "connected" ||
+                generation.status === "generating" ||
+                !["IDLE", "DONE"].includes(lessonSync.state.phase) ||
+                Boolean(snapshot.activeResponseId) ||
+                snapshot.audioPlaybackActive
+              }
+            >
+              {generation.status === "generating" ? "Preparing lesson…" : "Generate & teach"}
+            </button>
+            <button
+              className="secondary"
+              type="button"
+              onClick={useCachedLesson}
+              disabled={snapshot.status !== "connected"}
+            >
+              Use cached demo
+            </button>
+          </div>
+          {generation.message ? <p role="status">{generation.message}</p> : null}
+        </form>
         <div className="lesson-heading">
           <div>
             <p className="eyebrow">
-              {isDiagnostics ? "Cached lesson · no board-model call" : "Interactive lesson"}
+              {isDiagnostics
+                ? `${activeLesson.source} lesson · ${activeLesson.complete ? "complete" : "streaming"}`
+                : activeLesson.source === "live"
+                  ? "Live generated lesson"
+                  : "Interactive cached lesson"}
             </p>
-            <h2 id="lesson-title">Projectile range, drawn with the voice</h2>
+            <h2 id="lesson-title">{activeLesson.lesson.title}</h2>
           </div>
           <div className="lesson-actions">
             <button
@@ -191,7 +580,7 @@ function App() {
               onClick={startLesson}
               disabled={snapshot.status !== "connected" || !["IDLE", "DONE"].includes(lessonSync.state.phase)}
             >
-              {lessonSync.state.phase === "DONE" ? "Run lesson again" : "Start lesson"}
+              {lessonSync.state.phase === "DONE" ? "Replay current lesson" : "Start current lesson"}
             </button>
             <button
               className="secondary"
@@ -209,14 +598,77 @@ function App() {
           </div>
         </div>
         <Board
-          lesson={PROJECTILE_LESSON}
-          currentStepIndex={lessonSync.state.currentStepIndex}
-          currentStepProgress={lessonSync.state.currentStepProgress}
-          phase={lessonSync.state.phase}
+          lesson={activeLesson.lesson}
+          currentStepIndex={
+            activeLesson.source === "review"
+              ? reviewStepIndex
+              : lessonSync.state.currentStepIndex
+          }
+          currentStepProgress={
+            activeLesson.source === "review" ? 1 : lessonSync.state.currentStepProgress
+          }
+          phase={activeLesson.source === "review" ? "REVIEW" : lessonSync.state.phase}
           onManifestChange={setBoardManifest}
+          measurementId={activeLesson.source === "live" ? activeLesson.requestId : undefined}
+          onFirstVisibleInk={recordFirstVisibleInk}
         />
+        {isDiagnostics && activeLesson.source === "review" ? (
+          <div className="review-controls" aria-label="Captured lesson review controls">
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => setReviewStepIndex((index) => Math.max(0, index - 1))}
+              disabled={reviewStepIndex === 0}
+            >
+              Previous step
+            </button>
+            <span>
+              Showing through step {reviewStepIndex + 1} / {activeLesson.lesson.steps.length}
+            </span>
+            <button
+              className="secondary"
+              type="button"
+              onClick={() =>
+                setReviewStepIndex((index) =>
+                  Math.min(activeLesson.lesson.steps.length - 1, index + 1),
+                )
+              }
+              disabled={reviewStepIndex >= activeLesson.lesson.steps.length - 1}
+            >
+              Next step
+            </button>
+          </div>
+        ) : null}
         {contextError ? <p className="error" role="alert">{contextError}</p> : null}
-        {isDiagnostics ? (
+        {isDiagnostics && activeLesson.source === "live" ? (
+          <div className="stream-note">
+            <span>
+              {activeLesson.lesson.steps.length} accepted step{activeLesson.lesson.steps.length === 1 ? "" : "s"}
+              {activeLesson.complete ? " · stream complete" : " · more steps may arrive"}
+              {generation.repairs ? ` · ${generation.repairs} repairs` : ""}
+              {generation.droppedSteps ? ` · ${generation.droppedSteps} dropped` : ""}
+              {generationTiming?.firstValidStepAtMs
+                ? ` · first step ${elapsed(generationTiming.requestedAtMs, generationTiming.firstValidStepAtMs)} ms`
+                : ""}
+              {generationTiming?.firstVisibleInkAtMs
+                ? ` · first ink ${elapsed(generationTiming.requestedAtMs, generationTiming.firstVisibleInkAtMs)} ms`
+                : ""}
+            </span>
+            <button
+              className="trace-copy"
+              type="button"
+              onClick={() => void copyM3Timing()}
+              disabled={!generationTiming?.firstVisibleInkAtMs || !activeLesson.complete}
+            >
+              {m3CopyState === "copied"
+                ? "Timing copied"
+                : m3CopyState === "failed"
+                  ? "Copy failed"
+                  : "Copy M3 timing"}
+            </button>
+          </div>
+        ) : null}
+        {isDiagnostics && activeLesson.source !== "review" ? (
           <div className="sync-strip" aria-label="Fixed synchronization status">
             <span><strong>{lessonSync.state.phase}</strong> fixed sync</span>
             <div className="sync-track" aria-hidden="true">
@@ -227,7 +679,11 @@ function App() {
             {lessonSync.state.ignoredEvents > 0 ? <span>{lessonSync.state.ignoredEvents} stale/invalid events ignored</span> : null}
           </div>
         ) : null}
-        {snapshot.status !== "connected" ? (
+        {activeLesson.source === "review" ? (
+          <p className="lesson-hint">
+            Local review mode shows all accepted geometry through the selected step. Capture the board and record the human layout verdict in the evaluation summary.
+          </p>
+        ) : snapshot.status !== "connected" ? (
           <p className="lesson-hint">Connect the microphone below, then start the lesson. Routine board rendering is local; only narration uses the mini Realtime model.</p>
         ) : lessonSync.state.phase === "TEACHING" ? (
           <p className="lesson-hint lesson-hint-live">Interrupt while a stroke is moving. The ink should remain exactly where it stopped.</p>
@@ -245,6 +701,8 @@ function App() {
           <p className="lesson-hint lesson-hint-live">
             Chalk is responding to your answer.
           </p>
+        ) : lessonSync.state.phase === "GENERATING" ? (
+          <p className="lesson-hint lesson-hint-live">Chalk is validating the next board step.</p>
         ) : null}
       </section>
 
@@ -296,6 +754,23 @@ function App() {
 
       {isDiagnostics ? (
         <>
+          <section className="panel evaluation-import" aria-labelledby="evaluation-import-title">
+            <div>
+              <p className="eyebrow">M3 evidence review</p>
+              <h2 id="evaluation-import-title">Review captured lesson without regenerating</h2>
+            </div>
+            <label>
+              Captured `.ndjson` file
+              <input
+                type="file"
+                accept=".ndjson,application/x-ndjson"
+                onChange={(event) => {
+                  void reviewCapturedLesson(event.target.files?.[0]);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+          </section>
           <section className="metrics" aria-label="Realtime diagnostics">
         <Metric
           label="Settled interruption streak"
@@ -454,6 +929,11 @@ function TraceRow({ entry }: { entry: TraceEntry }) {
 
 function EmptyState({ children }: { children: string }) {
   return <p className="empty-state">{children}</p>;
+}
+
+function elapsed(start: number | undefined, end: number | undefined): number | null {
+  if (start === undefined || end === undefined || end < start) return null;
+  return Math.round((end - start) * 10) / 10;
 }
 
 export default App;

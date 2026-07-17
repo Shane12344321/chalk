@@ -128,12 +128,17 @@ async function flushMicrotasks(): Promise<void> {
 function createHarness(
   send: (data: string) => void = vi.fn(),
   onSemanticEvent?: (event: RealtimeSemanticEvent) => void,
+  onTeachRequested?: (topic: string, studentContext: string) => { requestId: string },
 ) {
   let latest: RealtimeSnapshot | undefined;
   const client = new RealtimeClient({
     apiBaseUrl: "http://127.0.0.1:8000",
     clientId: "00000000-0000-4000-8000-000000000001",
-    callbacks: { onSnapshot: (snapshot) => (latest = snapshot), onSemanticEvent },
+    callbacks: {
+      onSnapshot: (snapshot) => (latest = snapshot),
+      onSemanticEvent,
+      onTeachRequested,
+    },
     now: (() => {
       let now = 0;
       return () => ++now;
@@ -839,6 +844,44 @@ describe("RealtimeClient event coordination", () => {
     });
     expect(latest().toolRoundTrips).toBe(1);
     expect(JSON.stringify(latest().trace)).not.toContain("confirmation content");
+  });
+
+  it("returns teach status immediately and requests bounded filler speech", () => {
+    const teach = vi.fn().mockReturnValue({ requestId: "request-live" });
+    const send = vi.fn();
+    const { harness } = createHarness(send, undefined, teach);
+
+    harness.handleServerEvent(
+      responseDone("resp_tool", "completed", [
+        {
+          type: "function_call",
+          call_id: "call_teach",
+          name: "teach",
+          arguments: '{"topic":"Chain rule","student_context":"knows derivatives"}',
+        },
+      ]),
+    );
+
+    expect(teach).toHaveBeenCalledWith("Chain rule", "knows derivatives");
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(send.mock.calls[0][0]))).toMatchObject({
+      type: "conversation.item.create",
+      item: {
+        type: "function_call_output",
+        output: JSON.stringify({
+          ok: true,
+          status: "started",
+          request_id: "request-live",
+        }),
+      },
+    });
+    expect(JSON.parse(String(send.mock.calls[1][0]))).toMatchObject({
+      type: "response.create",
+      response: {
+        metadata: { chalk_kind: "tool_continuation" },
+        instructions: expect.stringContaining("one short"),
+      },
+    });
   });
 
   it("contains data-channel send failures instead of creating an unhandled rejection", () => {

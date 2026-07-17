@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "title": "Newton's second law",
+  "steps": [
+    {
+      "id": "s1",
+      "script": "Acceleration follows the net force and points in that same direction.",
+      "ops": [
+        { "op": "text", "id": "title", "region": "A1", "content": "Net force causes acceleration" },
+        { "op": "sketch", "id": "block", "region": "A2", "strokes": [[[0.2,0.3],[0.7,0.3],[0.7,0.7],[0.2,0.7],[0.2,0.3]],[[0.7,0.5],[0.95,0.5]]] }
+      ],
+      "checkpoint": null
+    },
+    {
+      "id": "s2",
+      "script": "For the same force, increasing mass produces a smaller acceleration.",
+      "ops": [
+        { "op": "equation", "id": "eq1", "region": "B1", "latex": "\\sum F=ma" },
+        { "op": "text", "id": "note", "region": "B2", "content": "same force + more mass → less acceleration" }
+      ],
+      "checkpoint": { "question": "What happens to acceleration when mass doubles?", "expected_gist": "it halves" }
+    }
+  ]
+}

@@ -51,4 +51,36 @@ describe("normalized board layout", () => {
       expect(boxes[index].y).toBeGreaterThanOrEqual(boxes[index - 1].y + boxes[index - 1].height);
     }
   });
+
+  it("avoids collisions when broad and grid regions overlap", () => {
+    const mixed = decodeLesson({
+      schema_version: "1.0",
+      title: "Mixed regions",
+      steps: [
+        {
+          id: "s1",
+          script: "Place content in a grid cell.",
+          ops: [{ op: "text", id: "title", region: "A1", content: "A title" }],
+          checkpoint: null,
+        },
+        {
+          id: "s2",
+          script: "Place broad content without covering it.",
+          ops: [{ op: "equation", id: "broad", region: "left", latex: "y=f(x)" }],
+          checkpoint: null,
+        },
+      ],
+    }).lesson!;
+    const layout = layoutSteps(mixed.steps);
+    const title = layout.find(({ op }) => op.id === "title")!.box;
+    const broad = layout.find(({ op }) => op.id === "broad")!.box;
+    expect(overlapRatio(title, broad)).toBeLessThanOrEqual(0.15);
+  });
 });
+
+function overlapRatio(left: { x: number; y: number; width: number; height: number }, right: { x: number; y: number; width: number; height: number }): number {
+  const width = Math.max(0, Math.min(left.x + left.width, right.x + right.width) - Math.max(left.x, right.x));
+  const height = Math.max(0, Math.min(left.y + left.height, right.y + right.height) - Math.max(left.y, right.y));
+  const smallerArea = Math.min(left.width * left.height, right.width * right.height);
+  return smallerArea === 0 ? 0 : (width * height) / smallerArea;
+}

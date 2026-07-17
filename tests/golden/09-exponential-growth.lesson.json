@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "title": "Exponential growth and decay",
+  "steps": [
+    {
+      "id": "s1",
+      "script": "Exponential change adds a constant percentage rather than a constant amount.",
+      "ops": [
+        { "op": "text", "id": "title", "region": "A1", "content": "Constant percentage change" },
+        { "op": "axes", "id": "axes1", "region": "right", "x": { "min": 0, "max": 4, "label": "time" }, "y": { "min": 0, "max": 8, "label": "amount" } }
+      ],
+      "checkpoint": null
+    },
+    {
+      "id": "s2",
+      "script": "Positive exponentials grow faster as the current amount becomes larger.",
+      "ops": [
+        { "op": "curve", "id": "curve1", "axes_id": "axes1", "expr": "exp(x/2)", "domain": [0, 4] },
+        { "op": "equation", "id": "eq1", "region": "B2", "latex": "A=A_0e^{kt}" }
+      ],
+      "checkpoint": { "question": "Does equal time add equal amounts?", "expected_gist": "no" }
+    }
+  ]
+}

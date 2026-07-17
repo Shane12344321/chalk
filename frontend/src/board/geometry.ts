@@ -29,6 +29,7 @@ export interface BoardGeometry {
   labels: BoardLabel[];
   text?: string;
   equationHtml?: string;
+  equationFontSize?: number;
   manifestSummary: string;
   stepIndex: number;
   opIndex: number;
@@ -103,6 +104,7 @@ function createGeometry(
     return {
       ...base,
       equationHtml: renderSafeLatex(op.latex),
+      equationFontSize: equationFontSize(op.latex, box.width),
       manifestSummary: `equation: ${op.latex}`,
     };
   }
@@ -148,7 +150,7 @@ function createGeometry(
       paths: normalizePaths(paths),
       manifestSummary: `axes: ${op.x.label} ${op.x.min} to ${op.x.max}; ${op.y.label} ${op.y.min} to ${op.y.max}`,
       labels: [
-        { text: op.x.label, x: right, y: bottom + 36, anchor: "end" },
+        { text: op.x.label, x: (left + right) / 2, y: bottom + 42, anchor: "middle" },
         { text: op.y.label, x: left + 8, y: top + 4 },
         { text: String(op.x.min), x: left, y: bottom + 30, anchor: "middle" },
         { text: String(op.x.max), x: right, y: bottom + 30, anchor: "middle" },
@@ -185,6 +187,14 @@ function createGeometry(
     ),
     manifestSummary: `curve on ${op.axes_id}; visible peak near x=${formatNumber(peak[0])}, y=${formatNumber(peak[1])}`,
   };
+}
+
+function equationFontSize(latex: string, width: number): number {
+  const visibleLength = latex
+    .replace(/\\(?:frac|over|bigg|quad|qquad|mathrm|text|sin|cos|ln|sqrt|cdot|theta|omega|lambda|pi|Delta|sum|approx|Rightarrow|circ|vec)/g, "x")
+    .replace(/[{}\\_^|]/g, "")
+    .length;
+  return Math.max(10, Math.min(31, width / Math.max(10, visibleLength * 0.9)));
 }
 
 function formatNumber(value: number): string {

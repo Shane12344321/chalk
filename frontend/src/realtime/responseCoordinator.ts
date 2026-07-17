@@ -5,7 +5,8 @@ export type ResponsePurpose =
   | "checkpoint_prompt"
   | "checkpoint_feedback"
   | "student_qa"
-  | "diagnostic_tool";
+  | "diagnostic_tool"
+  | "tool_continuation";
 
 export interface CoordinatedResponse {
   purpose: ResponsePurpose;

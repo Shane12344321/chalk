@@ -1,6 +1,6 @@
 # CHALK — Voice-Interruptible AI Whiteboard Tutor
 
-> Implementation status, 2026-07-16: this is the original product brief, not the current execution record. M1 and M2 are accepted; the M4 cached-interaction slice (`232a828`) plus microphone feedback hardening (`c0d6f48`) passed its owner-observed live retest. Follow `AGENTS.md`, `ARCHITECTURE.md`, `PLANS.md`, `PROGRESS.md`, and `docs/exec-plans/completed/m4-cached-interaction-loop.md` for audited current behavior and documented divergences. M3 live lesson generation is next; broader M4 overlays and multi-lesson gates remain pending.
+> Implementation status, 2026-07-17: this is the original product brief, not the current execution record. M1, M2, and M3 are accepted; the M4 cached-interaction slice (`232a828`) plus microphone feedback hardening (`c0d6f48`) passed its owner-observed live retest. M3's accumulated-whiteboard v2 Luna/`none` batch completed all ten topics with 39 accepted steps, zero repairs/drops/retries/errors, zero renderer crashes, and exactly 8/10 human layout passes. Unit circle and standing waves remain honest collision failures. A separate connected product run measured first valid output in 1.36 seconds and first visible ink in 2.72 seconds, passing the six-second target. The read-only verifier accepts `artifacts/evidence/m3-luna-v2-batch-20260717-0635/`. Follow `AGENTS.md`, `ARCHITECTURE.md`, `PLANS.md`, `PROGRESS.md`, and `docs/exec-plans/completed/m3-live-lesson-generation.md` for current behavior and evidence. Broader M4 overlays and multi-lesson gates remain pending.
 
 **Build plan for an autonomous coding agent. Timeline: 7 days. Deliverable: working app + 3-minute demo video for a hackathon (education track, video submission).**
 
@@ -222,7 +222,7 @@ States: `IDLE → GENERATING → TEACHING(step_i) → FROZEN(step_i, progress) �
 
 ### 6.2 Validator + repair loop
 
-For each step line: JSON parse → schema validate → referential check (ids resolve) → `mathjs.compile()` every expr → region check → budget check (op/step/word caps). On failure: re-prompt GPT-5.6 with the failing line + validator errors, max 2 repair attempts, else drop the step and log. A dropped middle step is survivable; a crashed renderer is not. **The renderer must also be defensive: any single op failing to render logs and skips, never throws.**
+For each step line: JSON parse → schema validate → referential check (ids resolve) → `mathjs.compile()` every expr → region check → budget check (op/step/word caps). On failure: re-prompt GPT-5.6 with the failing line + validator errors, max 2 repair attempts for that line and max 4 repair calls across the lesson, else drop the step and log. A dropped middle step is survivable; a crashed renderer is not. **The renderer must also be defensive: any single op failing to render logs and skips, never throws.** The audited implementation uses a safe Python AST boundary server-side and mathjs only in the browser, as documented in `AGENTS.md`.
 
 ### 6.3 `POST /annotate`
 

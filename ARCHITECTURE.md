@@ -1,6 +1,6 @@
 # CHALK architecture
 
-Status: M1 and M2 accepted; M4 cached interaction slice accepted; M3 live generation next
+Status: M1 and M2 accepted; M4 cached interaction slice accepted; M3 deterministic implementation and spend/evidence hardening passed, live rubric pending
 Last reviewed: 2026-07-16
 Companion documents: `chalk-build-plan.md`, `AGENTS.md`
 
@@ -187,7 +187,7 @@ All endpoints bind to localhost for the demo and accept explicit size limits.
 | `POST /annotate` | JSON | Return a validated overlay batch |
 | `POST /widget` | JSON | **STRETCH:** select a widget template |
 | `POST /vision` | JSON | **STRETCH:** describe student ink |
-| `GET /health` | JSON | Local readiness and configured-feature status |
+| `GET /health` | JSON | Local readiness plus allowlisted Realtime and board-model configuration; never a credential value |
 
 Every mutating/generating request carries a browser-generated `request_id`. The backend echoes it in logs and responses. It must not log raw audio, image data URLs, authorization headers, client secrets, or raw student utterances.
 
@@ -209,16 +209,17 @@ On success it returns a deliberately narrow projection rather than the raw upstr
 
 **DECIDED:** the board model may emit step objects as JSONL internally, but the backend-to-browser stream uses typed envelopes. This allows clean terminal and warning states without confusing them with DSL steps.
 
-Illustrative envelopes; the future stream JSON Schema is authoritative:
+Illustrative envelopes; `shared/schema/lesson-stream.schema.json` is authoritative:
 
 ```json
 {"type":"lesson.started","request_id":"req_123"}
 {"type":"lesson.step","request_id":"req_123","step":{"id":"s1","script":"...","ops":[],"checkpoint":null}}
 {"type":"lesson.warning","request_id":"req_123","code":"step_dropped","step_hint":"s2"}
 {"type":"lesson.done","request_id":"req_123","accepted_steps":5}
+{"type":"lesson.error","request_id":"req_123","code":"upstream_incomplete","upstream_reason":"max_output_tokens","fallback_available":true}
 ```
 
-If an unrecoverable upstream failure happens after HTTP headers have been sent, emit `lesson.error` with a non-sensitive code and then close the stream. The browser retains accepted buffered steps and chooses the cached fallback if none were accepted.
+If an unrecoverable upstream failure happens after HTTP headers have been sent, emit `lesson.error` with a CHALK-owned non-sensitive code and then close the stream. HTTP rejection, transport unavailability, `response.incomplete`, `response.failed`, and generic streaming `error` remain distinct. The optional `upstream_reason` is a closed category from the shared schema; arbitrary upstream codes, messages, response bodies, and student/model content never cross this boundary. Local configuration, timeout, invalid-stream, and no-valid-step errors cannot carry an upstream reason. The browser retains accepted buffered steps and chooses the cached fallback if none were accepted.
 
 Backpressure is bounded: the server awaits each emitted line, and the client keeps a maximum of eight accepted steps. There is no reason to buffer an unbounded lesson.
 
@@ -308,7 +309,7 @@ flowchart LR
     Refs --> Normalize["Normalize"]
     Normalize --> Emit["Emit lesson.step"]
 
-    Size -. failure .-> Repair["Scoped repair, max 2"]
+    Size -. failure .-> Repair["Scoped repair, max 2/line and 4/lesson"]
     JSON -. failure .-> Repair
     Schema -. failure .-> Repair
     Budget -. failure .-> Repair
@@ -318,7 +319,7 @@ flowchart LR
     Repair -->|"still invalid"| Drop["Drop and warn"]
 ```
 
-Accepted IDs are added only after successful normalization. Later lines cannot refer to IDs from a dropped step.
+Accepted IDs are added only after successful normalization. Later lines cannot refer to IDs from a dropped step. Repair calls are counted before dispatch against one lesson-owned budget, so a timeout, rejection, or transport failure still consumes and appears in the bounded repair count. Terminal envelopes identify only whether failure occurred during `generation` or `repair`; they never retain raw repair content.
 
 ### 4. Playing a step
 
@@ -445,7 +446,7 @@ Curve expressions cross a two-stage boundary:
 - At most one default-conversation Realtime response at a time.
 - Annotation requests may run during QA but are tied to the manifest version they received. Stale results are discarded.
 - A new lesson aborts lesson generation, annotation, pending playback, and optional widget generation from the prior lesson.
-- Backend repair calls are sequential per line to preserve accepted-ID order.
+- Backend repair calls are sequential per line to preserve accepted-ID order and share an aggregate four-call lesson budget.
 - The renderer isolates each op: one render failure cannot cancel sibling ops or the lesson.
 - Stream readers must handle cancellation while a partial UTF-8 or JSON line is buffered.
 
@@ -456,8 +457,13 @@ Curve expressions cross a two-stage boundary:
 | Session mint/handshake fails | Keep voice disabled; show retry | Cached lesson can run silently for development |
 | Tool arguments invalid | Return soft tool error | Tutor asks again or continues without tool |
 | Board model slow | Realtime gives short bounded filler | Cached lesson after configured timeout |
-| Model line invalid | Repair at most twice | Drop line; validate later refs against accepted IDs |
+| Model line invalid | Repair at most twice for that line and at most four times for the lesson | Drop line; validate later refs against accepted IDs |
+| Repair request fails | Record closed `repair` origin and the already-consumed repair count | Terminate or retain the accepted prefix without exposing upstream content |
 | Stream fails after steps | Finish accepted buffered steps | Explain lesson ended early; cached restart available |
+| Live evaluation request ends for `max_output_tokens` or `content_filter` | Record bounded code/reason; do not retry that topic; continue the fixed sample | Human rubric marks that topic failed |
+| Live evaluation sees model/effort mismatch, HTTP rejection, transport failure, missing configuration, or any other/missing upstream reason | Stop the batch immediately | Diagnose and require fresh approval; do not spend remaining calls |
+| Live evaluation accumulates three machine-failed topics | Stop because the 8/10 gate is unreachable | Retain the redacted `v2` summary; require a new plan and approval |
+| Evaluation harness fails after a paid request starts | Reduce the exception to a closed category and write a summary | Stop; never retain exception text or silently lose the attempted call |
 | No valid live steps | Stop generation cleanly | Load matching cached lesson |
 | Renderer op fails | Log and skip only that op | Continue the step |
 | Paced sync looks unstable | Change runtime flag | `SYNC_MODE=fixed` |
@@ -491,6 +497,8 @@ Primary performance measurements:
 - repair rate and dropped-step rate;
 - three-run cached-lesson completion rate.
 
+M3 captures request-to-first-valid-step at the browser stream boundary and first-valid-step-to-first-visible-ink when the renderer first commits nonzero geometry. Board-model and prompt identity travel only as bounded response headers. Terminal diagnostics retain only CHALK's closed terminal code, optional allowlisted reason, `generation`/`repair` origin, and repair-call count. The evaluation CLI separates one-call `repair-smoke`, one-topic `smoke`, and ten-topic `batch`; each has an independent approval acknowledgement. Repair smoke calls the production plain-text repair path once, locally validates the result, and retains no model content. Each topic uses one primary model call and at most four repair calls. The batch retains raw synthetic-topic NDJSON once; diagnostics revalidates and reviews those same outputs locally so layout screenshots do not require a duplicate model batch. Only `max_output_tokens` and `content_filter` consume one failed topic and proceed, and the third machine failure stops the run because 8/10 is then impossible. Identity, access, configuration, transport, server, invalid-request, missing, and unknown upstream outcomes stop the batch immediately. After any paid-path harness failure, `chalk.m3-live-evaluation.v2` retains a redacted stop reason and closed error category rather than losing the attempt.
+
 Do not claim perceived audio interruption latency from the animation-freeze measurement.
 
 ## Live API test budget
@@ -502,7 +510,7 @@ Credentialed API checks are narrow acceptance probes, not load tests. Default au
 - Standard OpenAI API keys exist only in backend environment variables.
 - Client-secret minting is pinned to the official HTTPS endpoint with redirects and environment-derived proxy routing disabled.
 - The browser persists a random UUIDv4; the backend sends only `SHA-256(SAFETY_IDENTIFIER_SALT + ":" + client_id)` as the non-PII safety identifier.
-- CORS allows only the explicit local frontend origin.
+- CORS allows only the explicit local frontend origin, and Trusted Host validation accepts only localhost hostnames used by the app and tests.
 - Logs redact secrets, authorization headers, audio, image data URLs, and raw student utterances.
 - Student context, audio, and sketches remain in memory and are not persisted.
 - KaTeX trust is disabled; no model-generated HTML or URLs are rendered.
@@ -516,7 +524,8 @@ Expected server-side environment variables:
 ```dotenv
 OPENAI_API_KEY=
 REALTIME_MODEL=gpt-realtime-2.1-mini
-BOARD_MODEL=gpt-5.6-terra
+BOARD_MODEL=gpt-5.6-luna
+BOARD_REASONING_EFFORT=none
 REALTIME_VOICE=marin
 SAFETY_IDENTIFIER_SALT=chalk-local-development-v1
 SYNC_MODE=fixed
@@ -524,7 +533,7 @@ DRAWBACK_MODE=vision
 FRONTEND_ORIGIN=http://localhost:5173
 ```
 
-`gpt-realtime-2.1` is used for recording after the development path passes on the mini model. `gpt-5.6-sol` is an escalation path only if golden-topic evidence shows that Terra is inadequate.
+`gpt-realtime-2.1` is used for recording after the development path passes on the mini model. Luna is the qualification board model and `reasoning.effort: none` is its latency baseline; `low` is retained only for a measured quality comparison. If Luna fails the unchanged gate, only the failed topics are compared on Terra before deciding whether a new default is justified; Sol is considered only after both lower-cost tiers are evidenced inadequate.
 
 Client-visible configuration must contain only non-secret feature flags. Never expose `OPENAI_API_KEY` through Vite environment variables.
 
@@ -542,18 +551,18 @@ Client-visible configuration must contain only non-secret feature flags. Never e
 ### Day 2 board/sync spike
 
 - [x] Hardcoded projectile lesson renders without uncaught errors.
-- [ ] Fixed mode starts voice and ink concurrently.
+- [x] Fixed mode starts voice and ink concurrently.
 - [x] Rough paths do not jump on rerender.
 - [x] Freeze retains a visibly partial stroke in deterministic rendering tests.
-- [ ] Response completion plus the chosen drain guard does not overlap steps.
+- [x] Response completion plus the chosen drain guard does not overlap steps.
 
 ### Day 3 generation spike
 
-- [ ] POST NDJSON survives arbitrary network chunk boundaries.
-- [ ] Invalid lines repair or drop without raw forwarding.
-- [ ] Dropped IDs cause dependent later references to repair or drop.
+- [x] POST NDJSON survives arbitrary network chunk boundaries.
+- [x] Invalid lines repair or drop without raw forwarding.
+- [x] Dropped IDs cause dependent later references to repair or drop.
 - [ ] First valid step reaches the browser within the target on a representative topic.
-- [ ] Zero valid steps activates the cached fallback.
+- [x] Zero valid steps activates the cached fallback.
 
 ### MVP gate
 
@@ -577,6 +586,12 @@ Client-visible configuration must contain only non-secret feature flags. Never e
 | ADR-009 | 2026-07-15 | Layer per-response, rolling-context, and per-connection Realtime token limits | A single post-response ceiling cannot prevent one long answer from overshooting; visible usage and independent bounds make development spend predictable without removing the live path |
 | ADR-010 | 2026-07-16 | Publish only successfully rendered, fully revealed geometry in the tutor manifest | Prevents future or failed elements from becoming model-visible claims while preserving a compact replaceable context |
 | ADR-011 | 2026-07-16 | Coordinate responses by explicit purpose and use three checkpoint phases | Keeps manual narration, VAD answers, checkpoint prompts, and feedback from stealing each other's lifecycle events or advancing the lesson early |
+| ADR-012 | 2026-07-16 | Qualify M3 on `gpt-5.6-luna` before escalating board generation | Luna is 60% cheaper than Terra at standard input/output rates and remains in the current GPT-5.6 family; the unchanged 8/10, zero-crash, and six-second gates protect quality |
+| ADR-013 | 2026-07-16 | Separate upstream SSE bytes from model-text bytes and qualify Luna at `reasoning.effort: none` | The first low-effort smoke produced three valid steps but missed first-step latency and ended after a likely transport-overhead limit; official GPT-5.6 guidance names `none` as the latency baseline, while independent bounded budgets preserve safety |
+| ADR-014 | 2026-07-16 | Retain the corrected Luna smoke as the access/stream prerequisite, not as M3 acceptance | One approved no-retry call produced four valid steps, zero repairs/drops, first valid output in 2.87 seconds, and a normal terminal; the separate ten-topic rubric and browser visible-ink evidence are still required |
+| ADR-015 | 2026-07-16 | Preserve distinct upstream terminal classes and only bounded diagnostic reasons | Collapsing HTTP rejection, incomplete, failed, and streaming error events made a valid partial lesson look like an access failure and prematurely stopped the first batch; closed codes/reasons restore diagnosis without retaining sensitive upstream content, while the harness continues only clearly topic-scoped token/content outcomes and stops ambiguous or systemic failures to protect spend |
+| ADR-016 | 2026-07-16 | Attribute and cap repairs, stop when the acceptance gate is unreachable, and retain paid-path harness failures | A failed repair previously looked like primary generation failure and could disappear from counts; one lesson now permits at most four counted-before-dispatch repairs, terminal evidence carries only closed origin/count fields, the third machine failure stops the 8/10 batch, and summary v2 records redacted harness failures without exception text |
+| ADR-017 | 2026-07-16 | Use plain-text Responses for repair and qualify that seam with an independent one-call probe | The second batch proved the first unit-circle repair request—not primary generation—received `invalid_request`; Luna documents Structured Outputs support, but the repair-only JSON formatting request failed live. Removing the nonessential format parameter keeps schema validation as the trust boundary. The separately approved content-free repair smoke then passed in 2.77 seconds with exactly one request and no retry |
 
 ## Open spike decisions
 
@@ -587,7 +602,7 @@ These must be resolved with measurements, not preference:
 3. Remote-audio activity detection versus a calibrated drain guard.
 4. Continue-frozen-ink versus replay-current-step on resume.
 5. Session-instruction manifest publication latency and timing.
-6. Terra versus Sol lesson quality on the ten-topic rubric.
+6. Luna lesson quality on the ten-topic rubric; if it fails, a bounded comparison of failed topics on Terra.
 7. Direct Realtime image input for student sketches versus the vision-text fallback.
 
 Record each resolution as a new ADR row with evidence in `PROGRESS.md`.

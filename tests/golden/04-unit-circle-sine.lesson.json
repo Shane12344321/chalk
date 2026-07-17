@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "title": "Unit circle to sine wave",
+  "steps": [
+    {
+      "id": "s1",
+      "script": "The sine value is the rotating point's vertical height on the unit circle.",
+      "ops": [
+        { "op": "text", "id": "title", "region": "A1", "content": "Circle height becomes sine" },
+        { "op": "sketch", "id": "circle", "region": "A2", "strokes": [[[0.5,0.05],[0.8,0.18],[0.95,0.5],[0.8,0.82],[0.5,0.95],[0.2,0.82],[0.05,0.5],[0.2,0.18],[0.5,0.05]],[[0.5,0.5],[0.82,0.2]]] }
+      ],
+      "checkpoint": null
+    },
+    {
+      "id": "s2",
+      "script": "As the angle advances, that repeating height traces a sine wave.",
+      "ops": [
+        { "op": "axes", "id": "axes1", "region": "right", "x": { "min": 0, "max": 6.283, "label": "angle" }, "y": { "min": -1.2, "max": 1.2, "label": "height" } },
+        { "op": "curve", "id": "curve1", "axes_id": "axes1", "expr": "sin(x)", "domain": [0, 6.283] },
+        { "op": "equation", "id": "eq1", "region": "A3", "latex": "y=\\sin(\\theta)" }
+      ],
+      "checkpoint": { "question": "What is the greatest possible height?", "expected_gist": "one" }
+    }
+  ]
+}

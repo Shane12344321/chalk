@@ -46,13 +46,13 @@ Non-goals: accounts, authentication, persistence, deployment, mobile, multi-user
 | Product brief | Complete | `chalk-build-plan.md` |
 | Audited agent guidance | Complete | `AGENTS.md` |
 | Architecture baseline | Current through the deterministic M4 interaction slice | `ARCHITECTURE.md`, ADR-010/011, and the active M4 execution plan |
-| Git repository | M1 and M2 checkpoints preserved; deterministic M4 slice checkpointed | M1 `e6822f5`; M2 `4f3d9ed`; M4 slice `232a828` on `codex/m4-cached-interaction-loop` |
+| Git repository | M1, M2, and accepted cached-interaction checkpoints preserved; M3 isolated | M1 `e6822f5`; M2 `4f3d9ed`; accepted cached slice `e0c0aa8`; M3 branch `codex/m3-live-lesson-generation` |
 | Frontend application | M4 deterministic slice implemented and feedback-hardened | 116 tests, product/diagnostic modes, turn-gated microphone, sequential sketches, visible manifest, response coordinator, and checkpoint state machine |
 | Backend scaffold | Complete for M1 | 38 tests, lint/format, compile, health, CORS, safe failures, and live client-secret minting |
 | Shared schema | Implemented for the M2 five-op contract | JSON Schema, generated TypeScript types, fixtures, and decoder tests |
 | Realtime API smoke test | Complete | Mint, WebRTC, voice, dummy-tool continuation, live cost controls, and five consecutive playback-backed interruptions passed on 2026-07-15 |
 | Board renderer | M2 complete; deterministic and live perceptual gates passed | Seeded rough.js SVG, KaTeX, safe mathjs sampling, layout, animation, defensive tests, and three accepted live runs |
-| Live lesson generation | Not started | No application code |
+| Live lesson generation | Complete | `docs/exec-plans/completed/m3-live-lesson-generation.md` |
 | Cached demo lessons | Projectile lesson powers the accepted M2 path and accepted M4 cached-interaction slice | `demo/cached_lessons/projectile-range.lesson.json` |
 | M4 cached interaction slice | Accepted | Deterministic gate plus owner-observed turn-gated microphone, interruption, checkpoint response, and automatic advancement |
 | Video workflow | Not started | No script, rehearsal, or recording evidence |
@@ -64,8 +64,8 @@ Non-goals: accounts, authentication, persistence, deployment, mobile, multi-user
 | M0 | Planning and repository baseline | Planning documents committed on a clean repository | Complete |
 | M1 | Scaffold and Realtime vertical slice | Browser voice loop, five successful interruptions, dummy tool round trip | Complete |
 | M2 | Deterministic board and fixed sync | Hardcoded projectile lesson speaks and draws concurrently without crashes | Complete |
-| M3 | Live lesson generation | Validated NDJSON streams; 8/10 golden topics pass the rubric | Next |
-| M4 | Full interruption and grounding loop | Three consecutive cached MVP rehearsals pass | Partial; cached slice accepted, broader gate pending |
+| M3 | Live lesson generation | Validated NDJSON streams; 8/10 golden topics pass the rubric | Complete |
+| M4 | Full interruption and grounding loop | Three consecutive cached MVP rehearsals pass | Active; cached slice accepted, broader gate pending |
 | M5 | Optional widget spectacle | Projectile widget and reactive tutor moment pass, or milestone is explicitly cut | Pending |
 | M6 | Optional student draw-back and freeze | Fallback critique passes, or milestone is explicitly cut; features frozen | Pending |
 | M7 | Demo, documentation, and submission | Final video, uncut proof take, README, and submission complete | Pending |
@@ -199,18 +199,32 @@ Objective: replace the hardcoded lesson source with validated streaming without 
 
 ### Work
 
-- [ ] Add backend loading of the shared JSON Schema.
-- [ ] Implement safe Python AST validation for the restricted curve grammar.
-- [ ] Implement accepted-ID reference tracking with no forward references.
-- [ ] Define and validate NDJSON stream-envelope schema.
-- [ ] Implement `POST /lesson` using `application/x-ndjson` over streaming fetch.
-- [ ] Parse board-model JSONL incrementally without forwarding raw lines.
-- [ ] Implement at most two scoped repairs per invalid step.
-- [ ] Abort and ignore stale lesson requests by `request_id`.
-- [ ] Keep `teach` nonblocking: start generation, return `status=started`, then request bounded filler speech.
-- [ ] Write the worked derivative example used in the board prompt.
-- [ ] Create deterministic fixtures for all ten golden topics.
-- [ ] Run the live ten-topic rubric and retain redacted artifacts.
+- [x] Add backend loading of the shared JSON Schema.
+- [x] Implement safe Python AST validation for the restricted curve grammar.
+- [x] Implement accepted-ID reference tracking with no forward references.
+- [x] Define and validate NDJSON stream-envelope schema.
+- [x] Implement `POST /lesson` using `application/x-ndjson` over streaming fetch.
+- [x] Parse board-model JSONL incrementally without forwarding raw lines.
+- [x] Implement at most two scoped repairs per invalid step.
+- [x] Abort and ignore stale lesson requests by `request_id`.
+- [x] Keep `teach` nonblocking: start generation, return `status=started`, then request bounded filler speech.
+- [x] Write the worked derivative example used in the board prompt.
+- [x] Create deterministic fixtures for all ten golden topics.
+- [x] Run one explicitly approved Luna access smoke and retain its failed evidence.
+- [x] Pass a corrected bounded Luna smoke and retain both passing and failed evidence.
+- [x] Obtain separate approval for the first live ten-topic attempt and retain its safely stopped one-topic evidence.
+- [x] Correct the upstream terminal classification exposed by that attempt and pass the complete deterministic gate.
+- [x] Attribute generation-versus-repair failures, count repair calls before dispatch, and cap each lesson at four repairs in aggregate.
+- [x] Stop the batch when three machine failures make 8/10 unreachable and retain a redacted summary after paid-path harness failures.
+- [x] Reject non-local Host headers before they can reach the paid lesson endpoint.
+- [x] Run the separately approved second batch attempt and retain its safely stopped four-topic v2 evidence.
+- [x] Remove the repair-only JSON formatting parameter rejected by Luna and prepare a one-call repair-path probe.
+- [x] Obtain separate approval and pass exactly one repair-path smoke with content-free evidence.
+- [x] Obtain separate approval for a fresh live ten-topic rubric; repair-smoke approval does not authorize it.
+- [x] Run the complete live ten-topic machine rubric and retain redacted artifacts.
+- [x] Complete local render/layout/crash review and screenshots.
+- [x] Requalify accumulated-whiteboard prompt v2 on the unchanged ten-topic rubric and retain its hash-matched local review.
+- [x] Capture representative product-path first-visible-ink evidence.
 
 ### Exit gate
 
@@ -223,12 +237,24 @@ Objective: replace the hardcoded lesson source with validated streaming without 
 
 ### Validation record
 
-Not run. Record model, prompt version/hash, per-topic outcome, first-step latency, repairs, dropped steps, screenshot, and reviewer note.
+Luna access and the corrected stream path are verified. The failed smoke remains at `artifacts/evidence/m3-smoke-20260716-202350/`; the passing corrected smoke is retained at `artifacts/evidence/m3-smoke-corrected-20260716-204203/`. The first separately approved batch attempt is retained unchanged at `artifacts/evidence/m3-luna-batch-20260716-210607/`. It made exactly one derivative request before the fail-fast harness stopped: three accepted steps, zero repairs/drops, first valid step in 2,503.1 ms, then the old collapsed `upstream_rejected` terminal at 4,375.0 ms. No retry or second topic occurred. Because that evidence predates the fix, its exact upstream cause cannot be recovered and it is not M3 acceptance evidence.
+
+The adapter now distinguishes HTTP rejection, `response.incomplete`, `response.failed`, generic streaming `error`, and transport unavailability. It projects only an optional closed reason category, never arbitrary upstream code/message content. The shared schema prevents local failures from carrying upstream reasons; generated TypeScript types preserve the same union; the browser retains the reason only on validated terminal envelopes. Generation and repair failures retain only a closed origin and repair count, every repair is counted before dispatch, and the aggregate repair budget is four calls per lesson in addition to the one primary call. The second approved batch at `artifacts/evidence/m3-luna-batch-20260716-222005/` proved this attribution: derivative, chain rule, and integral area completed with four steps each and zero repairs/drops; unit circle then stopped with zero accepted steps when its first repair request received `upstream_rejected`/`invalid_request`. Exactly four topic requests and one rejected repair request ran; there was no retry or fifth topic. Billing for the rejected request is not inferred. The evidence is valid v2 diagnostic evidence, not acceptance.
+
+Official docs report that Luna supports the Responses API and Structured Outputs, so the broader capability is not rejected. The failed request was isolated to the repair-only shape. The nonessential `text.format=json_object` field has been removed; repair now uses the same plain-text Responses surface as primary generation while prompt constraints plus the checked-in schema and semantic validator remain the trust boundary. A new `repair-smoke` mode is structurally limited to one synthetic repair call, validates the result, retains no generated content, and cannot route to topic smoke or batch. The complete no-spend gate passes 147 frontend and 131 backend tests, lint, build, Python compileall, zero production npm vulnerabilities, tracked-secret scanning, and `git diff --check`. The complete ten-topic quality/layout rubric, human review, and browser first-visible-ink gate remain unrun.
+
+The separately approved repair smoke passed and is retained at `artifacts/evidence/m3-repair-smoke-20260716-223721/`. It made exactly one production repair request, no primary lesson request, no retry, and returned a locally valid repaired step in 2,767.0 ms. The 498-byte summary contains only Luna/`none` identity, the repair-prompt hash, timing, one-call count, and closed pass/error fields; no generated repair content or credential is retained. This closed the repair-path prerequisite.
+
+The subsequently approved fixed batch is retained at `artifacts/evidence/m3-luna-batch-20260716-224159/`. All ten topics completed with four accepted steps each: 40 accepted steps, zero repairs, zero drops, no retry, no terminal or harness error, and first-valid-step latency from 1,161.6 ms to 3,012.7 ms. The harness attempted exactly ten topics, did not stop early, and the backend was shut down immediately afterward. Secret scanning found no credential in the package. Local replay then exposed and corrected deterministic label/equation clipping plus broad/grid region collisions. Final screenshots, zero-crash verdicts, and bounded notes are retained: 9/10 topics pass human layout review, with exponential growth/decay explicitly failing because one combined equation is too small for comfortable demo reading. The verifier now fails only because the representative connected product-path timing file is absent and the exit gate therefore remains false.
+
+The separately approved accumulated-whiteboard v2 batch is retained at `artifacts/evidence/m3-luna-v2-batch-20260717-0635/`. It made exactly ten sequential primary topic calls and zero repair calls. All topics completed with 39 accepted steps, zero drops, no retry, and no terminal or harness error; first-valid-step latency was 1,421.8–2,583.3 ms. Local production-path replay produced ten screenshots, no board warning, no console warning/error, and zero renderer crashes. Exactly eight topics pass the unchanged human layout rubric. Unit circle fails for a lower-right equation/explanation collision, and standing waves fails for stacked node/antinode/amplitude labels. The verifier now reports only the intentionally false exit flag and absent representative timing file. The batch approval is consumed.
+
+The first separately approved connected timing attempt stopped at an origin-mismatched CORS preflight and made no credentialed request. A fresh approved retry used `http://localhost:5173`, minted one mini-Realtime client secret, connected with `gpt-realtime-2.1-mini` and `marin`, and made one Luna v2 derivative lesson call with four accepted steps and zero repairs/drops. Product diagnostics measured 1,355.7 ms to the first valid step, 1,363.4 ms from validation to ink, and 2,719.1 ms request-to-first-visible-ink. The session was disconnected immediately after capture. The final read-only verifier passes all ten topics, exactly eight human layout passes, zero renderer crashes, matching model/reasoning/prompt hashes, non-partial timing, and the six-second target. M3 is complete.
 
 ### Rollback
 
 - Disable live generation and load a cached lesson using the same validated renderer path.
-- Escalate `BOARD_MODEL` from `gpt-5.6-terra` to `gpt-5.6-sol` only after the Terra rubric demonstrates a material quality failure.
+- Keep `BOARD_MODEL=gpt-5.6-luna` through the unchanged rubric. If it fails, compare only failed topics on Terra after explicit approval; consider Sol only if both lower-cost tiers are materially inadequate.
 - If streamed JSONL remains unreliable, generate a complete bounded lesson object before playback; document the latency trade-off and preserve cached lessons.
 
 ## M4 — Full interruption and grounding loop
@@ -356,8 +382,8 @@ If a stretch beat fails during recording, remove that beat and use the last pass
 
 | ID | Assumption | Status | Validation / consequence |
 |---|---|---|---|
-| A-001 | An OpenAI API key with access to the selected Realtime and GPT-5.6 models is available | Partially verified | Realtime mini-model access passed on 2026-07-15; GPT-5.6 board-model access remains unverified until M3 |
-| A-002 | `gpt-realtime-2.1-mini`, `gpt-realtime-2.1`, and `gpt-5.6-terra` remain valid model IDs | Verified in official docs; mini account access passed on 2026-07-15 | Recheck larger Realtime and board-model account access before wiring or recording |
+| A-001 | An OpenAI API key with access to the selected Realtime and GPT-5.6 models is available | Verified for mini Realtime and Luna | Realtime mini passed on 2026-07-15; one Luna lesson call reached the model and returned three valid steps on 2026-07-16 |
+| A-002 | `gpt-realtime-2.1-mini`, `gpt-realtime-2.1`, `gpt-5.6-luna`, and `gpt-5.6-terra` remain valid model IDs | Verified in official docs; mini account access passed on 2026-07-15 | Recheck larger Realtime and board-model account access before wiring or recording |
 | A-003 | The recording browser permits microphone capture and stable WebRTC localhost use | Verified for Chrome 150 in-app; recording setup still separate | Voice, tools, and five interruptions passed in the current browser; test the eventual OBS/recording configuration before M7 |
 | A-004 | React 18 and Python 3.12 are acceptable locked foundations | Accepted | Revisit only for a concrete dependency incompatibility |
 | A-005 | Fixed transcript/word-count synchronization will look convincing enough | Verified for M2 | Three-run perceptual gate passed; owner confirmed concurrent-feeling ink and no consecutive narration overlap on 2026-07-16 |
@@ -386,6 +412,8 @@ Architecture decisions ADR-001 through ADR-008 live in `ARCHITECTURE.md`. Execut
 | E-010 | 2026-07-16 | Correlate manual lesson responses with bounded Realtime response metadata and start fixed ink on output-buffer playback start | Official Realtime guidance recommends metadata for disambiguating simultaneous responses; transcript deltas prove generation but not playout | A live browser trace contradicts metadata echoing or shows playback-start arrives too late for convincing concurrency |
 | E-011 | 2026-07-16 | Ship visible-only manifest grounding, response-purpose coordination, sequential sketch strokes, and one checkpoint before broader M4 overlays | These changes are visible, bounded, and testable on the accepted cached lesson; word slicing, transcript-clock pacing, and duration-only VAD recovery rely on signals that do not prove the behavior they infer | A minimal rehearsal shows full-script resume is confusing, fixed pacing visibly drifts, or a measured false-freeze classifier becomes available |
 | E-012 | 2026-07-16 | Gate the microphone to one deliberate speech turn | The first M4 rehearsal entered `QA` from an unintended VAD detection and appeared to answer itself; using **Speak** plus the documented `speech_stopped` boundary prevents speaker feedback without guessing whether a short utterance is noise | A headset-only recording setup proves continuous input is stable and materially improves the interaction |
+| E-013 | 2026-07-16 | Gate the ten-topic M3 rubric behind a sequential no-retry harness and review captured NDJSON locally | Prevents accidental batch spend and duplicate generation while preserving raw model output, prompt/model identity, machine timing, screenshots, and human rubric evidence | The live gate shows the harness misses required evidence or cannot reproduce a rendered lesson |
+| E-014 | 2026-07-16 | Require a read-only verifier before accepting M3 | Prevents missing screenshots, ambiguous human fields, stale totals, crashes, model drift, or incomplete timing from being summarized as a pass | The accepted rubric changes or a required evidence field proves unverifiable |
 
 ## Validation ledger
 
@@ -416,6 +444,9 @@ Append validation evidence; do not replace failed entries.
 | 2026-07-16T14:58+0530 | M4 | Cached interaction deterministic gate | Run root tests, lint/format, production build, production dependency audit, diff hygiene, and attempt a disconnected browser reload | Deterministic pass; browser/live pending | 115 frontend and 38 backend tests passed; lint, format, TypeScript, Vite, compileall, audit, and diff checks passed. The Vite server responded on localhost, but the in-app browser URL policy blocked the automated reload; no credentialed call was made. |
 | 2026-07-16T15:37+0530 | M4 | Turn-gated microphone regression gate | Add explicit input gating and VAD-boundary auto-mute; run root tests, lint/format, build/compile, production audit, and diff hygiene | Pass; live retest pending | 116 frontend and 38 backend tests passed; the microphone remains muted after connection, opens only through **Speak**, and deterministically closes on `input_audio_buffer.speech_stopped` or assistant playback. |
 | 2026-07-16 | M4 | Owner live retest of cached interaction slice | Reload/reconnect; run the published **Speak** interruption and checkpoint checklist; report whether self-triggering, recovery, feedback, and advancement pass | Pass | Owner reported “passed.” This is human acceptance of the checklist, not a retained machine trace or numeric latency/usage measurement. |
+| 2026-07-16T18:21+0530 | M3 | Deterministic live-generation gate | `make test`; `make lint`; `make build`; `npm --prefix frontend audit --omit=dev`; `git diff --check`; owner browser smoke | Pass; live rubric pending | 140 frontend and 68 backend tests passed. Schemas/types, streaming parsers, invalid UTF-8/transport/timeout behavior, validation/repair/drop behavior, stale cancellation, partial-prefix retention, cached fallback, ten golden fixtures, lint/format/build/compile, audit, and diff hygiene passed. Owner reported the current browser smoke “passed”; no model/timing/batch evidence is inferred. |
+| 2026-07-16T18:37+0530 | M3 | Live-rubric harness and browser evidence preparation | Test owner-approval refusal, sequential parser/evidence output, model/prompt metadata allowlists, first-visible-ink callback, captured-NDJSON importer, diagnostics load, full deterministic gate, and console | Pass; no live request made | 143 frontend and 73 backend tests plus lint/format/build/compile, production audit, secret-pattern scan, and diff hygiene passed. The harness has no retry/parallel path and stops on access failures. Captured lessons can be reviewed without regeneration. Diagnostics loaded locally with the importer visible and no browser warning/error. |
+| 2026-07-16T18:42+0530 | M3 | Acceptance-evidence verifier | Verify a complete synthetic package; reject missing human verdicts, slow ink, path traversal, stale totals, crashes, and incomplete identity/timing; rerun the root gate | Pass; no live request made | 143 frontend and 76 backend tests plus lint/format/build/compile, production audit, secret-pattern scan, and diff hygiene pass. The read-only verifier cannot mutate evidence and treats missing or ambiguous fields as failure. |
 
 Current deterministic command baseline:
 
@@ -448,6 +479,20 @@ The native commands are documented in `README.md`. Passing deterministic command
 | 2026-07-16T14:58+0530 | M4 | Implemented product/diagnostic modes, sequential sketch reveal, visible manifest publication, response-purpose coordination, and one tutor-initiated checkpoint | Complete one short cached-lesson browser rehearsal and record manifest/checkpoint behavior | Automated in-app browser navigation was blocked by URL policy; human microphone/perceptual participation remains required for the live gate |
 | 2026-07-16T15:37+0530 | M4 | Diagnosed the first rehearsal freeze as unintended VAD input from an always-open microphone and checkpointed one-turn **Speak** gating at `c0d6f48` | Reload, reconnect, and repeat one short checkpoint run using **Speak** for deliberate turns | Human confirmation that Chalk no longer self-triggers and the checkpoint advances |
 | 2026-07-16 | M4 | Owner confirmed the post-fix cached-interaction checklist passed; moved the slice plan to completed | Choose whether to begin M3 live lesson generation | No implementation blocker; broader M4 overlays and three-run/multi-lesson gate remain deferred |
+| 2026-07-16T18:21+0530 | M3 | Implemented and deterministically validated the bounded live-generation vertical slice; owner reported the current browser smoke passed | Obtain explicit approval, then run one bounded Terra access/smoke call and the ten-topic rubric | Live board-model quality, layout, and first-stroke latency are not yet evidenced |
+| 2026-07-16 | M3 | Prepared the owner-gated sequential evaluation harness, prompt/model identity headers, browser timing export, and local captured-NDJSON reviewer | After explicit owner approval, run one representative product smoke and the single ten-topic batch; review the retained outputs | Approval and human review remain required; no credentialed evaluation was run |
+| 2026-07-16T19:55+0530 | M3 | Selected Luna as the lower-cost qualification model without weakening the exit gate; added fail-fast protection against a stale non-Luna backend | Run one bounded Luna product smoke after explicit approval, then separately approve the ten-topic Luna rubric | Luna account access, live quality/layout, and first-visible-ink timing remain unverified |
+| 2026-07-16T20:20+0530 | M3 | Split the live CLI into independently approved one-call `smoke` and ten-call `batch` modes after finding the documented smoke had no bounded command | Obtain approval for `smoke` only; inspect its retained stream before considering separate batch approval | No credentialed request was made; live Luna access remains unverified |
+| 2026-07-16T20:23+0530 | M3 | Ran exactly one approved Luna smoke; access and three valid steps passed, but first step took 8.95 s and the stream ended `invalid_stream` | Diagnose without retrying; do not approve the batch | Terminal correctness and latency both failed; retained evidence is `artifacts/evidence/m3-smoke-20260716-202350/` |
+| 2026-07-16T20:35+0530 | M3 | Kept documented `response.completed`, split transport/text byte budgets, and set recorded qualification effort to `none` after the low-effort latency miss | Obtain fresh approval for one corrected Luna smoke only | Root cause is a supported inference, not live-proven; batch remains unjustified |
+| 2026-07-16T20:42+0530 | M3 | Ran exactly one separately approved corrected Luna smoke after code/config/tests and free health preflight checks | Seek separate approval before the ten-topic rubric; do not infer batch authority | Pass: four accepted steps, zero repairs/drops, 2.87 s first valid step, 5.16 s normal completion; evidence retained at `artifacts/evidence/m3-smoke-corrected-20260716-204203/` |
+| 2026-07-16T21:06+0530 | M3 | Used the separate batch approval; the fail-fast harness stopped after derivative emitted three valid steps and then `upstream_rejected` | Diagnose and deterministically distinguish upstream terminal outcomes; do not retry under the consumed approval | One call only, 2.50 s first step, zero repairs/drops, terminal at 4.38 s; evidence retained at `artifacts/evidence/m3-luna-batch-20260716-210607/` |
+| 2026-07-16T21:29+0530 | M3 | Distinguished upstream terminal classes and allowlisted reasons across backend, schema, browser, and harness; the full no-spend gate passes | Obtain fresh explicit approval before a new ten-topic Luna batch | Prior batch approval is consumed; historical collapsed terminal is not recoverable; 146 frontend and 115 backend tests pass |
+| 2026-07-16T22:08+0530 | M3 | Hardened repair attribution and spend bounds, added the three-failure gate-unreachable stop, redacted crash summaries, summary schema v2, and local Host validation | Obtain fresh explicit approval before a new ten-topic Luna batch | No live call was made; the deterministic gate passes 147 frontend and 128 backend tests, and historical cause remains unprovable |
+| 2026-07-16T22:20+0530 | M3 | Used the fresh batch approval; three topics completed before unit circle's first repair call was rejected, and the harness stopped before topic five | Verify the corrected repair seam with a separately approved one-call repair smoke before another batch | Four topic requests plus one rejected repair request, no retry; billing of the rejection is not inferred; v2 evidence retained at `artifacts/evidence/m3-luna-batch-20260716-222005/` |
+| 2026-07-16T22:30+0530 | M3 | Removed repair-only JSON mode, kept local validation authoritative, and added an independently approved one-call repair probe | Obtain explicit approval for `repair-smoke`; do not infer it from the consumed batch approval | No further live call made; deterministic gate passes 147 frontend and 131 backend tests |
+| 2026-07-16T22:38+0530 | M3 | Used the separate approval for exactly one Luna repair smoke; the corrected plain-text repair path passed | Obtain fresh approval before another ten-topic batch | One repair request, 2.77 s, no primary call/retry/content retention; evidence at `artifacts/evidence/m3-repair-smoke-20260716-223721/` |
+| 2026-07-16T22:42+0530 | M3 | Used the fresh approval for one fixed ten-topic Luna batch; all ten topics completed cleanly | Review the ten captured streams locally, retain screenshots/verdicts, then collect one representative product-path first-visible-ink record | Machine pass: 40 accepted steps, zero repairs/drops/retries/errors, 1.16–3.01 s to first valid step; evidence at `artifacts/evidence/m3-luna-batch-20260716-224159/` |
 
 ## Discoveries and surprises
 

@@ -67,10 +67,36 @@ export const DEBUG_ECHO_TOOL = {
   },
 } as const;
 
+export const TEACH_TOOL = {
+  type: "function",
+  name: "teach",
+  description:
+    "Start a visual math or physics lesson when the student asks to learn a new topic.",
+  parameters: {
+    type: "object",
+    properties: {
+      topic: {
+        type: "string",
+        minLength: 2,
+        maxLength: 80,
+        description: "The specific math or physics topic to teach.",
+      },
+      student_context: {
+        type: "string",
+        maxLength: 500,
+        description: "Brief relevant prior knowledge stated in this conversation.",
+      },
+    },
+    required: ["topic", "student_context"],
+    additionalProperties: false,
+  },
+} as const;
+
 export const BASE_TUTOR_PROMPT = `You are Chalk, a warm, concise math and physics tutor conducting a live whiteboard lesson.
 The application may give you exact narration scripts. Recite those scripts exactly without introductions or commentary.
 When the student interrupts, the board freezes. Answer the question in at most two short sentences using only the conversation and the supplied visible-board context.
 After an interruption answer, say that the student can use Resume when ready. Do not claim to see an element unless it appears in the visible-board context.
+When the student asks to begin a new math or physics topic and no lesson is running, call teach once with a concise topic and relevant prior knowledge.
 Be conversational and Socratic. Never mention internal event names, credentials, tools, loading, prompts, or diagnostics.`;
 
 export const DIAGNOSTIC_TUTOR_ADDENDUM = `
@@ -144,7 +170,7 @@ export function createSessionUpdate(
   boardContext?: string,
   interactionGuidance?: string,
 ) {
-  const diagnosticTools = mode === "diagnostics" ? [DEBUG_ECHO_TOOL] : [];
+  const tools = mode === "diagnostics" ? [TEACH_TOOL, DEBUG_ECHO_TOOL] : [TEACH_TOOL];
   return {
     type: CLIENT_EVENTS.SESSION_UPDATE,
     session: {
@@ -161,7 +187,7 @@ export function createSessionUpdate(
           voice,
         },
       },
-      tools: diagnosticTools,
+      tools,
       tool_choice: "auto",
       truncation: COST_CONTROL_CONFIGURATION,
     },
@@ -178,7 +204,7 @@ export function createTutorContextUpdate(
     session: {
       type: "realtime",
       instructions: buildTutorInstructions(mode, boardContext, interactionGuidance),
-      tools: mode === "diagnostics" ? [DEBUG_ECHO_TOOL] : [],
+      tools: mode === "diagnostics" ? [TEACH_TOOL, DEBUG_ECHO_TOOL] : [TEACH_TOOL],
       tool_choice: "auto",
     },
   } as const;
@@ -198,6 +224,7 @@ export function createFunctionCallOutput(callId: string, output: unknown) {
 export function createResponseAfterTool(
   eventId?: string,
   metadata?: Readonly<Record<string, string>>,
+  instructions?: string,
 ) {
   return {
     type: CLIENT_EVENTS.RESPONSE_CREATE,
@@ -205,6 +232,7 @@ export function createResponseAfterTool(
     response: {
       output_modalities: ["audio"],
       ...(metadata ? { metadata } : {}),
+      ...(instructions ? { instructions } : {}),
     },
   } as const;
 }

@@ -5,6 +5,7 @@ import type { NormalizedLesson } from "./decode";
 import { BoardGeometryStore, type BoardGeometry, type BoardPath } from "./geometry";
 import { BOARD_HEIGHT, BOARD_WIDTH, layoutSteps } from "./layout";
 import { buildBoardManifest } from "./manifest";
+import { fitBoardText } from "./textLayout";
 
 interface BoardProps {
   lesson: NormalizedLesson;
@@ -12,6 +13,8 @@ interface BoardProps {
   currentStepProgress: number;
   phase: string;
   onManifestChange?: (manifest: string) => void;
+  measurementId?: string;
+  onFirstVisibleInk?: (measurementId: string, observedAtMs: number) => void;
 }
 
 export function Board({
@@ -20,6 +23,8 @@ export function Board({
   currentStepProgress,
   phase,
   onManifestChange,
+  measurementId,
+  onFirstVisibleInk,
 }: BoardProps) {
   const store = useRef<BoardGeometryStore>();
   if (!store.current) store.current = new BoardGeometryStore();
@@ -43,9 +48,27 @@ export function Board({
     [build.geometries, currentStepIndex, currentStepProgress, lesson],
   );
   useEffect(() => onManifestChange?.(manifest), [manifest, onManifestChange]);
+  const measuredRef = useRef<string>();
+  useEffect(() => {
+    if (!measurementId || measuredRef.current === measurementId) return;
+    const hasVisibleInk = build.geometries.some(
+      (geometry) =>
+        geometryProgress(geometry, lesson, currentStepIndex, currentStepProgress) > 0,
+    );
+    if (!hasVisibleInk) return;
+    measuredRef.current = measurementId;
+    onFirstVisibleInk?.(measurementId, performance.now());
+  }, [
+    build.geometries,
+    currentStepIndex,
+    currentStepProgress,
+    lesson,
+    measurementId,
+    onFirstVisibleInk,
+  ]);
 
   return (
-    <section className="chalkboard-shell" aria-label="Animated projectile lesson board">
+    <section className="chalkboard-shell" aria-label={`Animated lesson board: ${lesson.title}`}>
       <div className="board-toolbar">
         <div>
           <span className="board-live-dot" aria-hidden="true" />
@@ -57,7 +80,7 @@ export function Board({
         className="chalkboard"
         viewBox={`0 0 ${BOARD_WIDTH} ${BOARD_HEIGHT}`}
         role="img"
-        aria-label="A hand-drawn projectile range lesson"
+        aria-label={`A hand-drawn lesson about ${lesson.title}`}
       >
         <defs>
           <filter id="chalk-softness">
@@ -83,6 +106,7 @@ export function Board({
 function Geometry({ geometry, progress }: { geometry: BoardGeometry; progress: number }) {
   if (progress <= 0) return null;
   const clipId = `reveal-${geometry.id}`;
+  const fittedText = geometry.text ? fitBoardText(geometry.text, geometry.box) : undefined;
   return (
     <g data-element-id={geometry.id} data-kind={geometry.kind} data-progress={progress.toFixed(3)}>
       <clipPath id={clipId}>
@@ -123,14 +147,24 @@ function Geometry({ geometry, progress }: { geometry: BoardGeometry; progress: n
           {label.text}
         </text>
       ))}
-      {geometry.text ? (
+      {fittedText ? (
         <text
           className="board-hand-text"
           clipPath={`url(#${clipId})`}
+          data-text-line-count={fittedText.lines.length}
+          style={{ fontSize: `${fittedText.fontSize}px` }}
           x={geometry.box.x}
-          y={geometry.box.y + geometry.box.height * 0.7}
+          y={fittedText.startY}
         >
-          {geometry.text}
+          {fittedText.lines.map((line, index) => (
+            <tspan
+              key={`${geometry.id}-text-line-${index}`}
+              x={geometry.box.x}
+              dy={index === 0 ? 0 : fittedText.lineHeight}
+            >
+              {line}
+            </tspan>
+          ))}
         </text>
       ) : null}
       {geometry.equationHtml ? (
@@ -143,6 +177,7 @@ function Geometry({ geometry, progress }: { geometry: BoardGeometry; progress: n
         >
           <div
             className="board-equation"
+            style={{ fontSize: `${geometry.equationFontSize ?? 31}px` }}
             // This markup is produced by KaTeX with trust disabled after a
             // CHALK command allowlist; raw model HTML never reaches this sink.
             dangerouslySetInnerHTML={{ __html: geometry.equationHtml }}
@@ -152,6 +187,7 @@ function Geometry({ geometry, progress }: { geometry: BoardGeometry; progress: n
     </g>
   );
 }
+
 
 function pathRevealProgress(
   geometry: BoardGeometry,
