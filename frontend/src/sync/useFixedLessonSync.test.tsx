@@ -53,6 +53,25 @@ describe("fixed lesson synchronization effects", () => {
     await waitFor(() => expect(requestNarration).toHaveBeenCalledOnce());
   });
 
+  it("retries narration after a transient busy race settles", async () => {
+    const { result, rerender, requestNarration } = setup();
+    requestNarration.mockImplementationOnce(() => {
+      throw new Error("Wait for the active response to finish before scripted audio.");
+    });
+
+    act(() => result.current.start());
+    await waitFor(() => expect(requestNarration).toHaveBeenCalledOnce());
+    expect(result.current.state).toMatchObject({
+      phase: "TEACHING",
+      animationStarted: false,
+      currentStepProgress: 0,
+    });
+
+    rerender({ connectionStatus: "connected", idle: false });
+    rerender({ connectionStatus: "connected", idle: true });
+    await waitFor(() => expect(requestNarration).toHaveBeenCalledTimes(2));
+  });
+
   it("resets an in-progress lesson when its connected session ends", () => {
     const { result, rerender } = setup();
     act(() => result.current.start());
@@ -80,6 +99,61 @@ describe("fixed lesson synchronization effects", () => {
     expect(result.current.state.phase).toBe("IDLE");
   });
 
+  it("maps transcript character counts to a pacing hint without starting ink", () => {
+    const { result } = setup();
+    act(() => result.current.start());
+    const state = result.current.state;
+    const script = lesson.steps[state.currentStepIndex].script;
+    act(() =>
+      result.current.onSemanticEvent({
+        type: "narration.transcript_progress",
+        context: {
+          requestId: state.requestId,
+          stepId: state.stepIds[state.currentStepIndex],
+          cycle: state.cycle,
+        },
+        generatedCharacters: Math.ceil(script.length / 2),
+      }),
+    );
+
+    expect(result.current.state.transcriptProgress).toBeCloseTo(
+      Math.ceil(script.length / 2) / script.length,
+    );
+    expect(result.current.state.animationStarted).toBe(false);
+    expect(result.current.state.currentStepProgress).toBe(0);
+  });
+
+  it("finishes remaining ink within the playback-stop catch-up window", () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = setup();
+      act(() => result.current.start());
+      const state = result.current.state;
+      const context = {
+        requestId: state.requestId,
+        stepId: state.stepIds[state.currentStepIndex],
+        cycle: state.cycle,
+      };
+      act(() =>
+        result.current.onSemanticEvent({ type: "narration.activity", context }),
+      );
+      act(() => vi.advanceTimersByTime(800));
+      expect(result.current.state.currentStepProgress).toBeGreaterThan(0);
+      expect(result.current.state.currentStepProgress).toBeLessThan(1);
+
+      act(() =>
+        result.current.onSemanticEvent({
+          type: "narration.playback_stopped",
+          context,
+        }),
+      );
+      act(() => vi.advanceTimersByTime(450));
+      expect(result.current.state.currentStepProgress).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("assigns an interrupted teaching response to student Q&A", async () => {
     const { result, expectAutomaticResponse } = setup();
     act(() => result.current.start());
@@ -104,5 +178,22 @@ describe("fixed lesson synchronization effects", () => {
       expect.objectContaining({ stepId: "s1", cycle: 1 }),
     );
     expect(result.current.state.phase).toBe("TEACHING");
+  });
+
+  it("aborts a Q&A lesson so a new topic can start generating", async () => {
+    const { result, cancelExpectedAutomaticResponse } = setup();
+    act(() => result.current.start());
+    act(() => result.current.onSemanticEvent({ type: "student.speech_started" }));
+    await waitFor(() => expect(result.current.state.phase).toBe("QA"));
+    act(() => result.current.abort("request-2"));
+
+    expect(cancelExpectedAutomaticResponse).toHaveBeenCalledWith(
+      "student_qa",
+      expect.objectContaining({ stepId: "s1", cycle: 1 }),
+    );
+    expect(result.current.state.phase).toBe("GENERATING");
+    expect(result.current.state.requestId).toBe("request-2");
+    expect(result.current.state.stepIds).toEqual([]);
+    expect(result.current.state.currentStepProgress).toBe(0);
   });
 });

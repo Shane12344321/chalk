@@ -1,0 +1,157 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "trim outer whitespace from closed text and reference fields",
+      "input": {
+        "id": " s1 ",
+        "script": " Explain the slope. ",
+        "ops": [
+          {
+            "op": " text ",
+            "id": " label ",
+            "anchor": { "el": " curve1 ", "side": " below " },
+            "content": " local slope "
+          }
+        ],
+        "checkpoint": {
+          "question": " Rising or falling? ",
+          "expected_gist": " rising "
+        }
+      },
+      "expected": {
+        "id": "s1",
+        "script": "Explain the slope.",
+        "ops": [
+          {
+            "op": "text",
+            "id": "label",
+            "anchor": { "el": "curve1", "side": "below" },
+            "content": "local slope"
+          }
+        ],
+        "checkpoint": {
+          "question": "Rising or falling?",
+          "expected_gist": "rising"
+        }
+      },
+      "corrections": ["trimmed_outer_whitespace"],
+      "correction_count": 9
+    },
+    {
+      "name": "normalize browser-incompatible power operator",
+      "input": {
+        "id": "s1",
+        "script": "Plot the curve.",
+        "ops": [
+          { "op": "curve", "id": "curve1", "axes_id": "axes1", "expr": "x**2 + 2**x" }
+        ],
+        "checkpoint": null
+      },
+      "expected": {
+        "id": "s1",
+        "script": "Plot the curve.",
+        "ops": [
+          { "op": "curve", "id": "curve1", "axes_id": "axes1", "expr": "x^2 + 2^x" }
+        ],
+        "checkpoint": null
+      },
+      "corrections": ["normalized_power_operator"],
+      "correction_count": 1
+    },
+    {
+      "name": "clamp only near-boundary normalized geometry",
+      "input": {
+        "id": "s1",
+        "script": "Draw the nearby geometry.",
+        "ops": [
+          {
+            "op": "line",
+            "id": "line1",
+            "region": "right",
+            "from": [-0.05, 1.05],
+            "to": [0.4, 0.6],
+            "stroke": "solid"
+          },
+          {
+            "op": "text",
+            "id": "label",
+            "anchor": { "el": "line1", "side": "below", "gap": 1.03 },
+            "content": "boundary"
+          },
+          {
+            "op": "sketch",
+            "id": "sketch1",
+            "region": "left",
+            "strokes": [[[-0.01, 0.5], [0.5, 1.01]]]
+          }
+        ],
+        "checkpoint": null
+      },
+      "expected": {
+        "id": "s1",
+        "script": "Draw the nearby geometry.",
+        "ops": [
+          {
+            "op": "line",
+            "id": "line1",
+            "region": "right",
+            "from": [0, 1],
+            "to": [0.4, 0.6],
+            "stroke": "solid"
+          },
+          {
+            "op": "text",
+            "id": "label",
+            "anchor": { "el": "line1", "side": "below", "gap": 1 },
+            "content": "boundary"
+          },
+          {
+            "op": "sketch",
+            "id": "sketch1",
+            "region": "left",
+            "strokes": [[[0, 0.5], [0.5, 1]]]
+          }
+        ],
+        "checkpoint": null
+      },
+      "corrections": ["clamped_normalized_point", "clamped_anchor_gap"],
+      "correction_count": 5
+    },
+    {
+      "name": "leave materially invalid coordinates and fuzzy references untouched",
+      "input": {
+        "id": "s1",
+        "script": "This remains repairable.",
+        "ops": [
+          {
+            "op": "arrow",
+            "id": "ray",
+            "canvas_id": "boundry",
+            "from": [-0.051, 1.051],
+            "to": [0.5, 0.5],
+            "stroke": "solid"
+          }
+        ],
+        "checkpoint": null
+      },
+      "expected": {
+        "id": "s1",
+        "script": "This remains repairable.",
+        "ops": [
+          {
+            "op": "arrow",
+            "id": "ray",
+            "canvas_id": "boundry",
+            "from": [-0.051, 1.051],
+            "to": [0.5, 0.5],
+            "stroke": "solid"
+          }
+        ],
+        "checkpoint": null
+      },
+      "corrections": [],
+      "correction_count": 0
+    }
+  ]
+}

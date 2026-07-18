@@ -43,6 +43,29 @@ describe("fixed lesson sync reducer", () => {
     expect(state.ignoredEvents).toBe(ignoredBefore + 1);
   });
 
+  it("retains monotonic bounded transcript progress without starting ink", () => {
+    let state = startState();
+    state = send(state, { type: "NARRATION_PROGRESS", progress: 0.6 });
+    state = send(state, { type: "NARRATION_PROGRESS", progress: 0.4 });
+    expect(state).toMatchObject({
+      transcriptProgress: 0.6,
+      animationStarted: false,
+      currentStepProgress: 0,
+    });
+    state = send(state, { type: "NARRATION_PROGRESS", progress: 4 });
+    expect(state.transcriptProgress).toBe(1);
+  });
+
+  it("recovers a missed playback-start event when playback stop is observed", () => {
+    let state = startState();
+    state = send(state, { type: "AUDIO_STOPPED" });
+    expect(state).toMatchObject({
+      animationStarted: true,
+      audioStopped: true,
+      currentStepProgress: 0,
+    });
+  });
+
   it("records three consecutive deterministic four-step runs", () => {
     let state = startState();
     for (let run = 0; run < 3; run += 1) {
@@ -99,6 +122,27 @@ describe("fixed lesson sync reducer", () => {
     expect(state.phase).toBe("CHECKPOINT_FEEDBACK");
   });
 
+  it("retries one failed checkpoint prompt without entering listening", () => {
+    let state = startState("request-1", ["s1"]);
+    state = finishCurrentStep(state);
+    expect(state.phase).toBe("CHECKPOINT_ASKING");
+    const firstCycle = state.cycle;
+
+    state = send(state, { type: "CHECKPOINT_FAILED" });
+    expect(state).toMatchObject({
+      phase: "CHECKPOINT_ASKING",
+      checkpointPromptFailures: 1,
+      cycle: firstCycle + 1,
+    });
+
+    state = send(state, { type: "CHECKPOINT_FAILED" });
+    expect(state).toMatchObject({
+      phase: "TEACHING",
+      currentStepIndex: 1,
+      completedCheckpointStepIds: ["s1"],
+    });
+  });
+
   it("ignores stale request and step events", () => {
     const state = startState();
     const stale = fixedSyncReducer(state, {
@@ -108,6 +152,34 @@ describe("fixed lesson sync reducer", () => {
       cycle: state.cycle,
     });
     expect(stale.animationStarted).toBe(false);
+    expect(stale.ignoredEvents).toBe(1);
+  });
+
+  it("creates a clean request boundary when Q&A switches topic", () => {
+    let state = startState();
+    state = send(state, { type: "STUDENT_SPEECH_STARTED" });
+    state = send(state, { type: "INTERRUPTION_COMMITTED" });
+    const oldCycle = state.cycle;
+
+    state = fixedSyncReducer(state, {
+      type: "NEW_TOPIC",
+      requestId: "request-2",
+    });
+    expect(state).toMatchObject({
+      phase: "GENERATING",
+      requestId: "request-2",
+      stepIds: [],
+      currentStepProgress: 0,
+      sourceComplete: false,
+    });
+
+    const stale = fixedSyncReducer(state, {
+      type: "NARRATION_DONE",
+      requestId: "request-1",
+      stepId: "s1",
+      cycle: oldCycle,
+    });
+    expect(stale.narrationDone).toBe(false);
     expect(stale.ignoredEvents).toBe(1);
   });
 
@@ -176,5 +248,5 @@ function send(
 
 type CorrelatedType = Exclude<
   FixedSyncEvent["type"],
-  "LOAD" | "APPEND_STEPS" | "SOURCE_DONE" | "START" | "RESET"
+  "NEW_TOPIC" | "LOAD" | "APPEND_STEPS" | "SOURCE_DONE" | "START" | "RESET"
 >;

@@ -401,3 +401,138 @@ The complete no-spend gate passes 179 frontend tests across 22 files and 148 bac
 ## 2026-07-17 — Space-to-interrupt shortcut
 
 One unmodified Space keydown outside form controls now enters the existing deliberate Speak path. It enables the microphone once, ignores held-key repeats and modified shortcuts, and leaves VAD responsible for speech detection, interruption, automatic microphone shutoff, and the tested freeze/QA transition. The visible guidance now says to press Space; the Speak button remains as an accessible fallback and can still stop listening. Seven focused shortcut tests, frontend ESLint, the TypeScript/Vite production build, and `git diff --check` pass. No credentialed request was made; the running local frontend can be used for the perceptual check.
+
+## 2026-07-17 — Natural-drawing feature plan: deterministic phases implemented
+
+The audit-driven plan `docs/exec-plans/active/natural-drawing.md` executed its five deterministic phases in one session. Browser lesson decoding is now incremental (`decodeStep` plus a decode context): a streamed step the browser rejects costs only that op or step, is counted as `browserDroppedSteps` in stream progress and diagnostics, and the cached fallback activates only when zero streamed steps survive. The `lesson.done` cross-check now compares the server's accepted count against received step envelopes, and a synchronous generation token closes the double-`teach` re-entrancy window.
+
+The backend now mirrors the browser's rendering truth so repair can fire before an unrenderable step streams: `expression_runtime.py` samples every curve at 121 points with a bounded interpreter over the already-validated AST (non-finite/complex, |y| budget, discontinuity, and two-contiguous-visible-samples rules), `latex_lint.py` structurally lints equations (forbidden/unknown commands, unbalanced groups, unpaired `\left`, math-mode `$`), normalization rewrites `**` to `^` and enforces the browser expression charset, scripts must contain a spoken word, and a lesson carries at most one checkpoint. `shared/fixtures/curve-parity.json` and `latex-parity.json` pin the two-sided contract; both suites consume them. The repair prompt names the new issue vocabulary.
+
+Board prompt v3 (`BOARD_PROMPT_VERSION=v3`, prior prompts retained as v1/v2) adds the spatial contract: column/row grid geometry with real proportions, broad-region overlaps, y-down sketch coordinates, axes sizing guidance, curve domain rules, a sketch worked example validated against the production validator, and `visible_board` declared non-anchorable; the browser now sends an empty board state for fresh lessons. Layout switched from count-division slots to flowing per-region cursors and is prefix-stable by construction — a corpus-wide property test over all thirteen cached/golden lessons proves streaming a later step never moves committed ink. Axes and curves joined sketches in sequential stroke reveal with content-length animation weights, cubic ease-in-out per stroke, and axis labels held until their strokes near completion. `teach` during QA now aborts the current lesson (QA → GENERATING as documented), the tutor prompt explains mid-lesson switching, and the live-failure fallback picks the keyword-matched cached lesson instead of always projectile.
+
+Gate status: 250 frontend tests across 27 files, 197 backend tests, ESLint, Ruff lint/format, and `tsc` all pass; no credentialed request was made. Still pending under the plan's verification gates: owner visual re-approval of the three cached lessons under the new layout/choreography, the separately approved prompt-v3 smoke plus ten-topic extended-rubric batch, and the mid-lesson topic-switch live rehearsal.
+
+## 2026-07-18 — Playback-gated paced drawing wired
+
+The reported narration/drawing mismatch exposed a real implementation gap: architecture and configuration documented `SYNC_MODE=paced`, but the browser always ran the fixed word-count clock and discarded transcript progress. The backend now validates `SYNC_MODE` as `fixed` or `paced` and projects it in `/health` and the normalized `/session` response. Review then confirmed that transcript generation can race ahead of audible playout, so fixed remains the default and paced is retained only as an experimental comparison.
+
+Both modes still wait for the documented WebRTC `output_audio_buffer.started` event before starting ink. Paced mode retains only a bounded cumulative transcript-character count and uses it as an approximate 0.5×–3× rate hint; transcript generation never starts drawing. When `output_audio_buffer.stopped` arrives with ink pending, either mode completes the remainder within 400 ms, preventing a long silent drawing tail. A missed start event also recovers from the stronger observed stop signal. The disconnected cached board is now labeled `STATIC PREVIEW` so a completed preview is not mistaken for a synchronized run. Diagnostics display the backend-selected sync mode.
+
+Deterministic verification passes: 256 frontend tests across 26 files, 197 backend tests, frontend ESLint, Ruff lint/format, TypeScript, and the Vite production build. Focused coverage proves transcript progress cannot start ink, pacing-rate clamps, bounded character-only retention, stale correlation, missed-start recovery, and the 400 ms catch-up window. The existing Vite chunk-size and Starlette TestClient deprecation warnings remain non-blocking. No credentialed API request was made. One short owner-approved mini-Realtime cached rehearsal remains required for perceptual acceptance; deterministic tests cannot prove audible word-to-mark alignment.
+
+## 2026-07-18 — Fixed sync restored and shared-canvas physics drawing added
+
+Review of the paced controller confirmed that transcript deltas can complete ahead of audible WebRTC playout, so `SYNC_MODE=fixed` is again the runtime, example, and local default. Paced mode remains behind its explicit flag as an experimental comparison. The topic-switch path now creates the replacement request ID before generation begins, clears the interrupted lesson state, and makes every late old-request event stale. Curve exponent evaluation is recursively capped before exponentiation, closing the nested-power resource-exhaustion path.
+
+Schema 1.1 adds deterministic `line`, `arrow`, `point`, and `angle_arc` operations with closed solid/dashed styling. The first primitive claims a board region; related primitives inherit its normalized y-down coordinate space through an already accepted `canvas_id`. Layout retains a canvas-level occupancy box and a specific element box, so multi-step diagrams remain registered while labels and later anchors target the actual ray, point, or angle. Dashed marks are individual stable rough strokes, arrowheads and angle arcs reveal sequentially, labels wait for most of their diagram ink, and manifest summaries expose only bounded semantic descriptions. The v3 prompt includes the contract and a validated total-internal-reflection example. All three cached lesson files remain untouched.
+
+Deterministic verification passes: 263 frontend tests across 26 files, 201 backend tests, frontend ESLint, Ruff lint/format, Python compileall, TypeScript, and the Vite production build. The local backend was restarted on `127.0.0.1:8000`; `/health` reports `sync_mode: fixed`, and the existing frontend dev server remains on `localhost:5173`. No credentialed API call was made. Remaining live gates are unchanged: a separately approved prompt-v3 smoke/batch, two mid-lesson topic-switch rehearsals, and the measured remote-audio analyser spike before replacing fixed scheduling.
+
+## 2026-07-18 — M4 drawing intelligence techniques implemented
+
+CHALK now borrows the useful control techniques from tldraw's agent template
+without adopting its editor or runtime. The current v3 and repair prompts
+expand a deterministic 2,371-character wire contract generated from
+`lesson.schema.json`; it covers every op variant, field, enum, range, ID rule,
+region, and budget. Prompt v1/v2 remain byte-identical, while response evidence
+hashes the fully expanded current prompt so prior batches cannot be mixed.
+
+A safe-only sanitizer now runs before schema validation in Python and at the
+browser decode boundary. Shared fixtures prove parity for surrounding
+whitespace, `**` normalization, and normalized point/anchor-gap clamps within
+0.05 of `[0,1]`. It explicitly leaves fuzzy IDs, case, numeric strings,
+overlong content, duplicates, inferred geometry, and materially invalid
+coordinates untouched. Accepted corrections emit a closed `step_sanitized`
+warning plus optional terminal step/field totals; diagnostics display those
+separately from repairs and drops, and retained evidence contains no corrected
+model text.
+
+Annotation grounding now sends up to 30 committed `{id, kind, bounds}` records,
+with three-decimal normalized y-down board bounds, instead of a redundant ID
+list. Backend validation derives the target allowlist from that structure and
+rejects duplicate, non-finite, zero-size, or off-board elements. The compact
+Realtime tutor manifest is unchanged, a worst-case request still fits the 6
+KiB cap, and cached lesson files were not edited.
+
+An evaluation-only `python -m app.annotation_vision_smoke` harness is present
+but was not run live. It refuses execution without `--approved-by-owner`, uses
+one retained synthetic board, performs one structured control followed by one
+structured-plus-Base64-image call with `detail: low`, `store: false`, and no
+retry, and never retains the image data URL. Structured bounds remain
+authoritative; product `/annotate` sends no screenshot. Product integration
+requires a separate plan after a human A/B verdict.
+
+The deterministic gate passes: 270 frontend tests across 26 files, 220 backend
+tests, frontend ESLint, Ruff lint/format checks, Python compileall, TypeScript,
+the Vite production build, generated schema types, and `git diff --check`. The
+existing Vite chunk-size and Starlette TestClient deprecation warnings remain
+non-blocking. No credentialed API call was made. Next: owner approval for the
+two-call annotation vision comparison, or continue the existing prompt-v3 and
+M4 live rehearsal gates independently.
+
+## 2026-07-18 — Exponent asymmetry and diagram-quality observations pinned
+
+The shared curve fixture now documents the intentional backend-stricter exponent
+cap: `x^40` is a finite, visible curve accepted by the browser sampler, while the
+bounded Python interpreter rejects exponents above 32 before evaluation. Optional
+per-runtime expectations make that asymmetry explicit without weakening the rule
+that every unmarked curve case must agree across runtimes.
+
+The pending prompt-v3 live rubric now explicitly records primitive-label collisions
+and diagram fragmentation/cramping. The general four-op step limit remains unchanged
+until retained live screenshots show repeated pressure; any later change should be a
+tightly bounded diagram-primitive allowance, not a global budget increase. No live
+or credentialed request was made.
+
+## 2026-07-18 — Checkpoint cutoff hardened and deterministic visual lints added
+
+Checkpoint prompts no longer treat every `response.done` as successful completion.
+An unprompted `cancelled` or `incomplete` checkpoint emits a correlated failure,
+stays out of listening, and receives exactly one bounded retry; a cancellation caused
+by detected student speech remains the intentional early-answer path. Checkpoint
+answer-evaluation guidance is cleared while the question is requested and installed
+only after prompt audio begins, removing the contradictory "student is answering"
+instruction from question generation.
+
+The browser now computes closed, deterministic layout findings from resolved geometry:
+primitive-label overlap, labels escaping their shared diagram canvas, and handwritten
+text that cannot fit at the minimum font size. These findings appear only in diagnostics
+and never move committed or partially revealed ink. Prompt v3 now chooses a visual
+structure appropriate to the concept and applies a word-removal test with evidence-
+bearing values. Its fully expanded SHA-256 is
+`1ef5b74244e997ba58e3040ae9861f3186d430a7cde78780afd957bc6c9396e6`;
+future v3 evidence must use that hash rather than earlier v3 evidence.
+
+Deterministic verification passes: 278 frontend tests across 27 files, 222 backend
+tests, frontend ESLint, TypeScript, and the Vite production build. The existing Vite
+chunk-size and Starlette TestClient deprecation warnings remain non-blocking. No live
+or credentialed request was made. Remaining acceptance is perceptual: the M4 cached
+three-loop gate and the separately approved prompt-v3 smoke/batch.
+
+## 2026-07-18 — Blank teaching-step response race closed
+
+The reported run—one short framing sentence followed by `TEACHING · step 1` on an
+empty board—was a response-coordination race, not an empty lesson. The filler
+`response.create` was registered before the service returned `response.created`, but
+the public snapshot exposed only active IDs. Auto-start could therefore enter teaching
+during that invisible pending window; the later narration request correctly refused to
+overlap the filler, then had no state change that would make it retry.
+
+Realtime snapshots now expose pending registrations immediately. All lesson start,
+replay, resume, and generation gates treat pending, active, or playing responses as
+busy. Auto-start also rechecks the client's current authoritative snapshot after the
+asynchronous board-context acknowledgement, closing the check/use window. Scripted
+narration refuses any coordinator in-flight work and emits its current snapshot on a
+busy rejection, so the lesson hook retries only after a real busy-to-idle transition.
+An eight-second `response.created` watchdog releases an unbound request, while a
+twenty-second settlement watchdog releases a created response that never completes
+both generation and playback. Scripted failures return through their existing safe
+state path; a missing filler response simply allows lesson auto-start to continue.
+
+Regression coverage reproduces the exact pending-filler race, the transient narration
+rejection/recovery sequence, a missing `response.created`, and a created response that
+never settles. The full deterministic frontend gate passes 283 tests across 27 files,
+ESLint, TypeScript, and the Vite production build. The existing Vite chunk-size warning
+remains non-blocking. No credentialed request was made. A connected cached/live lesson
+rehearsal remains necessary to confirm the audible filler-to-narration handoff in the
+selected browser; deterministic tests do not claim that perceptual evidence.

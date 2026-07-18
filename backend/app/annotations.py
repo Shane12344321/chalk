@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -28,6 +29,17 @@ MAX_ANNOTATION_OUTPUT_TOKENS = 1_200
 MAX_ANNOTATION_REPAIRS = 2
 
 ElementId = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_-]{0,15}$")]
+ElementKind = Literal[
+    "text",
+    "equation",
+    "sketch",
+    "axes",
+    "curve",
+    "line",
+    "arrow",
+    "point",
+    "angle_arc",
+]
 AnnotationFailureCode = Literal[
     "not_configured",
     "cancelled",
@@ -39,6 +51,26 @@ AnnotationFailureCode = Literal[
 ]
 
 
+class VisibleElement(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    id: ElementId
+    kind: ElementKind
+    bounds: list[float] = Field(min_length=4, max_length=4, repr=False)
+
+    @field_validator("bounds")
+    @classmethod
+    def valid_normalized_bounds(cls, value: list[float]) -> list[float]:
+        if not all(math.isfinite(component) and 0 <= component <= 1 for component in value):
+            raise ValueError("visible element bounds must be finite normalized values")
+        x, y, width, height = value
+        if width <= 0 or height <= 0:
+            raise ValueError("visible element bounds must have positive dimensions")
+        if x + width > 1.001 or y + height > 1.001:
+            raise ValueError("visible element bounds must remain on the board")
+        return value
+
+
 class AnnotationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, strict=True)
 
@@ -47,13 +79,14 @@ class AnnotationRequest(BaseModel):
     question: str = Field(min_length=2, max_length=400, repr=False)
     manifest_version: int = Field(ge=1, le=2_147_483_647)
     board_manifest: str = Field(min_length=1, max_length=1_000, repr=False)
-    visible_element_ids: list[ElementId] = Field(min_length=1, max_length=30, repr=False)
+    visible_elements: list[VisibleElement] = Field(min_length=1, max_length=30, repr=False)
 
-    @field_validator("visible_element_ids")
+    @field_validator("visible_elements")
     @classmethod
-    def unique_visible_ids(cls, value: list[str]) -> list[str]:
-        if len(value) != len(set(value)):
-            raise ValueError("visible_element_ids must be unique")
+    def unique_visible_ids(cls, value: list[VisibleElement]) -> list[VisibleElement]:
+        ids = [element.id for element in value]
+        if len(ids) != len(set(ids)):
+            raise ValueError("visible element IDs must be unique")
         return value
 
 
@@ -85,6 +118,8 @@ async def create_annotation(
 
     repair_attempts = 0
     origin: Literal["generation", "repair"] = "generation"
+    visible_elements = [element.model_dump() for element in payload.visible_elements]
+    visible_element_ids = {element.id for element in payload.visible_elements}
     semaphore: asyncio.Semaphore = request.app.state.annotation_generation_semaphore
     try:
         async with asyncio.timeout(settings.annotation_generation_timeout_seconds):
@@ -101,7 +136,7 @@ async def create_annotation(
                         "manifest_version": payload.manifest_version,
                         "question": payload.question,
                         "visible_board": payload.board_manifest,
-                        "visible_element_ids": payload.visible_element_ids,
+                        "visible_elements": visible_elements,
                     },
                     origin="generation",
                 )
@@ -112,7 +147,7 @@ async def create_annotation(
                             candidate,
                             request_id=payload.request_id,
                             manifest_version=payload.manifest_version,
-                            visible_element_ids=set(payload.visible_element_ids),
+                            visible_element_ids=visible_element_ids,
                         )
                         return JSONResponse(
                             content=accepted,
@@ -144,7 +179,7 @@ async def create_annotation(
                             "validation_errors": issues[:12],
                             "request_id": payload.request_id,
                             "manifest_version": payload.manifest_version,
-                            "visible_element_ids": payload.visible_element_ids,
+                            "visible_elements": visible_elements,
                         },
                         origin="repair",
                     )

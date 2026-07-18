@@ -4,6 +4,24 @@ import { ResponseCoordinator } from "./responseCoordinator";
 const context = { requestId: "req-1", stepId: "s2", cycle: 3 };
 
 describe("ResponseCoordinator", () => {
+  it("retains only a bounded transcript character count for pacing", () => {
+    const coordinator = new ResponseCoordinator();
+    coordinator.registerManual({
+      purpose: "lesson_narration",
+      clientEventId: "evt_1",
+      context: { requestId: "req", stepId: "s1", cycle: 1 },
+    });
+    coordinator.bindCreated("resp_1", {
+      chalk_kind: "lesson_narration",
+      chalk_request_id: "req",
+      chalk_step_id: "s1",
+      chalk_cycle: "1",
+    });
+
+    expect(coordinator.addTranscriptCharacters("resp_1", 120)?.transcriptCharacters).toBe(120);
+    expect(coordinator.addTranscriptCharacters("resp_1", 10_000)?.transcriptCharacters).toBe(4_096);
+  });
+
   it("binds a manual response only through matching metadata", () => {
     const coordinator = new ResponseCoordinator();
     coordinator.registerManual({
@@ -27,6 +45,25 @@ describe("ResponseCoordinator", () => {
         chalk_cycle: "3",
       }),
     ).toMatchObject({ purpose: "lesson_narration", context, responseId: "resp-1" });
+  });
+
+  it("distinguishes pending registrations from bound in-flight responses", () => {
+    const coordinator = new ResponseCoordinator();
+    expect(coordinator.hasPending()).toBe(false);
+    expect(coordinator.hasInFlight()).toBe(false);
+    coordinator.registerManual({
+      purpose: "tool_continuation",
+      clientEventId: "evt-filler",
+    });
+    expect(coordinator.hasPending()).toBe(true);
+    expect(coordinator.hasInFlight()).toBe(true);
+    coordinator.bindCreated("resp-filler", { chalk_kind: "tool_continuation" });
+    expect(coordinator.hasPending()).toBe(false);
+    expect(coordinator.hasInFlight()).toBe(true);
+    coordinator.markGenerationDone("resp-filler");
+    coordinator.markPlaybackStopped("resp-filler");
+    coordinator.releaseIfSettled("resp-filler");
+    expect(coordinator.hasInFlight()).toBe(false);
   });
 
   it("binds the next VAD-created response to an armed purpose", () => {

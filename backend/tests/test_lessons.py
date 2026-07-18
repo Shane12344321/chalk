@@ -14,6 +14,7 @@ from pydantic import SecretStr
 import app.lessons as lessons_module
 from app.config import Settings
 from app.dependencies import get_openai_http_client
+from app.lesson_validation import LessonValidationState, StepValidationError, validate_step
 from app.lessons import _JsonlBuffer, _SseParser
 from app.main import create_app
 from app.middleware import LESSON_BODY_MAX_BYTES
@@ -78,6 +79,21 @@ def sse_for_text(text: str, *, completed: bool = True) -> bytes:
     return "".join(f"data: {json.dumps(event)}\n\n" for event in events).encode()
 
 
+def completed_repair(step: dict[str, object]) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "status": "completed",
+            "output": [
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": json.dumps(step)}],
+                }
+            ],
+        },
+    )
+
+
 def response_lines(response: httpx.Response) -> list[dict[str, object]]:
     return [json.loads(line) for line in response.text.splitlines() if line.strip()]
 
@@ -100,7 +116,7 @@ def test_lesson_stream_emits_only_validated_chalk_envelopes(caplog) -> None:
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-chalk-board-model"] == "gpt-5.6-luna"
     assert response.headers["x-chalk-board-reasoning-effort"] == "none"
-    prompt = (lessons_module.PROMPT_DIR / "board_engine.md").read_text(encoding="utf-8")
+    prompt = lessons_module._prompt("board_engine.md")
     assert (
         response.headers["x-chalk-board-prompt-sha256"]
         == hashlib.sha256(prompt.encode()).hexdigest()
@@ -115,6 +131,8 @@ def test_lesson_stream_emits_only_validated_chalk_envelopes(caplog) -> None:
             "accepted_steps": 1,
             "repairs": 0,
             "dropped_steps": 0,
+            "sanitized_steps": 0,
+            "sanitized_fields": 0,
         },
     ]
     assert captured is not None
@@ -130,6 +148,64 @@ def test_lesson_stream_emits_only_validated_chalk_envelopes(caplog) -> None:
     assert API_KEY not in caplog.text
 
 
+def test_safe_sanitization_is_streamed_as_closed_bounded_evidence() -> None:
+    raw = valid_step(step_id=" s1 ", element_id=" label ")
+    raw["script"] = " A short valid explanation. "
+    raw["ops"][0]["content"] = " Slope "  # type: ignore[index]
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=sse_for_text(json.dumps(raw)))
+
+    with client_with_transport(handler) as client:
+        response = client.post("/lesson", json=lesson_payload())
+
+    lines = response_lines(response)
+    assert [line["type"] for line in lines] == [
+        "lesson.started",
+        "lesson.warning",
+        "lesson.step",
+        "lesson.done",
+    ]
+    assert lines[1] == {
+        "type": "lesson.warning",
+        "request_id": REQUEST_ID,
+        "code": "step_sanitized",
+        "step_hint": "s1",
+        "corrections": ["trimmed_outer_whitespace"],
+        "correction_count": 4,
+    }
+    assert lines[2]["step"] == valid_step()
+    assert lines[3]["sanitized_steps"] == 1
+    assert lines[3]["sanitized_fields"] == 4
+
+
+def test_repaired_candidate_reports_only_its_accepted_sanitization() -> None:
+    invalid = valid_step()
+    invalid["ops"] = [{"op": "curve", "id": "curve1", "axes_id": "missing", "expr": "x"}]
+    repaired = valid_step()
+    repaired["ops"][0]["content"] = " Slope "  # type: ignore[index]
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if json.loads(request.content).get("stream") is True:
+            return httpx.Response(200, content=sse_for_text(json.dumps(invalid)))
+        return completed_repair(repaired)
+
+    with client_with_transport(handler) as client:
+        response = client.post("/lesson", json=lesson_payload())
+
+    lines = response_lines(response)
+    assert calls == 2
+    assert [line.get("code") for line in lines if line["type"] == "lesson.warning"] == [
+        "step_repaired",
+        "step_sanitized",
+    ]
+    assert lines[-1]["sanitized_steps"] == 1
+    assert lines[-1]["sanitized_fields"] == 1
+
+
 def test_board_prompt_encodes_accumulated_whiteboard_layout() -> None:
     prompt = (lessons_module.PROMPT_DIR / "board_engine.md").read_text(encoding="utf-8")
 
@@ -139,6 +215,117 @@ def test_board_prompt_encodes_accumulated_whiteboard_layout() -> None:
     assert "Use `text` for short identities" in prompt
     assert '"op":"text","id":"result"' in prompt
     assert '"content":"f\'(1) = 2"' in prompt
+
+
+def test_board_prompt_encodes_the_spatial_contract() -> None:
+    prompt = (lessons_module.PROMPT_DIR / "board_engine.md").read_text(encoding="utf-8")
+
+    # Grid geometry the layout engine actually implements.
+    assert "Columns `A B C D` run left to right" in prompt
+    assert "rows `1 2 3` run top to bottom" in prompt
+    assert "`left` spans columns A and B" in prompt
+    # Renderer orientation: sketch y points down.
+    assert "y pointing DOWN" in prompt
+    assert "DECREASE y toward its peak" in prompt
+    # Axes sizing guidance and curve domain rules.
+    assert "belong in `left`, `right`, or `full`" in prompt
+    assert "keep `log` and `sqrt` arguments positive" in prompt
+    assert "Never use `**`" in prompt
+    # visible_board is context, never an anchor target.
+    assert "Never anchor to or reference a `visible_board` element ID" in prompt
+    # The hardest op has a worked example.
+    assert '"op":"sketch","id":"launch"' in prompt
+    assert "Use at most one checkpoint in the whole lesson" in prompt
+
+
+def test_board_prompt_teaches_shared_canvas_physics_primitives() -> None:
+    prompt = (lessons_module.PROMPT_DIR / "board_engine.md").read_text(encoding="utf-8")
+    assert '"op":"arrow","id":"incident"' in prompt
+    assert '"op":"angle_arc","id":"theta"' in prompt
+    assert '"stroke":"dashed"' in prompt
+    assert "share one normalized y-down diagram canvas" in prompt
+
+
+def test_physics_primitives_validate_on_one_shared_canvas() -> None:
+    state = LessonValidationState()
+    step = {
+        "id": "s1",
+        "script": "Draw the interface, normal, incident ray, and angle.",
+        "ops": [
+            {
+                "op": "line",
+                "id": "boundary",
+                "region": "right",
+                "from": [0.1, 0.55],
+                "to": [0.9, 0.55],
+                "stroke": "solid",
+            },
+            {
+                "op": "line",
+                "id": "normal",
+                "canvas_id": "boundary",
+                "from": [0.5, 0.1],
+                "to": [0.5, 0.9],
+                "stroke": "dashed",
+            },
+            {
+                "op": "arrow",
+                "id": "incident",
+                "canvas_id": "boundary",
+                "from": [0.15, 0.85],
+                "to": [0.5, 0.55],
+                "stroke": "solid",
+                "label": "incident",
+            },
+            {
+                "op": "angle_arc",
+                "id": "theta",
+                "canvas_id": "boundary",
+                "center": [0.5, 0.55],
+                "radius": 0.16,
+                "start_deg": 45,
+                "end_deg": 90,
+                "stroke": "solid",
+                "label": "theta",
+            },
+        ],
+        "checkpoint": None,
+    }
+    assert [op["id"] for op in validate_step(step, state)["ops"]] == [
+        "boundary",
+        "normal",
+        "incident",
+        "theta",
+    ]
+
+
+def test_physics_primitive_rejects_non_diagram_canvas() -> None:
+    state = LessonValidationState(accepted_ids={"title": "text"})
+    step = {
+        "id": "s1",
+        "script": "This ray cannot use text as its coordinate canvas.",
+        "ops": [
+            {
+                "op": "arrow",
+                "id": "ray",
+                "canvas_id": "title",
+                "from": [0.1, 0.8],
+                "to": [0.5, 0.5],
+                "stroke": "solid",
+            }
+        ],
+        "checkpoint": None,
+    }
+    with pytest.raises(StepValidationError, match="canvas reference"):
+        validate_step(step, state)
+
+
+def test_prior_prompt_versions_remain_selectable() -> None:
+    accumulated = settings(board_prompt_version="v2")
+    assert accumulated.board_prompt_name == "board_engine_v2.md"
+    snapshot = (lessons_module.PROMPT_DIR / "board_engine_v2.md").read_text(encoding="utf-8")
+    assert "Spatial narrative:" in snapshot
+    assert "y pointing DOWN" not in snapshot
 
 
 def test_qualified_board_prompt_remains_an_explicit_runtime_fallback() -> None:
@@ -668,6 +855,8 @@ def test_large_completed_event_overhead_does_not_consume_model_text_budget() -> 
         "accepted_steps": 1,
         "repairs": 0,
         "dropped_steps": 0,
+        "sanitized_steps": 0,
+        "sanitized_fields": 0,
     }
 
 

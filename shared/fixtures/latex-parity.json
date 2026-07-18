@@ -1,0 +1,32 @@
+{
+  "$comment": "Shared browser/backend contract for equation acceptance. The browser (frontend/src/board/latex.ts, KaTeX strict mode with trust disabled) is the rendering authority; backend/app/latex_lint.py must agree on every case so repair fires before an unrenderable equation is streamed. Accept cases include every equation in the cached and golden lesson corpus. Reject reasons are structural (unknown command, unbalanced group, unpaired \\left, math-mode dollar, forbidden command) because those are the classes KaTeX strict mode fails on.",
+  "cases": [
+    { "name": "corpus-exponential-decay", "latex": "A=A_0e^{kt}", "expect": "accept" },
+    { "name": "corpus-projectile-range", "latex": "R = \\frac{v_0^2}{g}\\sin(2\\theta)", "expect": "accept" },
+    { "name": "corpus-range-proportionality", "latex": "R\\propto\\sin(2\\theta)", "expect": "accept" },
+    { "name": "corpus-pendulum-period", "latex": "T=2\\pi\\sqrt{\\frac{L}{g}}", "expect": "accept" },
+    { "name": "corpus-chain-rule", "latex": "\\frac{dy}{dx}=3(x^2+1)^2\\cdot 2x", "expect": "accept" },
+    { "name": "corpus-definite-integral", "latex": "\\int_0^2 x\\,dx=2", "expect": "accept" },
+    { "name": "corpus-newtons-second-law", "latex": "\\sum F=ma", "expect": "accept" },
+    { "name": "corpus-vector-sum", "latex": "\\vec{R}=\\vec{A}+\\vec{B}", "expect": "accept" },
+    { "name": "corpus-derivative-value", "latex": "f'(1)=2", "expect": "accept" },
+    { "name": "corpus-composite-cubic", "latex": "y=(x^2+1)^3", "expect": "accept" },
+    { "name": "corpus-sine-pi-x", "latex": "y=\\sin(\\pi x)", "expect": "accept" },
+    { "name": "corpus-sine-theta", "latex": "y=\\sin(\\theta)", "expect": "accept" },
+    { "name": "unicode-theta-degree", "latex": "θ = 45°", "expect": "accept" },
+    { "name": "degree-command", "latex": "45\\degree", "expect": "accept" },
+    { "name": "blackboard-reals", "latex": "\\mathbb{R}", "expect": "accept" },
+    { "name": "over-arrow", "latex": "\\overrightarrow{AB}", "expect": "accept" },
+    { "name": "display-fraction", "latex": "\\dfrac{a}{b}", "expect": "accept" },
+    { "name": "sized-parentheses", "latex": "\\left(\\frac{1}{2}\\right)", "expect": "accept" },
+    { "name": "text-block", "latex": "\\text{speed}", "expect": "accept" },
+    { "name": "escaped-percent", "latex": "50\\%", "expect": "accept" },
+    { "name": "unknown-command", "latex": "\\foo{2}", "expect": "reject" },
+    { "name": "unbalanced-fraction", "latex": "\\frac{1}{2", "expect": "reject" },
+    { "name": "unbalanced-subscript", "latex": "x_{", "expect": "reject" },
+    { "name": "math-mode-dollar", "latex": "$x$", "expect": "reject" },
+    { "name": "unpaired-left", "latex": "\\left(\\frac{1}{2}", "expect": "reject" },
+    { "name": "forbidden-def", "latex": "\\def\\x{1}x", "expect": "reject" },
+    { "name": "forbidden-href", "latex": "\\href{https://example.com}{x}", "expect": "reject" }
+  ]
+}

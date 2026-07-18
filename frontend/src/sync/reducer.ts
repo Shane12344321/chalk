@@ -15,11 +15,13 @@ export interface FixedSyncState {
   stepIds: string[];
   checkpointStepIds: string[];
   completedCheckpointStepIds: string[];
+  checkpointPromptFailures: number;
   currentStepIndex: number;
   currentStepProgress: number;
   cycle: number;
   animationStarted: boolean;
   animationDone: boolean;
+  transcriptProgress: number;
   narrationDone: boolean;
   audioStopped: boolean;
   drainElapsed: boolean;
@@ -35,6 +37,7 @@ interface CorrelatedEvent {
 }
 
 export type FixedSyncEvent =
+  | { type: "NEW_TOPIC"; requestId: string }
   | {
       type: "LOAD";
       requestId: string;
@@ -51,6 +54,7 @@ export type FixedSyncEvent =
   | { type: "SOURCE_DONE"; requestId: string }
   | { type: "START"; requestId: string }
   | ({ type: "NARRATION_ACTIVITY" } & CorrelatedEvent)
+  | ({ type: "NARRATION_PROGRESS"; progress: number } & CorrelatedEvent)
   | ({ type: "TICK"; progress: number } & CorrelatedEvent)
   | ({ type: "NARRATION_DONE" } & CorrelatedEvent)
   | ({ type: "AUDIO_STOPPED" } & CorrelatedEvent)
@@ -76,11 +80,13 @@ export const EMPTY_SYNC_STATE: FixedSyncState = {
   stepIds: [],
   checkpointStepIds: [],
   completedCheckpointStepIds: [],
+  checkpointPromptFailures: 0,
   currentStepIndex: 0,
   currentStepProgress: 0,
   cycle: 0,
   animationStarted: false,
   animationDone: false,
+  transcriptProgress: 0,
   narrationDone: false,
   audioStopped: false,
   drainElapsed: false,
@@ -93,6 +99,14 @@ export function fixedSyncReducer(
   state: FixedSyncState,
   event: FixedSyncEvent,
 ): FixedSyncState {
+  if (event.type === "NEW_TOPIC") {
+    return {
+      ...EMPTY_SYNC_STATE,
+      phase: "GENERATING",
+      requestId: event.requestId,
+      sourceComplete: false,
+    };
+  }
   if (event.type === "LOAD") {
     if (event.stepIds.length === 0) return ignored(state);
     const knownSteps = new Set(event.stepIds);
@@ -167,6 +181,15 @@ export function fixedSyncReducer(
   switch (event.type) {
     case "NARRATION_ACTIVITY":
       return state.phase === "TEACHING" ? { ...state, animationStarted: true } : ignored(state);
+    case "NARRATION_PROGRESS":
+      return state.phase === "TEACHING"
+        ? {
+            ...state,
+            transcriptProgress: clamp(
+              Math.max(state.transcriptProgress, event.progress),
+            ),
+          }
+        : ignored(state);
     case "TICK": {
       if (state.phase !== "TEACHING" || !state.animationStarted) return ignored(state);
       const progress = clamp(Math.max(state.currentStepProgress, event.progress));
@@ -182,7 +205,7 @@ export function fixedSyncReducer(
         : ignored(state);
     case "AUDIO_STOPPED":
       return state.phase === "TEACHING"
-        ? settleTeaching({ ...state, audioStopped: true })
+        ? settleTeaching({ ...state, animationStarted: true, audioStopped: true })
         : ignored(state);
     case "DRAIN_ELAPSED":
       return state.phase === "TEACHING" && state.audioStopped
@@ -225,11 +248,19 @@ export function fixedSyncReducer(
         ? settleCheckpointFeedback({ ...state, drainElapsed: true })
         : ignored(state);
     case "CHECKPOINT_FAILED":
-      return [
-        "CHECKPOINT_ASKING",
-        "CHECKPOINT_LISTENING",
-        "CHECKPOINT_FEEDBACK",
-      ].includes(state.phase)
+      if (state.phase === "CHECKPOINT_ASKING") {
+        return state.checkpointPromptFailures < 1
+          ? checkpointAskingState(
+              {
+                ...state,
+                cycle: state.cycle + 1,
+                checkpointPromptFailures: state.checkpointPromptFailures + 1,
+              },
+              state.checkpointPromptFailures + 1,
+            )
+          : advanceAfterCheckpoint(state);
+      }
+      return ["CHECKPOINT_LISTENING", "CHECKPOINT_FEEDBACK"].includes(state.phase)
         ? advanceAfterCheckpoint(state)
         : ignored(state);
     case "RESUME":
@@ -317,7 +348,10 @@ function finishLesson(state: FixedSyncState): FixedSyncState {
   };
 }
 
-function checkpointAskingState(state: FixedSyncState): FixedSyncState {
+function checkpointAskingState(
+  state: FixedSyncState,
+  checkpointPromptFailures = 0,
+): FixedSyncState {
   return {
     ...state,
     phase: "CHECKPOINT_ASKING",
@@ -326,6 +360,7 @@ function checkpointAskingState(state: FixedSyncState): FixedSyncState {
     narrationDone: false,
     audioStopped: false,
     drainElapsed: false,
+    checkpointPromptFailures,
   };
 }
 
@@ -353,6 +388,8 @@ function teachingState(
     cycle,
     animationStarted: false,
     animationDone: progress >= 1,
+    transcriptProgress: 0,
+    checkpointPromptFailures: 0,
     narrationDone: false,
     audioStopped: false,
     drainElapsed: false,

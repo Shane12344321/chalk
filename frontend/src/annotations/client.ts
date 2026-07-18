@@ -1,5 +1,6 @@
 import type { AnnotationProgram } from "./annotation.generated";
 import { annotationSchemaErrors, isAnnotationProgram } from "./schema";
+import type { AnnotationVisibleElement } from "../board/manifest";
 
 const MAX_RESPONSE_BYTES = 32 * 1024;
 
@@ -8,7 +9,7 @@ export interface AnnotationRequest {
   manifestVersion: number;
   question: string;
   boardManifest: string;
-  visibleElementIds: string[];
+  visibleElements: AnnotationVisibleElement[];
 }
 
 export interface AnnotationResult {
@@ -72,7 +73,7 @@ export async function requestAnnotation(options: {
       question: options.request.question,
       manifest_version: options.request.manifestVersion,
       board_manifest: options.request.boardManifest,
-      visible_element_ids: options.request.visibleElementIds,
+      visible_elements: options.request.visibleElements,
     }),
     signal: options.signal,
     cache: "no-store",
@@ -104,7 +105,7 @@ export async function requestAnnotation(options: {
   ) {
     throw new Error("Annotation response is stale or mismatched.");
   }
-  const allowedTargets = new Set(options.request.visibleElementIds);
+  const allowedTargets = new Set(options.request.visibleElements.map((element) => element.id));
   const annotationIds = new Set<string>();
   for (const op of value.ops) {
     if (!allowedTargets.has(op.target_id)) {

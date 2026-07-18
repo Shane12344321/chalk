@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import projectileLesson from "../../../demo/cached_lessons/projectile-range.lesson.json";
 import { Board } from "./Board";
 import { decodeLesson } from "./decode";
+import { physicsDiagramLesson } from "./physicsTestFixture";
 import { fitBoardText } from "./textLayout";
 
 const lesson = decodeLesson(projectileLesson).lesson!;
@@ -25,7 +26,7 @@ describe("Board", () => {
       <Board lesson={lesson} currentStepIndex={0} currentStepProgress={0.5} phase="FROZEN" />,
     );
     const sketch = view.container.querySelector('[data-element-id="cannon"]')!;
-    expect(sketch.getAttribute("data-progress")).toBe("0.333");
+    expect(sketch.getAttribute("data-progress")).toBe("0.375");
     const path = sketch.querySelector("path")!;
     const originalD = path.getAttribute("d");
     const offsets = [...sketch.querySelectorAll("path")].map((candidate) =>
@@ -81,5 +82,17 @@ describe("Board", () => {
       />,
     );
     expect(onFirstVisibleInk).toHaveBeenCalledOnce();
+  });
+
+  it("renders a complete shared-canvas physics diagram through the SVG board", () => {
+    const physics = decodeLesson(physicsDiagramLesson()).lesson!;
+    const view = render(
+      <Board lesson={physics} currentStepIndex={1} currentStepProgress={1} phase="DONE" />,
+    );
+    expect(view.container.querySelector('[data-element-id="boundary"]')).not.toBeNull();
+    expect(view.container.querySelectorAll('[data-element-id="normal"] path').length).toBeGreaterThan(4);
+    expect(view.container.querySelectorAll('[data-element-id="incident"] path').length).toBeGreaterThan(2);
+    expect(view.container.querySelector('[data-element-id="hit"]')).not.toBeNull();
+    expect(view.container.querySelector('[data-element-id="theta"]')?.textContent).toContain("theta");
   });
 });

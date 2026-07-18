@@ -12,6 +12,7 @@ import { OverlayLayer, type DeixisOverlay } from "./overlays";
 import { AnnotationOverlayLayer } from "./annotationOverlays";
 import type { AnnotationOp } from "../annotations";
 import { fitBoardText } from "./textLayout";
+import { lintBoardGeometry } from "./layoutLint";
 
 interface BoardProps {
   lesson: NormalizedLesson;
@@ -24,6 +25,7 @@ interface BoardProps {
   annotations?: readonly AnnotationOp[];
   measurementId?: string;
   onFirstVisibleInk?: (measurementId: string, observedAtMs: number) => void;
+  showDiagnostics?: boolean;
 }
 
 export function Board({
@@ -37,12 +39,17 @@ export function Board({
   annotations = [],
   measurementId,
   onFirstVisibleInk,
+  showDiagnostics = false,
 }: BoardProps) {
   const store = useRef<BoardGeometryStore>();
   if (!store.current) store.current = new BoardGeometryStore();
   const geometryStore = store.current;
   const laidOut = useMemo(() => layoutSteps(lesson.steps), [lesson]);
   const build = useMemo(() => geometryStore.build(laidOut), [geometryStore, laidOut]);
+  const layoutIssues = useMemo(
+    () => lintBoardGeometry(build.geometries),
+    [build.geometries],
+  );
   const visibleSnapshot = useMemo(
     () =>
       buildVisibleBoardSnapshot(
@@ -126,19 +133,49 @@ export function Board({
         <AnnotationOverlayLayer ops={annotations} elements={visibleSnapshot.elements} />
         <OverlayLayer overlays={overlays} elements={visibleSnapshot.elements} />
       </svg>
-      {build.warnings.length > 0 ? (
-        <p className="board-warning" role="status">
-          {build.warnings.length} invalid board operation{build.warnings.length === 1 ? "" : "s"} skipped safely.
+      {build.warnings.length > 0 || (showDiagnostics && layoutIssues.length > 0) ? (
+        <p
+          className="board-warning"
+          data-layout-lint-count={layoutIssues.length}
+          role="status"
+        >
+          {build.warnings.length > 0
+            ? `${build.warnings.length} invalid board operation${build.warnings.length === 1 ? "" : "s"} skipped safely.`
+            : null}
+          {build.warnings.length > 0 && showDiagnostics && layoutIssues.length > 0
+            ? " "
+            : null}
+          {showDiagnostics && layoutIssues.length > 0
+            ? `${layoutIssues.length} deterministic layout lint${layoutIssues.length === 1 ? "" : "s"}: ${layoutIssueSummary(layoutIssues)}.`
+            : null}
         </p>
       ) : null}
     </section>
   );
 }
 
+function layoutIssueSummary(
+  issues: ReturnType<typeof lintBoardGeometry>,
+): string {
+  const counts = new Map<string, number>();
+  for (const issue of issues) counts.set(issue.code, (counts.get(issue.code) ?? 0) + 1);
+  return [...counts.entries()]
+    .map(([code, count]) => `${code.replaceAll("_", " ")} ${count}`)
+    .join(", ");
+}
+
+const AXIS_LABEL_REVEAL_PROGRESS = 0.85;
+const DIAGRAM_LABEL_REVEAL_PROGRESS = 0.72;
+
 function Geometry({ geometry, progress }: { geometry: BoardGeometry; progress: number }) {
   if (progress <= 0) return null;
   const clipId = `reveal-${geometry.id}`;
   const fittedText = geometry.text ? fitBoardText(geometry.text, geometry.box) : undefined;
+  // A hand writes labels after drawing the axes, not during the strokes.
+  const isDiagram = ["line", "arrow", "point", "angle_arc"].includes(geometry.kind);
+  const labelsVisible = geometry.kind === "axes"
+    ? progress >= AXIS_LABEL_REVEAL_PROGRESS
+    : !isDiagram || progress >= DIAGRAM_LABEL_REVEAL_PROGRESS;
   return (
     <g data-element-id={geometry.id} data-kind={geometry.kind} data-progress={progress.toFixed(3)}>
       <clipPath id={clipId}>
@@ -167,18 +204,20 @@ function Geometry({ geometry, progress }: { geometry: BoardGeometry; progress: n
         />
         );
       })}
-      {geometry.labels.map((label, index) => (
-        <text
-          key={`${geometry.id}-label-${index}`}
-          className="board-axis-label"
-          clipPath={`url(#${clipId})`}
-          textAnchor={label.anchor ?? "start"}
-          x={label.x}
-          y={label.y}
-        >
-          {label.text}
-        </text>
-      ))}
+      {labelsVisible
+        ? geometry.labels.map((label, index) => (
+            <text
+              key={`${geometry.id}-label-${index}`}
+              className="board-axis-label"
+              clipPath={isDiagram ? undefined : `url(#${clipId})`}
+              textAnchor={label.anchor ?? "start"}
+              x={label.x}
+              y={label.y}
+            >
+              {label.text}
+            </text>
+          ))
+        : null}
       {fittedText ? (
         <text
           className="board-hand-text"
@@ -226,7 +265,7 @@ function pathRevealProgress(
   path: BoardPath,
   progress: number,
 ): number {
-  if (geometry.kind !== "sketch" || path.revealGroup === undefined) return progress;
+  if (path.revealGroup === undefined) return easeInOut(clampPathProgress(progress));
   const revealGroup = path.revealGroup;
   const groups = new Map<number, number>();
   for (const candidate of geometry.paths) {
@@ -242,11 +281,17 @@ function pathRevealProgress(
     .filter(([group]) => group < revealGroup)
     .reduce((sum, [, weight]) => sum + weight, 0);
   const own = groups.get(revealGroup) ?? 1;
-  return clampPathProgress((progress * total - before) / own);
+  return easeInOut(clampPathProgress((progress * total - before) / own));
 }
 
 function clampPathProgress(value: number): number {
   return Math.min(1, Math.max(0, value));
+}
+
+// Strokes accelerate out of the start and settle into the end the way a hand
+// does; endpoints stay exact so freeze/commit semantics are unchanged.
+function easeInOut(value: number): number {
+  return value < 0.5 ? 4 * value * value * value : 1 - (-2 * value + 2) ** 3 / 2;
 }
 
 function geometryProgress(

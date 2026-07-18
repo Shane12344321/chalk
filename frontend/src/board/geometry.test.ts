@@ -3,6 +3,7 @@ import projectileLesson from "../../../demo/cached_lessons/projectile-range.less
 import { decodeLesson } from "./decode";
 import { BoardGeometryStore, stableSeed } from "./geometry";
 import { layoutSteps } from "./layout";
+import { physicsDiagramLesson } from "./physicsTestFixture";
 
 const lesson = decodeLesson(projectileLesson).lesson!;
 const laidOut = layoutSteps(lesson.steps);
@@ -32,5 +33,21 @@ describe("seeded rough geometry", () => {
     expect(second.geometries.map((item) => item.paths)).toEqual(
       first.geometries.map((item) => item.paths),
     );
+  });
+
+  it("renders dashed constructions, arrowheads, points, and angle marks", () => {
+    const physics = decodeLesson(physicsDiagramLesson()).lesson!;
+    const result = new BoardGeometryStore().build(layoutSteps(physics.steps));
+    expect(result.warnings).toEqual([]);
+    const normal = result.geometries.find(({ id }) => id === "normal")!;
+    const incident = result.geometries.find(({ id }) => id === "incident")!;
+    const hit = result.geometries.find(({ id }) => id === "hit")!;
+    const theta = result.geometries.find(({ id }) => id === "theta")!;
+    expect(normal.paths.length).toBeGreaterThan(4);
+    expect(new Set(normal.paths.map((path) => path.revealGroup)).size).toBeGreaterThan(2);
+    expect(incident.paths.length).toBeGreaterThan(2);
+    expect(hit.paths.length).toBeGreaterThan(0);
+    expect(theta.paths.length).toBeGreaterThan(0);
+    expect(theta.labels[0].text).toBe("theta");
   });
 });

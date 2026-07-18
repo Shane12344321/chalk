@@ -20,12 +20,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import Settings, get_settings
 from app.dependencies import get_openai_http_client
+from app.lesson_sanitizer import SanitizationResult
 from app.lesson_validation import (
     LessonValidationState,
     StepValidationError,
     validate_envelope,
-    validate_step,
+    validate_step_with_sanitization,
 )
+from app.prompt_contract import LESSON_WIRE_CONTRACT_MARKER, expand_prompt_contract
 from app.sessions import CanonicalUuid4, _safety_identifier
 
 logger = logging.getLogger(__name__)
@@ -182,6 +184,8 @@ async def _lesson_envelopes(
     state = LessonValidationState()
     repair_budget = _RepairBudget()
     dropped_steps = 0
+    sanitized_steps = 0
+    sanitized_fields = 0
     processed_steps = 0
 
     try:
@@ -195,7 +199,7 @@ async def _lesson_envelopes(
                         break
                     processed_steps += 1
 
-                    accepted, repair_attempts = await _accept_or_repair(
+                    accepted, repair_attempts, sanitization = await _accept_or_repair(
                         raw_line,
                         state,
                         payload,
@@ -221,6 +225,19 @@ async def _lesson_envelopes(
                                 "request_id": request_id,
                                 "code": "step_repaired",
                                 "step_hint": accepted["id"],
+                            }
+                        )
+                    if sanitization is not None and sanitization.correction_count:
+                        sanitized_steps += 1
+                        sanitized_fields += sanitization.correction_count
+                        yield _encode_envelope(
+                            {
+                                "type": "lesson.warning",
+                                "request_id": request_id,
+                                "code": "step_sanitized",
+                                "step_hint": accepted["id"],
+                                "corrections": list(sanitization.corrections),
+                                "correction_count": sanitization.correction_count,
                             }
                         )
                     if not first_valid_step_recorded:
@@ -278,11 +295,14 @@ async def _lesson_envelopes(
         return
 
     logger.info(
-        "lesson_generation_succeeded request_id=%s accepted=%s repairs=%s dropped=%s",
+        "lesson_generation_succeeded request_id=%s accepted=%s repairs=%s dropped=%s "
+        "sanitized_steps=%s sanitized_fields=%s",
         request_id,
         state.accepted_steps,
         repair_budget.attempts,
         dropped_steps,
+        sanitized_steps,
+        sanitized_fields,
     )
     yield _encode_envelope(
         {
@@ -291,6 +311,8 @@ async def _lesson_envelopes(
             "accepted_steps": state.accepted_steps,
             "repairs": repair_budget.attempts,
             "dropped_steps": dropped_steps,
+            "sanitized_steps": sanitized_steps,
+            "sanitized_fields": sanitized_fields,
         }
     )
 
@@ -404,7 +426,7 @@ async def _accept_or_repair(
     client: httpx.AsyncClient,
     *,
     repair_budget: _RepairBudget,
-) -> tuple[dict[str, Any] | None, int]:
+) -> tuple[dict[str, Any] | None, int, SanitizationResult | None]:
     candidate_text = raw_line
     issues: list[str]
     repair_attempts = 0
@@ -412,13 +434,14 @@ async def _accept_or_repair(
     while True:
         try:
             candidate = json.loads(candidate_text)
-            return validate_step(candidate, state), repair_attempts
+            validated = validate_step_with_sanitization(candidate, state)
+            return validated.step, repair_attempts, validated.sanitization
         except json.JSONDecodeError:
             issues = ["line is not one complete JSON object"]
         except StepValidationError as error:
             issues = error.issues
         if repair_attempts >= allowed_repairs:
-            return None, repair_attempts
+            return None, repair_attempts, None
         repair_attempts += 1
         repair_budget.record_attempt()
         try:
@@ -712,7 +735,12 @@ def _step_hint(raw_line: str) -> dict[str, str]:
 
 
 def _prompt(name: str) -> str:
-    return (PROMPT_DIR / name).read_text(encoding="utf-8")
+    template = (PROMPT_DIR / name).read_text(encoding="utf-8")
+    if name in {"board_engine.md", "repair.md"}:
+        return expand_prompt_contract(template)
+    if LESSON_WIRE_CONTRACT_MARKER in template:
+        raise ValueError("legacy prompt unexpectedly contains a schema contract marker")
+    return template
 
 
 def _prompt_sha256(name: str) -> str:

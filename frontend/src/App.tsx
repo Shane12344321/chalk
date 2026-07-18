@@ -5,11 +5,12 @@ import unitCircleLessonSource from "../../demo/cached_lessons/unit-circle-sine.l
 import { AnnotationClient, type AnnotationOp } from "./annotations";
 import { Board } from "./board/Board";
 import { decodeLesson } from "./board/decode";
-import { buildBoardManifest } from "./board/manifest";
+import { buildBoardManifest, toAnnotationVisibleElements } from "./board/manifest";
 import type { VisibleBoardState } from "./board/manifest";
 import type { DeixisKind, DeixisOverlay } from "./board/overlays";
 import { isLessonProgram } from "./board/schema";
 import type { NormalizedLesson } from "./board/decode";
+import { pickCachedLessonKey } from "./lessonFallback";
 import { isSpaceToSpeakEvent } from "./voiceShortcut";
 import {
   decodeLessonNdjson,
@@ -37,6 +38,7 @@ const CHALK_MODE =
 
 const INITIAL_SNAPSHOT: RealtimeSnapshot = {
   status: "disconnected",
+  responsePending: false,
   audioPlaybackActive: false,
   microphoneEnabled: false,
   trace: [],
@@ -90,6 +92,8 @@ interface M3GenerationTiming {
   acceptedSteps?: number;
   repairs?: number;
   droppedSteps?: number;
+  sanitizedSteps?: number;
+  sanitizedFields?: number;
   partial?: boolean;
 }
 
@@ -138,7 +142,19 @@ function App() {
     warnings: number;
     repairs: number;
     droppedSteps: number;
-  }>({ status: "idle", warnings: 0, repairs: 0, droppedSteps: 0 });
+    browserDroppedSteps: number;
+    sanitizedSteps: number;
+    sanitizedFields: number;
+  }>({
+    status: "idle",
+    warnings: 0,
+    repairs: 0,
+    droppedSteps: 0,
+    browserDroppedSteps: 0,
+    sanitizedSteps: 0,
+    sanitizedFields: 0,
+  });
+  const activeGenerationTokenRef = useRef<string>();
   const [autoStartRequestId, setAutoStartRequestId] = useState<string>();
   const [contextError, setContextError] = useState<string>();
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
@@ -155,7 +171,11 @@ function App() {
     lessonComplete: activeLesson.complete,
     clientRef,
     connectionStatus: snapshot.status,
-    responseIdle: !snapshot.activeResponseId && !snapshot.audioPlaybackActive,
+    responseIdle:
+      !snapshot.responsePending &&
+      !snapshot.activeResponseId &&
+      !snapshot.audioPlaybackActive,
+    syncMode: snapshot.syncMode ?? "fixed",
   });
   semanticHandlerRef.current = lessonSync.onSemanticEvent;
 
@@ -207,7 +227,7 @@ function App() {
         manifestVersion: visible.version,
         question,
         boardManifest: visible.manifest,
-        visibleElementIds: visible.elements.map((element) => element.id),
+        visibleElements: toAnnotationVisibleElements(visible.elements),
       })
       .then((result) => {
         if (visibleBoardRef.current.version !== result.program.manifest_version) return;
@@ -290,6 +310,7 @@ function App() {
       lessonSync.state.requestId !== activeLesson.requestId ||
       lessonSync.state.phase !== "IDLE" ||
       snapshot.status !== "connected" ||
+      snapshot.responsePending ||
       snapshot.activeResponseId ||
       snapshot.audioPlaybackActive
     ) {
@@ -299,6 +320,15 @@ function App() {
     void clientRef.current
       ?.setBoardContext(emptyManifest)
       .then(() => {
+        const currentSnapshot = clientRef.current?.getSnapshot();
+        if (
+          !currentSnapshot ||
+          currentSnapshot.responsePending ||
+          currentSnapshot.activeResponseId ||
+          currentSnapshot.audioPlaybackActive
+        ) {
+          return;
+        }
         setContextError(undefined);
         setAutoStartRequestId(undefined);
         lessonSync.start();
@@ -314,6 +344,7 @@ function App() {
     lessonSync,
     snapshot.activeResponseId,
     snapshot.audioPlaybackActive,
+    snapshot.responsePending,
     snapshot.status,
   ]);
 
@@ -384,14 +415,30 @@ function App() {
   const generateLesson = (requestedTopic: string, studentContext = ""): string => {
     const normalizedTopic = requestedTopic.trim();
     if (!normalizedTopic) throw new Error("Enter a math or physics topic first.");
+    if (activeGenerationTokenRef.current) {
+      throw new Error("A lesson is already being generated.");
+    }
     clearDeixisOverlays();
     clearAnnotations();
     const requestId = crypto.randomUUID();
+    if (lessonSync.state.phase === "QA") {
+      lessonStreamRef.current?.cancel();
+      lessonSync.abort(requestId);
+    }
+    activeGenerationTokenRef.current = requestId;
     const timing = { requestId, requestedAtMs: performance.now() };
     generationTimingRef.current = timing;
     setGenerationTiming(timing);
     setM3CopyState("idle");
-    setGeneration({ status: "generating", warnings: 0, repairs: 0, droppedSteps: 0 });
+    setGeneration({
+      status: "generating",
+      warnings: 0,
+      repairs: 0,
+      droppedSteps: 0,
+      browserDroppedSteps: 0,
+      sanitizedSteps: 0,
+      sanitizedFields: 0,
+    });
     setAutoStartRequestId(requestId);
     void lessonStreamRef.current
       ?.start(
@@ -399,7 +446,9 @@ function App() {
           requestId,
           topic: normalizedTopic,
           studentContext,
-          boardState: boardManifest,
+          // A fresh lesson erases the board, so the previous manifest would
+          // only invite anchors to elements that no longer exist.
+          boardState: "",
         },
         (progress: LessonStreamProgress) => {
           if (progress.steps.length === 0) return;
@@ -427,7 +476,7 @@ function App() {
           }
           setActiveLesson({
             lesson: {
-              schemaVersion: "1.0",
+              schemaVersion: "1.1",
               title: progress.title,
               steps: progress.steps,
             },
@@ -439,6 +488,9 @@ function App() {
             ...current,
             status: progress.complete ? "ready" : "generating",
             warnings: progress.warnings,
+            browserDroppedSteps: progress.browserDroppedSteps,
+            sanitizedSteps: progress.sanitizedSteps,
+            sanitizedFields: progress.sanitizedFields,
           }));
         },
       )
@@ -460,6 +512,8 @@ function App() {
             acceptedSteps: result.steps.length,
             repairs: result.repairs,
             droppedSteps: result.droppedSteps,
+            sanitizedSteps: result.sanitizedSteps,
+            sanitizedFields: result.sanitizedFields,
             partial: result.partial,
           };
           generationTimingRef.current = updatedTiming;
@@ -479,13 +533,17 @@ function App() {
           warnings: result.warnings,
           repairs: result.repairs,
           droppedSteps: result.droppedSteps,
+          browserDroppedSteps: result.browserDroppedSteps,
+          sanitizedSteps: result.sanitizedSteps,
+          sanitizedFields: result.sanitizedFields,
         });
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
         const fallbackRequestId = crypto.randomUUID();
+        const fallbackLesson = CACHED_LESSONS[pickCachedLessonKey(normalizedTopic)];
         setActiveLesson({
-          lesson: PROJECTILE_LESSON,
+          lesson: fallbackLesson,
           requestId: fallbackRequestId,
           complete: true,
           source: "cached",
@@ -493,11 +551,19 @@ function App() {
         setAutoStartRequestId(fallbackRequestId);
         setGeneration({
           status: "fallback",
-          message: "Live generation was unavailable, so Chalk loaded the validated cached lesson.",
+          message: `Live generation was unavailable, so Chalk loaded the cached lesson “${fallbackLesson.title}”.`,
           warnings: 0,
           repairs: 0,
           droppedSteps: 0,
+          browserDroppedSteps: 0,
+          sanitizedSteps: 0,
+          sanitizedFields: 0,
         });
+      })
+      .finally(() => {
+        if (activeGenerationTokenRef.current === requestId) {
+          activeGenerationTokenRef.current = undefined;
+        }
       });
     return requestId;
   };
@@ -511,7 +577,15 @@ function App() {
       complete: true,
       source: "cached",
     });
-    setGeneration({ status: "idle", warnings: 0, repairs: 0, droppedSteps: 0 });
+    setGeneration({
+      status: "idle",
+      warnings: 0,
+      repairs: 0,
+      droppedSteps: 0,
+      browserDroppedSteps: 0,
+      sanitizedSteps: 0,
+      sanitizedFields: 0,
+    });
     generationTimingRef.current = undefined;
     setGenerationTiming(undefined);
     setM3CopyState("idle");
@@ -539,6 +613,9 @@ function App() {
         warnings: result.warnings,
         repairs: result.repairs,
         droppedSteps: result.droppedSteps,
+        browserDroppedSteps: result.browserDroppedSteps,
+        sanitizedSteps: result.sanitizedSteps,
+        sanitizedFields: result.sanitizedFields,
       });
     } catch {
       setGeneration((current) => ({
@@ -551,8 +628,8 @@ function App() {
   teachHandlerRef.current = (requestedTopic, studentContext) => {
     if (
       snapshot.status !== "connected" ||
-      generation.status === "generating" ||
-      !["IDLE", "DONE"].includes(lessonSync.state.phase)
+      activeGenerationTokenRef.current !== undefined ||
+      !["IDLE", "DONE", "QA"].includes(lessonSync.state.phase)
     ) {
       throw new Error("A lesson is already active.");
     }
@@ -626,6 +703,8 @@ function App() {
             accepted_steps: generationTiming.acceptedSteps ?? null,
             repairs: generationTiming.repairs ?? null,
             dropped_steps: generationTiming.droppedSteps ?? null,
+            sanitized_steps: generationTiming.sanitizedSteps ?? null,
+            sanitized_fields: generationTiming.sanitizedFields ?? null,
             partial: generationTiming.partial ?? null,
           },
           null,
@@ -669,6 +748,9 @@ function App() {
                 warnings: 0,
                 repairs: 0,
                 droppedSteps: 0,
+                browserDroppedSteps: 0,
+                sanitizedSteps: 0,
+                sanitizedFields: 0,
               });
             }
           }}
@@ -690,6 +772,7 @@ function App() {
                 generation.status === "generating" ||
                 !["IDLE", "DONE"].includes(lessonSync.state.phase) ||
                 Boolean(snapshot.activeResponseId) ||
+                snapshot.responsePending ||
                 snapshot.audioPlaybackActive
               }
             >
@@ -730,7 +813,13 @@ function App() {
               className="primary"
               type="button"
               onClick={startLesson}
-              disabled={snapshot.status !== "connected" || !["IDLE", "DONE"].includes(lessonSync.state.phase)}
+              disabled={
+                snapshot.status !== "connected" ||
+                snapshot.responsePending ||
+                Boolean(snapshot.activeResponseId) ||
+                snapshot.audioPlaybackActive ||
+                !["IDLE", "DONE"].includes(lessonSync.state.phase)
+              }
             >
               {lessonSync.state.phase === "DONE" ? "Replay current lesson" : "Start current lesson"}
             </button>
@@ -742,6 +831,7 @@ function App() {
                 lessonSync.state.phase !== "QA" ||
                 snapshot.status !== "connected" ||
                 Boolean(snapshot.activeResponseId) ||
+                snapshot.responsePending ||
                 snapshot.audioPlaybackActive
               }
             >
@@ -767,7 +857,7 @@ function App() {
             activeLesson.source === "review"
               ? "REVIEW"
               : isOfflineCachedPreview
-                ? "PREVIEW"
+                ? "STATIC PREVIEW"
                 : lessonSync.state.phase
           }
           onVisibleStateChange={handleVisibleStateChange}
@@ -775,6 +865,7 @@ function App() {
           annotations={annotationOps}
           measurementId={activeLesson.source === "live" ? activeLesson.requestId : undefined}
           onFirstVisibleInk={recordFirstVisibleInk}
+          showDiagnostics={isDiagnostics}
         />
         {isDiagnostics && activeLesson.source === "review" ? (
           <div className="review-controls" aria-label="Captured lesson review controls">
@@ -811,6 +902,12 @@ function App() {
               {activeLesson.complete ? " · stream complete" : " · more steps may arrive"}
               {generation.repairs ? ` · ${generation.repairs} repairs` : ""}
               {generation.droppedSteps ? ` · ${generation.droppedSteps} dropped` : ""}
+              {generation.browserDroppedSteps
+                ? ` · ${generation.browserDroppedSteps} browser-dropped`
+                : ""}
+              {generation.sanitizedSteps
+                ? ` · ${generation.sanitizedSteps} sanitized (${generation.sanitizedFields} fields)`
+                : ""}
               {generationTiming?.firstValidStepAtMs
                 ? ` · first step ${elapsed(generationTiming.requestedAtMs, generationTiming.firstValidStepAtMs)} ms`
                 : ""}
@@ -955,7 +1052,11 @@ function App() {
         <Metric
           label="Session"
           value={snapshot.sessionModel ?? "Not connected"}
-          detail={snapshot.sessionVoice ? `Voice: ${snapshot.sessionVoice}` : "Voice set by the backend"}
+          detail={
+            snapshot.sessionVoice
+              ? `Voice: ${snapshot.sessionVoice} · sync: ${snapshot.syncMode ?? "unknown"}`
+              : "Voice and sync mode set by the backend"
+          }
           pass={snapshot.status === "connected"}
         />
         <Metric

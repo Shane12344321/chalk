@@ -34,13 +34,14 @@ class Settings(BaseSettings):
         "gpt-realtime-2.1",
     ] = "gpt-realtime-2.1-mini"
     realtime_voice: Literal["marin", "cedar"] = "marin"
+    sync_mode: Literal["fixed", "paced"] = "fixed"
     board_model: Literal[
         "gpt-5.6-luna",
         "gpt-5.6-terra",
         "gpt-5.6-sol",
     ] = "gpt-5.6-luna"
     board_reasoning_effort: Literal["none", "low"] = "none"
-    board_prompt_version: Literal["v1", "v2"] = "v2"
+    board_prompt_version: Literal["v1", "v2", "v3"] = "v3"
     lesson_generation_timeout_seconds: float = Field(default=30.0, gt=0, le=60)
     lesson_max_concurrent: int = Field(default=2, ge=1, le=4)
     annotation_generation_timeout_seconds: float = Field(default=15.0, gt=0, le=30)
@@ -90,9 +91,13 @@ class Settings(BaseSettings):
 
     @property
     def board_prompt_name(self) -> str:
-        """Select the qualified fallback or accumulated-whiteboard prompt."""
+        """Select the qualified fallback, accumulated-whiteboard, or spatial-contract prompt."""
 
-        return "board_engine_v1.md" if self.board_prompt_version == "v1" else "board_engine.md"
+        if self.board_prompt_version == "v1":
+            return "board_engine_v1.md"
+        if self.board_prompt_version == "v2":
+            return "board_engine_v2.md"
+        return "board_engine.md"
 
 
 @lru_cache(maxsize=1)

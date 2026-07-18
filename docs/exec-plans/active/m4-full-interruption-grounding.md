@@ -199,6 +199,11 @@ not infer a word boundary from transcript progress.
   removal cleanup, and no manifest pollution.
 - Visible state: future/partial/failed geometry omitted; committed IDs targetable;
   identical state does not republish; acknowledgement serialization survives races.
+- Response coordination: pending `response.create` registrations are visible as busy
+  before `response.created`; lesson auto-start rechecks idle state after manifest
+  acknowledgement; transient narration rejection retries only after a busy-to-idle
+  transition; bounded creation and settlement watchdogs cannot leave a blank
+  `TEACHING` step indefinitely.
 - Annotation backend: request limits, host/CORS protection, safe schemas, no axes,
   reference order, semantic validation, repair ceilings, timeouts, cancellation, and
   redacted terminal errors.

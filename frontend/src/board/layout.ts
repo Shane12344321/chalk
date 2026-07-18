@@ -18,6 +18,7 @@ export interface LayoutBox {
 export interface LaidOutOp {
   op: LessonOp;
   box: LayoutBox;
+  canvasBox?: LayoutBox;
   stepIndex: number;
   opIndex: number;
 }
@@ -41,52 +42,69 @@ export function regionBox(region: Region): LayoutBox {
 }
 
 export function layoutSteps(steps: readonly NormalizedStep[]): LaidOutOp[] {
+  // Placement may depend only on earlier ops so that streaming in a later
+  // step can never move ink that is already on the board (prefix stability).
   const result: LaidOutOp[] = [];
   const boxes = new Map<string, LayoutBox>();
-  const regionCounts = new Map<Region, number>();
-  const regionIndexes = new Map<Region, number>();
-  for (const step of steps) {
-    for (const op of step.ops) {
-      if ("region" in op) regionCounts.set(op.region, (regionCounts.get(op.region) ?? 0) + 1);
-    }
-  }
+  const coordinateSpaces = new Map<string, LayoutBox>();
+  const regionCursors = new Map<Region, number>();
 
   steps.forEach((step, stepIndex) => {
     step.ops.forEach((op, opIndex) => {
       let box: LayoutBox;
+      let canvasBox: LayoutBox | undefined;
       if (op.op === "curve") {
         const axesBox = boxes.get(op.axes_id);
         if (!axesBox) throw new Error(`Missing axes layout for ${op.id}.`);
         box = axesBox;
+      } else if (isDiagramOp(op)) {
+        if ("canvas_id" in op) {
+          canvasBox = coordinateSpaces.get(op.canvas_id);
+          if (!canvasBox) throw new Error(`Missing diagram canvas for ${op.id}.`);
+        } else {
+          canvasBox = allocateRegionBox(op.region, intrinsicSize(op), regionCursors);
+          canvasBox = resolveCollision(canvasBox, op, result, boxes);
+        }
+        box = diagramElementBounds(op, canvasBox);
       } else if ("anchor" in op) {
         const target = boxes.get(op.anchor.el);
         if (!target) throw new Error(`Missing anchor layout for ${op.id}.`);
         box = anchorBox(target, op.anchor.side, op.anchor.gap ?? 0.08, intrinsicSize(op));
       } else {
-        const region = op.region;
-        const boundary = regionBox(region);
-        const count = regionCounts.get(region) ?? 1;
-        const index = regionIndexes.get(region) ?? 0;
-        const availableHeight = boundary.height - 36;
-        const gap = Math.min(16, availableHeight / Math.max(1, count * 3));
-        const slotHeight = (availableHeight - gap * (count - 1)) / count;
-        const size = intrinsicSize(op);
-        box = {
-          x: boundary.x + 20,
-          y: boundary.y + 18 + index * (slotHeight + gap),
-          width: Math.min(size.width, boundary.width - 40),
-          height: Math.min(size.height, slotHeight),
-        };
-        regionIndexes.set(region, index + 1);
+        box = allocateRegionBox(op.region, intrinsicSize(op), regionCursors);
       }
-      if (op.op !== "curve") {
+      if (op.op !== "curve" && !isDiagramOp(op)) {
         box = resolveCollision(box, op, result, boxes);
       }
       boxes.set(op.id, box);
-      result.push({ op, box, stepIndex, opIndex });
+      if (canvasBox) coordinateSpaces.set(op.id, canvasBox);
+      result.push({ op, box, ...(canvasBox ? { canvasBox } : {}), stepIndex, opIndex });
     });
   });
   return result;
+}
+
+function allocateRegionBox(
+  region: Region,
+  size: { width: number; height: number },
+  regionCursors: Map<Region, number>,
+): LayoutBox {
+  const boundary = regionBox(region);
+  const availableHeight = boundary.height - 36;
+  const cursor = regionCursors.get(region) ?? 0;
+  const remaining = Math.max(0, availableHeight - cursor);
+  // The first occupant may take its full intrinsic height; later occupants
+  // take at most half the remaining room, preserving streamed prefixes.
+  const height =
+    cursor === 0 ? Math.min(size.height, remaining) : Math.min(size.height, remaining / 2);
+  const gap = Math.min(16, Math.max(0, (remaining - height) / 2));
+  regionCursors.set(region, cursor + height + gap);
+  return {
+    x: boundary.x + 20,
+    y: boundary.y + 18 + cursor,
+    width: Math.min(size.width, boundary.width - 40),
+    height,
+  };
 }
 
 function resolveCollision(
@@ -100,7 +118,9 @@ function resolveCollision(
 
   const candidates = "anchor" in op
     ? anchorCandidates(op, boxes, preferred)
-    : regionCandidates(preferred, regionBox(op.region));
+    : "region" in op
+      ? regionCandidates(preferred, regionBox(op.region))
+      : [preferred];
   return (
     candidates
       .filter((candidate) => !hasMaterialOverlap(candidate, occupied))
@@ -141,7 +161,9 @@ function hasMaterialOverlap(
   box: LayoutBox,
   occupied: readonly LaidOutOp[],
 ): boolean {
-  return occupied.some(({ box: candidate }) => overlapRatio(box, candidate) > 0.15);
+  return occupied.some(
+    ({ box: candidate, canvasBox }) => overlapRatio(box, canvasBox ?? candidate) > 0.15,
+  );
 }
 
 function overlapRatio(left: LayoutBox, right: LayoutBox): number {
@@ -176,7 +198,51 @@ function intrinsicSize(op: LessonOp): { width: number; height: number } {
       return { width: 310, height: 64 };
     case "curve":
       return { width: 0, height: 0 };
+    case "line":
+    case "arrow":
+    case "point":
+    case "angle_arc":
+      return { width: 700, height: 430 };
   }
+}
+
+function isDiagramOp(
+  op: LessonOp,
+): op is Extract<LessonOp, { op: "line" | "arrow" | "point" | "angle_arc" }> {
+  return ["line", "arrow", "point", "angle_arc"].includes(op.op);
+}
+
+function diagramElementBounds(
+  op: Extract<LessonOp, { op: "line" | "arrow" | "point" | "angle_arc" }>,
+  canvas: LayoutBox,
+): LayoutBox {
+  const padding = 18;
+  if (op.op === "point") {
+    const [x, y] = canvasPoint(op.at, canvas);
+    return { x: x - padding, y: y - padding, width: padding * 2, height: padding * 2 };
+  }
+  if (op.op === "angle_arc") {
+    const [x, y] = canvasPoint(op.center, canvas);
+    const radius = op.radius * Math.min(canvas.width, canvas.height);
+    return {
+      x: x - radius - padding,
+      y: y - radius - padding,
+      width: (radius + padding) * 2,
+      height: (radius + padding) * 2,
+    };
+  }
+  const [fromX, fromY] = canvasPoint(op.from, canvas);
+  const [toX, toY] = canvasPoint(op.to, canvas);
+  return {
+    x: Math.min(fromX, toX) - padding,
+    y: Math.min(fromY, toY) - padding,
+    width: Math.abs(toX - fromX) + padding * 2,
+    height: Math.abs(toY - fromY) + padding * 2,
+  };
+}
+
+function canvasPoint(point: readonly [number, number], canvas: LayoutBox): [number, number] {
+  return [canvas.x + point[0] * canvas.width, canvas.y + point[1] * canvas.height];
 }
 
 function visibleLatexLength(latex: string): number {

@@ -10,6 +10,7 @@ export type {
   PerceivedAudioStop,
   RealtimeSemanticEvent,
   RealtimeSnapshot,
+  SyncMode,
   TraceEntry,
   TraceExportContext,
 } from "./types";

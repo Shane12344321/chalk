@@ -147,6 +147,7 @@ The application may give you exact narration scripts. Recite those scripts exact
 When the student interrupts, the board freezes. Answer the question in at most two short sentences using only the conversation and the supplied visible-board context.
 After an interruption answer, say that the student can use Resume when ready. Do not claim to see an element unless it appears in the visible-board context. When referring to a visible element, call one local pointing or emphasis tool with its exact ID. Call annotate only when the answer truly needs new explanatory ink; prefer local pointing for emphasis.
 When the student asks to begin a new math or physics topic and no lesson is running, call teach once with a concise topic and relevant prior knowledge.
+If the student has interrupted the lesson and clearly asks to learn a different topic instead, acknowledge briefly and call teach once with the new topic; the board starts fresh. If teach reports the lesson is busy, explain the current lesson must finish loading first.
 Be conversational and Socratic. Never mention internal event names, credentials, tools, loading, prompts, or diagnostics.`;
 
 export const DIAGNOSTIC_TUTOR_ADDENDUM = `
@@ -186,6 +187,7 @@ export function parseSessionCredential(
     client_secret: requiredString(value.client_secret, "client_secret"),
     model: requiredString(value.model, "model"),
     voice: requiredString(value.voice, "voice"),
+    sync_mode: requiredSyncMode(value.sync_mode),
   };
 
   if (value.expires_at !== undefined) {
@@ -376,6 +378,11 @@ export function getResponseStatus(event: ServerEvent): string | undefined {
   return undefined;
 }
 
+export function getTranscriptDeltaLength(event: ServerEvent): number | undefined {
+  if (typeof event.delta !== "string" || event.delta.length > 4_096) return undefined;
+  return event.delta.length;
+}
+
 export function getResponseMetadata(event: ServerEvent): Record<string, string> | undefined {
   if (!isRecord(event.response) || !isRecord(event.response.metadata)) return undefined;
   const entries = Object.entries(event.response.metadata);
@@ -432,6 +439,13 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 function requiredString(value: unknown, name: string): string {
   if (typeof value !== "string" || value.length === 0 || value.length > 512) {
     throw new Error(`The session service returned an invalid ${name}.`);
+  }
+  return value;
+}
+
+function requiredSyncMode(value: unknown): SessionCredential["sync_mode"] {
+  if (value !== "fixed" && value !== "paced") {
+    throw new Error("The session service returned an invalid sync_mode.");
   }
   return value;
 }

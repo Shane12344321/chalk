@@ -295,11 +295,12 @@ describe("RealtimeClient event coordination", () => {
     const semanticEvents: RealtimeSemanticEvent[] = [];
     const { client, harness } = createHarness(vi.fn(), (event) => semanticEvents.push(event));
     harness.status = "connected";
-    client.requestNarration("A short deterministic lesson line.", {
+    const context = {
       requestId: "req-1",
       stepId: "s1",
       cycle: 1,
-    });
+    };
+    client.requestNarration("A short deterministic lesson line.", context);
     harness.handleServerEvent({
       type: SERVER_EVENTS.RESPONSE_CREATED,
       response: {
@@ -317,7 +318,20 @@ describe("RealtimeClient event coordination", () => {
       response_id: "resp_lesson",
       delta: "Generated before playout.",
     });
-    expect(semanticEvents).toEqual([]);
+    expect(semanticEvents).toEqual([
+      {
+        type: "narration.transcript_progress",
+        context,
+        generatedCharacters: "Generated before playout.".length,
+      },
+    ]);
+    expect(semanticEvents.some((event) => event.type === "narration.activity")).toBe(false);
+
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.OUTPUT_AUDIO_BUFFER_STARTED,
+      response_id: "resp_lesson",
+    });
+    expect(semanticEvents.at(-1)).toEqual({ type: "narration.activity", context });
   });
 
   it("binds the native fetch receiver", async () => {
@@ -440,6 +454,72 @@ describe("RealtimeClient event coordination", () => {
     ]);
   });
 
+  it.each(["cancelled", "incomplete"])(
+    "fails an unprompted %s checkpoint instead of treating it as complete",
+    (status) => {
+      const semanticEvents: RealtimeSemanticEvent[] = [];
+      const { client, harness } = createHarness(vi.fn(), (event) =>
+        semanticEvents.push(event),
+      );
+      harness.status = "connected";
+      const context = { requestId: "req-1", stepId: "s2", cycle: 2 };
+
+      client.requestCheckpointPrompt("Where does the curve peak?", context);
+      harness.handleServerEvent({
+        type: SERVER_EVENTS.RESPONSE_CREATED,
+        response: {
+          id: "resp_prompt",
+          metadata: {
+            chalk_kind: "checkpoint_prompt",
+            chalk_request_id: "req-1",
+            chalk_step_id: "s2",
+            chalk_cycle: "2",
+          },
+        },
+      });
+      harness.handleServerEvent(responseDone("resp_prompt", status));
+
+      expect(semanticEvents).toEqual([
+        { type: "checkpoint.prompt_failed", context },
+      ]);
+      expect(harness.responseCoordinator.hasPurpose("checkpoint_prompt")).toBe(false);
+    },
+  );
+
+  it("does not retry a checkpoint prompt cancelled by an early student answer", () => {
+    const semanticEvents: RealtimeSemanticEvent[] = [];
+    const { client, harness } = createHarness(vi.fn(), (event) =>
+      semanticEvents.push(event),
+    );
+    harness.status = "connected";
+    const context = { requestId: "req-1", stepId: "s2", cycle: 2 };
+
+    client.requestCheckpointPrompt("Where does the curve peak?", context);
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.RESPONSE_CREATED,
+      response: {
+        id: "resp_prompt",
+        metadata: {
+          chalk_kind: "checkpoint_prompt",
+          chalk_request_id: "req-1",
+          chalk_step_id: "s2",
+          chalk_cycle: "2",
+        },
+      },
+    });
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.OUTPUT_AUDIO_BUFFER_STARTED,
+      response_id: "resp_prompt",
+    });
+    harness.handleServerEvent({ type: SERVER_EVENTS.INPUT_AUDIO_BUFFER_SPEECH_STARTED });
+    harness.handleServerEvent(responseDone("resp_prompt", "cancelled"));
+
+    expect(semanticEvents.map((event) => event.type)).not.toContain(
+      "checkpoint.prompt_failed",
+    );
+    expect(semanticEvents.map((event) => event.type)).toContain("student.speech_started");
+  });
+
   it("stops a late microphone stream when disconnect supersedes getUserMedia", async () => {
     let resolveMicrophone!: (stream: MediaStream) => void;
     const microphonePromise = new Promise<MediaStream>((resolve) => {
@@ -462,6 +542,7 @@ describe("RealtimeClient event coordination", () => {
           client_secret: "ephemeral",
           model: "gpt-realtime-2.1-mini",
           voice: "marin",
+          sync_mode: "paced",
         }),
         { status: 201, headers: { "Content-Type": "application/json" } },
       );
@@ -533,6 +614,7 @@ describe("RealtimeClient event coordination", () => {
             client_secret: "ephemeral",
             model: "gpt-realtime-2.1-mini",
             voice: "marin",
+            sync_mode: "paced",
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         );
@@ -555,6 +637,7 @@ describe("RealtimeClient event coordination", () => {
         microphoneEnabled: false,
         sessionModel: "gpt-realtime-2.1-mini",
         sessionVoice: "marin",
+        syncMode: "paced",
       });
       await client.disconnect();
       expect(track.stop).toHaveBeenCalledOnce();
@@ -562,6 +645,7 @@ describe("RealtimeClient event coordination", () => {
         status: "disconnected",
         sessionModel: "gpt-realtime-2.1-mini",
         sessionVoice: "marin",
+        syncMode: "paced",
       });
     } finally {
       vi.unstubAllGlobals();
@@ -605,6 +689,7 @@ describe("RealtimeClient event coordination", () => {
       client_secret: "ephemeral",
       model: "gpt-realtime-2.1-mini",
       voice: "marin",
+      sync_mode: "paced",
     };
     harness.observedSessionModel = "gpt-realtime-2.1-mini";
     harness.observedSessionVoice = "marin";
@@ -643,6 +728,7 @@ describe("RealtimeClient event coordination", () => {
       client_secret: "ephemeral",
       model: "gpt-realtime-2.1-mini",
       voice: "marin",
+      sync_mode: "paced",
     };
     harness.observedSessionModel = "gpt-realtime-2.1-mini";
     harness.observedSessionVoice = "marin";
@@ -862,7 +948,7 @@ describe("RealtimeClient event coordination", () => {
   it("returns teach status immediately and requests bounded filler speech", () => {
     const teach = vi.fn().mockReturnValue({ requestId: "request-live" });
     const send = vi.fn();
-    const { harness } = createHarness(send, undefined, teach);
+    const { harness, latest } = createHarness(send, undefined, teach);
 
     harness.handleServerEvent(
       responseDone("resp_tool", "completed", [
@@ -895,6 +981,99 @@ describe("RealtimeClient event coordination", () => {
         instructions: expect.stringContaining("one short"),
       },
     });
+    expect(latest().responsePending).toBe(true);
+
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.RESPONSE_CREATED,
+      response: {
+        id: "resp_filler",
+        metadata: { chalk_kind: "tool_continuation" },
+      },
+    });
+    expect(latest()).toMatchObject({
+      activeResponseId: "resp_filler",
+      responsePending: false,
+    });
+  });
+
+  it("clears a filler response that never receives response.created", () => {
+    vi.useFakeTimers();
+    try {
+      const teach = vi.fn().mockReturnValue({ requestId: "request-live" });
+      const { harness, latest } = createHarness(vi.fn(), undefined, teach);
+      harness.handleServerEvent(
+        responseDone("resp_tool", "completed", [
+          {
+            type: "function_call",
+            call_id: "call_teach",
+            name: "teach",
+            arguments: '{"topic":"Chain rule","student_context":""}',
+          },
+        ]),
+      );
+      expect(latest().responsePending).toBe(true);
+
+      vi.advanceTimersByTime(8_100);
+
+      expect(latest().responsePending).toBe(false);
+      expect(latest().trace.some((entry) => entry.type === "response.create_timeout")).toBe(
+        true,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears a created filler response that never settles", () => {
+    vi.useFakeTimers();
+    try {
+      const teach = vi.fn().mockReturnValue({ requestId: "request-live" });
+      const { harness, latest } = createHarness(vi.fn(), undefined, teach);
+      harness.handleServerEvent(
+        responseDone("resp_tool", "completed", [
+          {
+            type: "function_call",
+            call_id: "call_teach",
+            name: "teach",
+            arguments: '{"topic":"Chain rule","student_context":""}',
+          },
+        ]),
+      );
+      harness.handleServerEvent({
+        type: SERVER_EVENTS.RESPONSE_CREATED,
+        response: {
+          id: "resp_filler",
+          metadata: { chalk_kind: "tool_continuation" },
+        },
+      });
+      expect(latest().activeResponseId).toBe("resp_filler");
+
+      vi.advanceTimersByTime(20_100);
+
+      expect(latest().activeResponseId).toBeUndefined();
+      expect(
+        latest().trace.some((entry) => entry.type === "response.settlement_timeout"),
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses lesson narration while a filler response is still pending", () => {
+    const { client, harness } = createHarness();
+    harness.status = "connected";
+    harness.responseCoordinator.registerManual({
+      purpose: "tool_continuation",
+      clientEventId: "evt-filler",
+    });
+
+    expect(() =>
+      client.requestNarration("Begin the actual lesson.", {
+        requestId: "req-1",
+        stepId: "s1",
+        cycle: 1,
+      }),
+    ).toThrow("Wait for the active response");
   });
 
   it("executes local deixis and continues the same answer without exposing internals", () => {
@@ -1136,6 +1315,7 @@ describe("RealtimeClient event coordination", () => {
       client_secret: "ephemeral",
       model: "gpt-realtime-2.1-mini",
       voice: "marin",
+      sync_mode: "paced",
     };
     harness.observedSessionModel = "gpt-realtime-2.1-mini";
     harness.observedSessionVoice = "marin";

@@ -111,6 +111,7 @@ describe("Realtime protocol builders", () => {
       expires_at: 123,
       model: "gpt-realtime-2.1-mini",
       voice: "marin",
+      sync_mode: "paced",
     };
     expect(parseSessionCredential(normalized, "req-1")).toEqual(normalized);
     expect(() => parseSessionCredential(normalized, "req-stale")).toThrow(
@@ -119,6 +120,9 @@ describe("Realtime protocol builders", () => {
     expect(() =>
       parseSessionCredential({ value: "raw-upstream-token" }, "req-1"),
     ).toThrow(/invalid request_id/i);
+    expect(() =>
+      parseSessionCredential({ ...normalized, sync_mode: "sequential" }, "req-1"),
+    ).toThrow(/invalid sync_mode/i);
   });
 
   it("creates a fresh request ID per session mint", () => {

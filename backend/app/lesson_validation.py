@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import json
 import math
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -12,6 +13,10 @@ from typing import Any
 
 from jsonschema import Draft7Validator
 from referencing import Registry, Resource
+
+from app.expression_runtime import CurveSamplingError, sample_curve
+from app.latex_lint import lint_equation_latex
+from app.lesson_sanitizer import SanitizationResult, sanitize_step
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LESSON_SCHEMA_PATH = PROJECT_ROOT / "shared/schema/lesson.schema.json"
@@ -23,6 +28,11 @@ ALLOWED_BINARY_OPERATORS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow)
 ALLOWED_UNARY_OPERATORS = (ast.UAdd, ast.USub)
 MAX_EXPRESSION_NODES = 64
 MAX_NUMERIC_LITERAL = 1_000_000
+DIAGRAM_OP_TYPES = {"line", "arrow", "point", "angle_arc"}
+
+# Mirrors EXPRESSION_CHARACTERS in frontend/src/board/expression.ts so every
+# emitted expression is parseable by the locked-down browser mathjs instance.
+_EXPRESSION_CHARACTERS = r"[0-9a-zA-Z_+\-*/^().\s]+"
 
 
 class StepValidationError(ValueError):
@@ -38,11 +48,21 @@ class LessonValidationState:
     """References that are safe to expose to the next generated step."""
 
     accepted_ids: dict[str, str] = field(default_factory=dict)
+    accepted_axes: dict[str, dict[str, Any]] = field(default_factory=dict)
     accepted_step_ids: set[str] = field(default_factory=set)
     accepted_steps: int = 0
+    checkpoint_accepted: bool = False
 
     def inventory(self) -> list[str]:
         return sorted(self.accepted_ids)
+
+
+@dataclass(frozen=True)
+class ValidatedStep:
+    """One accepted normalized step plus bounded sanitization evidence."""
+
+    step: dict[str, Any]
+    sanitization: SanitizationResult
 
 
 @lru_cache(maxsize=1)
@@ -88,24 +108,43 @@ def envelope_validator() -> Draft7Validator:
 def validate_step(value: Any, state: LessonValidationState) -> dict[str, Any]:
     """Validate one complete step without mutating accepted state on failure."""
 
+    return validate_step_with_sanitization(value, state).step
+
+
+def validate_step_with_sanitization(value: Any, state: LessonValidationState) -> ValidatedStep:
+    """Validate one step and expose corrections made to the accepted candidate."""
+
+    sanitization = sanitize_step(value)
+    value = sanitization.value
+
     issues = _schema_issues(step_validator(), value)
     if issues:
         raise StepValidationError(issues)
     assert isinstance(value, dict)
 
+    # JSON round-tripping up front gives a detached, JSON-only value that
+    # normalization below may safely rewrite without touching caller input.
+    normalized = json.loads(json.dumps(value, ensure_ascii=False))
+
     semantic_issues: list[str] = []
     if state.accepted_steps >= 8:
         semantic_issues.append("lesson step budget exceeded")
 
-    step_id = value["id"]
+    step_id = normalized["id"]
     if step_id in state.accepted_step_ids:
         semantic_issues.append("duplicate step id")
-    if len(value["script"].strip().split()) > 30:
+    script_words = len(normalized["script"].strip().split())
+    if script_words > 30:
         semantic_issues.append("script exceeds 30 words")
+    if script_words == 0:
+        semantic_issues.append("script has no spoken words")
+    if normalized["checkpoint"] is not None and state.checkpoint_accepted:
+        semantic_issues.append("lesson checkpoint budget exceeded; set checkpoint to null")
 
     visible_types = dict(state.accepted_ids)
     pending_types: dict[str, str] = {}
-    for index, op in enumerate(value["ops"]):
+    pending_axes: dict[str, dict[str, Any]] = {}
+    for index, op in enumerate(normalized["ops"]):
         op_id = op["id"]
         op_type = op["op"]
         if op_id in visible_types or op_id in pending_types:
@@ -118,9 +157,24 @@ def validate_step(value: Any, state: LessonValidationState) -> dict[str, Any]:
             if anchor_id not in visible_types and anchor_id not in pending_types:
                 semantic_issues.append(f"op {index} anchor is not already accepted")
 
+        canvas_id = op.get("canvas_id")
+        if isinstance(canvas_id, str):
+            canvas_type = pending_types.get(canvas_id, visible_types.get(canvas_id))
+            if canvas_type not in DIAGRAM_OP_TYPES:
+                semantic_issues.append(
+                    f"op {index} canvas reference is not an accepted diagram element"
+                )
+
+        if op_type in {"line", "arrow"} and op["from"] == op["to"]:
+            semantic_issues.append(f"op {index} line endpoints must differ")
+        if op_type == "angle_arc" and abs(op["end_deg"] - op["start_deg"]) < 1:
+            semantic_issues.append(f"op {index} angle arc must span at least one degree")
+
         if op_type == "axes":
             if op["x"]["min"] >= op["x"]["max"] or op["y"]["min"] >= op["y"]["max"]:
                 semantic_issues.append(f"op {index} axes bounds do not increase")
+            else:
+                pending_axes[op_id] = {"x": op["x"], "y": op["y"]}
         elif op_type == "curve":
             axes_id = op["axes_id"]
             axes_type = pending_types.get(axes_id, visible_types.get(axes_id))
@@ -129,22 +183,46 @@ def validate_step(value: Any, state: LessonValidationState) -> dict[str, Any]:
             domain = op.get("domain")
             if domain is not None and domain[0] >= domain[1]:
                 semantic_issues.append(f"op {index} curve domain does not increase")
-            try:
-                validate_curve_expression(op["expr"])
-            except ValueError as error:
-                semantic_issues.append(f"op {index} expression: {error}")
+            # The browser mathjs grammar has no ** operator; emit ^ instead.
+            expression = op["expr"].replace("**", "^")
+            op["expr"] = expression
+            expression_valid = True
+            if not re.fullmatch(_EXPRESSION_CHARACTERS, expression):
+                semantic_issues.append(f"op {index} expression contains unsupported characters")
+                expression_valid = False
+            else:
+                try:
+                    validate_curve_expression(expression)
+                except ValueError as error:
+                    semantic_issues.append(f"op {index} expression: {error}")
+                    expression_valid = False
+            axes_spec = pending_axes.get(axes_id) or state.accepted_axes.get(axes_id)
+            if expression_valid and axes_spec is not None:
+                try:
+                    sample_curve(
+                        expression,
+                        tuple(domain) if domain is not None else None,
+                        axes_spec["x"],
+                        axes_spec["y"],
+                    )
+                except CurveSamplingError as error:
+                    semantic_issues.append(f"op {index} expression: {error}")
+        elif op_type == "equation":
+            for issue in lint_equation_latex(op["latex"]):
+                semantic_issues.append(f"op {index} {issue}")
 
         pending_types[op_id] = op_type
 
     if semantic_issues:
         raise StepValidationError(semantic_issues)
 
-    # JSON round-tripping gives downstream code a detached, JSON-only value.
-    normalized = json.loads(json.dumps(value, ensure_ascii=False))
     state.accepted_ids.update(pending_types)
+    state.accepted_axes.update(pending_axes)
     state.accepted_step_ids.add(step_id)
     state.accepted_steps += 1
-    return normalized
+    if normalized["checkpoint"] is not None:
+        state.checkpoint_accepted = True
+    return ValidatedStep(step=normalized, sanitization=sanitization)
 
 
 def validate_envelope(value: Any) -> None:

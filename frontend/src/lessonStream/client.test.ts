@@ -111,6 +111,47 @@ describe("lesson NDJSON streaming", () => {
     expect(() => decodeLessonNdjson(mixed)).toThrowError(/mixes request IDs/u);
   });
 
+  it("tracks sanitization separately and verifies optional completion totals", async () => {
+    const lines = [
+      envelope({ type: "lesson.started", request_id: REQUEST_ID, title: "Derivative" }),
+      envelope({
+        type: "lesson.warning",
+        request_id: REQUEST_ID,
+        code: "step_sanitized",
+        step_hint: "s1",
+        corrections: ["trimmed_outer_whitespace", "clamped_normalized_point"],
+        correction_count: 3,
+      }),
+      envelope({ type: "lesson.step", request_id: REQUEST_ID, step }),
+      envelope({
+        type: "lesson.done",
+        request_id: REQUEST_ID,
+        accepted_steps: 1,
+        repairs: 0,
+        dropped_steps: 0,
+        sanitized_steps: 1,
+        sanitized_fields: 3,
+      }),
+    ];
+    const result = await streamLesson({
+      apiBaseUrl: "http://127.0.0.1:8000",
+      request: request(),
+      fetchImpl: vi.fn().mockResolvedValue(streamResponse(lines)),
+    });
+    expect(result).toMatchObject({ sanitizedSteps: 1, sanitizedFields: 3, warnings: 1 });
+
+    const mismatched = lines.map((line) =>
+      line.includes('"sanitized_fields":3') ? line.replace('"sanitized_fields":3', '"sanitized_fields":2') : line,
+    );
+    await expect(
+      streamLesson({
+        apiBaseUrl: "http://127.0.0.1:8000",
+        request: request(),
+        fetchImpl: vi.fn().mockResolvedValue(streamResponse(mismatched)),
+      }),
+    ).rejects.toMatchObject({ code: "invalid_sequence" });
+  });
+
   it("retains only bounded model and prompt-hash response metadata", async () => {
     const hash = "a".repeat(64);
     const lines = [
@@ -165,23 +206,111 @@ describe("lesson NDJSON streaming", () => {
     ).rejects.toMatchObject({ code: "invalid_sequence" });
   });
 
-  it("never passes a semantically invalid server step to the renderer", async () => {
+  it("drops a browser-rejected step without discarding the accepted prefix", async () => {
+    const invalidStep = {
+      id: "s2",
+      script: "This step references axes that never rendered.",
+      ops: [{ op: "curve", id: "curve1", axes_id: "missing", expr: "x" }],
+      checkpoint: null,
+    };
+    const dependentStep = {
+      id: "s3",
+      script: "This step anchors to the dropped element.",
+      ops: [
+        {
+          op: "text",
+          id: "orphan",
+          anchor: { el: "curve1", side: "below" },
+          content: "orphaned",
+        },
+      ],
+      checkpoint: null,
+    };
+    const result = await streamLesson({
+      apiBaseUrl: "http://127.0.0.1:8000",
+      request: request(),
+      fetchImpl: vi.fn().mockResolvedValue(
+        streamResponse([
+          envelope({ type: "lesson.started", request_id: REQUEST_ID, title: "Derivative" }),
+          envelope({ type: "lesson.step", request_id: REQUEST_ID, step }),
+          envelope({ type: "lesson.step", request_id: REQUEST_ID, step: invalidStep }),
+          envelope({ type: "lesson.step", request_id: REQUEST_ID, step: dependentStep }),
+          envelope({
+            type: "lesson.done",
+            request_id: REQUEST_ID,
+            accepted_steps: 3,
+            repairs: 0,
+            dropped_steps: 0,
+          }),
+        ]),
+      ),
+    });
+
+    expect(result.lesson.steps.map((value) => value.id)).toEqual(["s1"]);
+    expect(result.browserDroppedSteps).toBe(2);
+    expect(result.warnings).toBeGreaterThanOrEqual(2);
+    expect(result.complete).toBe(true);
+  });
+
+  it("falls back only when no streamed step survives browser validation", async () => {
     const invalidStep = {
       ...step,
       ops: [{ op: "curve", id: "curve1", axes_id: "missing", expr: "x" }],
     };
-    const lines = [
-      envelope({ type: "lesson.started", request_id: REQUEST_ID, title: "Derivative" }),
-      envelope({ type: "lesson.step", request_id: REQUEST_ID, step: invalidStep }),
-    ];
-
     await expect(
       streamLesson({
         apiBaseUrl: "http://127.0.0.1:8000",
         request: request(),
-        fetchImpl: vi.fn().mockResolvedValue(streamResponse(lines)),
+        fetchImpl: vi.fn().mockResolvedValue(
+          streamResponse([
+            envelope({ type: "lesson.started", request_id: REQUEST_ID, title: "Derivative" }),
+            envelope({ type: "lesson.step", request_id: REQUEST_ID, step: invalidStep }),
+            envelope({
+              type: "lesson.done",
+              request_id: REQUEST_ID,
+              accepted_steps: 1,
+              repairs: 0,
+              dropped_steps: 0,
+            }),
+          ]),
+        ),
       }),
     ).rejects.toMatchObject({ code: "invalid_lesson" });
+  });
+
+  it("keeps surviving ops when only one op in a step fails browser validation", async () => {
+    const partiallyValidStep = {
+      id: "s2",
+      script: "One op is fine and one references missing axes.",
+      ops: [
+        { op: "text", id: "keepme", region: "B1", content: "Kept" },
+        { op: "curve", id: "badcurve", axes_id: "missing", expr: "x" },
+      ],
+      checkpoint: null,
+    };
+    const result = await streamLesson({
+      apiBaseUrl: "http://127.0.0.1:8000",
+      request: request(),
+      fetchImpl: vi.fn().mockResolvedValue(
+        streamResponse([
+          envelope({ type: "lesson.started", request_id: REQUEST_ID, title: "Derivative" }),
+          envelope({ type: "lesson.step", request_id: REQUEST_ID, step }),
+          envelope({ type: "lesson.step", request_id: REQUEST_ID, step: partiallyValidStep }),
+          envelope({
+            type: "lesson.done",
+            request_id: REQUEST_ID,
+            accepted_steps: 2,
+            repairs: 0,
+            dropped_steps: 0,
+          }),
+        ]),
+      ),
+    });
+
+    expect(result.lesson.steps).toHaveLength(2);
+    expect(result.lesson.steps[1].ops.map((op) => op.id)).toEqual(["keepme"]);
+    expect(result.browserDroppedSteps).toBe(0);
+    expect(result.warnings).toBe(1);
   });
 
   it("rejects a truncated final envelope and a stream without lesson.done", async () => {

@@ -1,0 +1,143 @@
+{
+  "$comment": "Shared browser/backend contract for curve-expression acceptance. The browser sampler (frontend/src/board/expression.ts) is the rendering authority; backend/app/expression_runtime.py must agree on every case unless a deliberate backend-stricter asymmetry is pinned with browser_expect/backend_expect. 'emitted_expr', when present, is what backend normalization must emit for the raw 'expr'; browser expectations apply to the emitted form. Sampling contract: 121 samples over 'domain' (default: the axes x-range), reject any non-finite or complex sample, reject |y| > 1000000, reject a sampled discontinuity > max(10000, |previous| * 100), and require at least one contiguous run of >= 2 samples inside the axes x and y ranges.",
+  "cases": [
+    {
+      "name": "reciprocal-across-zero",
+      "expr": "1/x",
+      "domain": null,
+      "axes": { "x": { "min": -2, "max": 2, "label": "x" }, "y": { "min": -3, "max": 3, "label": "y" } },
+      "expect": "reject",
+      "reason": "default domain samples x=0 exactly; division produces a non-finite value"
+    },
+    {
+      "name": "log-default-domain",
+      "expr": "log(x)",
+      "domain": null,
+      "axes": { "x": { "min": -2, "max": 2, "label": "x" }, "y": { "min": -3, "max": 3, "label": "y" } },
+      "expect": "reject",
+      "reason": "default domain includes non-positive x; log is undefined there"
+    },
+    {
+      "name": "log-restricted-domain",
+      "expr": "log(x)",
+      "domain": [0.1, 2],
+      "axes": { "x": { "min": -2, "max": 2, "label": "x" }, "y": { "min": -3, "max": 3, "label": "y" } },
+      "expect": "accept",
+      "reason": "explicit domain keeps the function finite"
+    },
+    {
+      "name": "sqrt-default-domain-negative",
+      "expr": "sqrt(x)",
+      "domain": null,
+      "axes": { "x": { "min": -4, "max": 4, "label": "x" }, "y": { "min": 0, "max": 3, "label": "y" } },
+      "expect": "reject",
+      "reason": "default domain includes negative x; sqrt is not real there"
+    },
+    {
+      "name": "sqrt-safe-domain",
+      "expr": "sqrt(x)",
+      "domain": [0, 4],
+      "axes": { "x": { "min": -4, "max": 4, "label": "x" }, "y": { "min": 0, "max": 3, "label": "y" } },
+      "expect": "accept",
+      "reason": "explicit non-negative domain"
+    },
+    {
+      "name": "tan-two-branches",
+      "expr": "tan(x)",
+      "domain": null,
+      "axes": { "x": { "min": 0, "max": 3.1, "label": "x" }, "y": { "min": -4, "max": 4, "label": "y" } },
+      "expect": "accept",
+      "reason": "asymptote falls between samples; two visible branches survive range clipping"
+    },
+    {
+      "name": "python-power-operator",
+      "expr": "x**2",
+      "emitted_expr": "x^2",
+      "domain": null,
+      "axes": { "x": { "min": -2, "max": 2, "label": "x" }, "y": { "min": 0, "max": 4, "label": "y" } },
+      "expect": "accept",
+      "reason": "backend must normalize ** to ^ because mathjs has no ** operator"
+    },
+    {
+      "name": "backend-exponent-safety-cap",
+      "expr": "x^40",
+      "domain": [0, 1],
+      "axes": { "x": { "min": 0, "max": 1, "label": "x" }, "y": { "min": 0, "max": 1, "label": "y" } },
+      "browser_expect": "accept",
+      "backend_expect": "reject",
+      "reason": "intentional backend-stricter asymmetry: the bounded interpreter caps exponent magnitude at 32 before evaluation, while mathjs safely samples this finite visible curve"
+    },
+    {
+      "name": "offscale-exponential",
+      "expr": "exp(x)",
+      "domain": [0, 5],
+      "axes": { "x": { "min": 0, "max": 5, "label": "x" }, "y": { "min": 0, "max": 1, "label": "y" } },
+      "expect": "reject",
+      "reason": "fewer than two contiguous samples fall inside the axes y-range"
+    },
+    {
+      "name": "cached-tangent-line",
+      "expr": "2*x-1",
+      "domain": [-0.5, 2],
+      "axes": { "x": { "min": -2, "max": 2, "label": "x" }, "y": { "min": 0, "max": 4, "label": "y" } },
+      "expect": "accept",
+      "reason": "baseline case from the cached derivative lesson"
+    },
+    {
+      "name": "cached-range-curve",
+      "expr": "sin(2*x*pi/180)",
+      "domain": [0, 90],
+      "axes": { "x": { "min": 0, "max": 90, "label": "x" }, "y": { "min": 0, "max": 1.1, "label": "y" } },
+      "expect": "accept",
+      "reason": "baseline case from the cached projectile lesson"
+    },
+    {
+      "name": "cached-growth-curve",
+      "expr": "exp(x/2)",
+      "domain": [0, 4],
+      "axes": { "x": { "min": 0, "max": 4, "label": "x" }, "y": { "min": 0, "max": 8, "label": "y" } },
+      "expect": "accept",
+      "reason": "baseline case from the golden exponential-growth lesson"
+    },
+    {
+      "name": "oversized-literal",
+      "expr": "2000000*x",
+      "domain": null,
+      "axes": { "x": { "min": -2, "max": 2, "label": "x" }, "y": { "min": 0, "max": 4, "label": "y" } },
+      "expect": "reject",
+      "reason": "backend rejects the literal budget; browser rejects the sampled output budget"
+    },
+    {
+      "name": "free-variable",
+      "expr": "v*t",
+      "domain": null,
+      "axes": { "x": { "min": 0, "max": 1, "label": "x" }, "y": { "min": 0, "max": 1, "label": "y" } },
+      "expect": "reject",
+      "reason": "only x, pi, and e are legal symbols"
+    },
+    {
+      "name": "fractional-power-negative-base",
+      "expr": "x^(1/2)",
+      "domain": [-4, 4],
+      "axes": { "x": { "min": -4, "max": 4, "label": "x" }, "y": { "min": 0, "max": 3, "label": "y" } },
+      "expect": "reject",
+      "reason": "JS produces NaN and Python produces a complex number; both count as non-finite"
+    },
+    {
+      "name": "fractional-power-safe",
+      "expr": "x^(1/2)",
+      "domain": [0, 4],
+      "axes": { "x": { "min": -4, "max": 4, "label": "x" }, "y": { "min": 0, "max": 3, "label": "y" } },
+      "expect": "accept",
+      "reason": "non-negative base keeps the power real"
+    },
+    {
+      "name": "singularity-outside-domain",
+      "expr": "1/(x-10)",
+      "domain": [0, 5],
+      "axes": { "x": { "min": 0, "max": 5, "label": "x" }, "y": { "min": -1, "max": 1, "label": "y" } },
+      "expect": "accept",
+      "reason": "the pole lies outside the sampled domain"
+    }
+  ]
+}

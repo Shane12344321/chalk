@@ -9,7 +9,7 @@ const request = {
   manifestVersion: 3,
   question: "Why does it peak here?",
   boardManifest: "Lesson: range. Visible board: rangecurve.",
-  visibleElementIds: ["rangecurve"],
+  visibleElements: [{ id: "rangecurve", kind: "curve" as const, bounds: [0.55, 0.2, 0.35, 0.5] as [number, number, number, number] }],
 };
 
 const program = {
@@ -57,7 +57,7 @@ describe("annotation client", () => {
       question: request.question,
       manifest_version: 3,
       board_manifest: request.boardManifest,
-      visible_element_ids: ["rangecurve"],
+      visible_elements: request.visibleElements,
     });
   });
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import projectileLesson from "../../../demo/cached_lessons/projectile-range.lesson.json";
 import { decodeLesson } from "./decode";
 import { isLessonProgram, lessonSchemaErrors } from "./schema";
+import { physicsDiagramLesson } from "./physicsTestFixture";
 
 describe("lesson wire contract and defensive decoder", () => {
   it("accepts the checked-in projectile fixture with no repairs", () => {
@@ -86,5 +87,39 @@ describe("lesson wire contract and defensive decoder", () => {
     const decoded = decodeLesson(source);
     expect(decoded.lesson?.steps.map((step) => step.id)).not.toContain("s1");
     expect(decoded.warnings[0].code).toBe("invalid_step");
+  });
+
+  it("accepts schema 1.1 physics primitives on one shared canvas", () => {
+    const decoded = decodeLesson(physicsDiagramLesson());
+    expect(decoded.warnings).toEqual([]);
+    expect(decoded.lesson?.schemaVersion).toBe("1.1");
+    expect(decoded.lesson?.steps.flatMap((step) => step.ops).map((op) => op.op)).toEqual([
+      "line",
+      "line",
+      "arrow",
+      "point",
+      "arrow",
+      "angle_arc",
+    ]);
+  });
+
+  it("drops a primitive whose canvas is not an accepted diagram element", () => {
+    const source = physicsDiagramLesson();
+    source.steps[0].ops[1] = {
+      op: "line",
+      id: "normal",
+      canvas_id: "missing",
+      from: [0.5, 0.1],
+      to: [0.5, 0.9],
+      stroke: "dashed",
+      label: "normal",
+    };
+    const decoded = decodeLesson(source);
+    expect(decoded.lesson?.steps[0].ops.map((op) => op.id)).toEqual([
+      "boundary",
+      "incident",
+      "hit",
+    ]);
+    expect(decoded.warnings.map((item) => item.code)).toContain("unknown_reference");
   });
 });

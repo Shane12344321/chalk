@@ -38,6 +38,12 @@
       }
     },
     "warning": {
+      "oneOf": [
+        { "$ref": "#/$defs/standardWarning" },
+        { "$ref": "#/$defs/sanitizedWarning" }
+      ]
+    },
+    "standardWarning": {
       "type": "object",
       "additionalProperties": false,
       "required": ["type", "request_id", "code"],
@@ -50,6 +56,34 @@
         "step_hint": { "type": "string", "maxLength": 16 }
       }
     },
+    "sanitizedWarning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type", "request_id", "code", "corrections", "correction_count"
+      ],
+      "properties": {
+        "type": { "const": "lesson.warning" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "code": { "const": "step_sanitized" },
+        "step_hint": { "type": "string", "maxLength": 16 },
+        "corrections": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "trimmed_outer_whitespace",
+              "normalized_power_operator",
+              "clamped_anchor_gap",
+              "clamped_normalized_point"
+            ]
+          }
+        },
+        "correction_count": { "type": "integer", "minimum": 1, "maximum": 64 }
+      }
+    },
     "done": {
       "type": "object",
       "additionalProperties": false,
@@ -59,7 +93,9 @@
         "request_id": { "$ref": "#/$defs/requestId" },
         "accepted_steps": { "type": "integer", "minimum": 1, "maximum": 8 },
         "repairs": { "type": "integer", "minimum": 0, "maximum": 4 },
-        "dropped_steps": { "type": "integer", "minimum": 0, "maximum": 8 }
+        "dropped_steps": { "type": "integer", "minimum": 0, "maximum": 8 },
+        "sanitized_steps": { "type": "integer", "minimum": 0, "maximum": 8 },
+        "sanitized_fields": { "type": "integer", "minimum": 0, "maximum": 512 }
       }
     },
     "error": {

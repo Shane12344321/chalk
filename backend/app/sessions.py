@@ -69,12 +69,14 @@ class SessionResponse(BaseModel):
     expires_at: int | None = Field(default=None, ge=0)
     model: str
     voice: str
+    sync_mode: Literal["fixed", "paced"]
 
 
 class HealthRealtimeStatus(BaseModel):
     configured: bool
     model: str
     voice: str
+    sync_mode: Literal["fixed", "paced"]
 
 
 class HealthBoardStatus(BaseModel):
@@ -127,6 +129,7 @@ async def health(
             configured=settings.has_openai_api_key,
             model=settings.realtime_model,
             voice=settings.realtime_voice,
+            sync_mode=settings.sync_mode,
         ),
         board=HealthBoardStatus(
             configured=settings.has_openai_api_key,
@@ -233,4 +236,5 @@ async def create_session(
         expires_at=upstream.expires_at,
         model=settings.realtime_model,
         voice=settings.realtime_voice,
+        sync_mode=settings.sync_mode,
     )

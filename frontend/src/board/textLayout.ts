@@ -5,6 +5,7 @@ export interface FittedBoardText {
   fontSize: number;
   lineHeight: number;
   startY: number;
+  fits: boolean;
 }
 
 export function fitBoardText(text: string, box: LayoutBox): FittedBoardText {
@@ -22,6 +23,7 @@ export function fitBoardText(text: string, box: LayoutBox): FittedBoardText {
         fontSize,
         lineHeight,
         startY: box.y + (box.height - blockHeight) / 2 + fontSize * 0.82,
+        fits: true,
       };
     }
   }
@@ -33,6 +35,9 @@ export function fitBoardText(text: string, box: LayoutBox): FittedBoardText {
     fontSize,
     lineHeight,
     startY: box.y + fontSize * 0.82,
+    fits:
+      lines.length * lineHeight <= box.height &&
+      lines.every((line) => line.length * fontSize * 0.58 <= box.width),
   };
 }
 

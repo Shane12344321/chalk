@@ -71,6 +71,7 @@ def test_health_reports_configuration_without_secret_values() -> None:
             "configured": True,
             "model": "gpt-realtime-2.1-mini",
             "voice": "marin",
+            "sync_mode": "fixed",
         },
         "board": {
             "configured": True,
@@ -161,6 +162,7 @@ def test_session_sends_explicit_payload_and_salted_safety_identifier(
         "expires_at": 1_800_000_000,
         "model": "gpt-realtime-2.1-mini",
         "voice": "marin",
+        "sync_mode": "fixed",
     }
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["pragma"] == "no-cache"
@@ -193,6 +195,7 @@ def test_session_omits_absent_expiry_from_safe_projection() -> None:
         "client_secret": CLIENT_SECRET,
         "model": "gpt-realtime-2.1-mini",
         "voice": "marin",
+        "sync_mode": "fixed",
     }
 
 

@@ -90,6 +90,8 @@ class TopicResult:
     board_reasoning_effort: str | None
     board_prompt_sha256: str | None
     repair_prompt_sha256: str | None
+    sanitized_steps: int = 0
+    sanitized_fields: int = 0
     terminal_reason: str | None = None
     failure_origin: str | None = None
     harness_error: str | None = None
@@ -103,6 +105,8 @@ class TopicResult:
             "accepted_steps": self.accepted_steps,
             "repairs": self.repairs,
             "dropped_steps": self.dropped_steps,
+            "sanitized_steps": self.sanitized_steps,
+            "sanitized_fields": self.sanitized_fields,
             "terminal_error": self.terminal_error,
             "terminal_reason": self.terminal_reason,
             "failure_origin": self.failure_origin,
@@ -137,6 +141,8 @@ def evaluate_topic(
     repairs = 0
     repaired_steps = 0
     dropped_steps = 0
+    sanitized_steps = 0
+    sanitized_fields = 0
     terminal_error: str | None = None
     terminal_reason: str | None = None
     failure_origin: str | None = None
@@ -187,6 +193,9 @@ def evaluate_topic(
                         repaired_steps += 1
                     elif envelope["code"] == "step_dropped":
                         dropped_steps += 1
+                    elif envelope["code"] == "step_sanitized":
+                        sanitized_steps += 1
+                        sanitized_fields += envelope["correction_count"]
                 elif event_type == "lesson.done":
                     terminal_seen = True
                     if envelope["accepted_steps"] != accepted_steps:
@@ -195,6 +204,10 @@ def evaluate_topic(
                         raise ValueError("lesson repair count is below repaired-step warnings")
                     if envelope["dropped_steps"] != dropped_steps:
                         raise ValueError("lesson dropped-step count mismatch")
+                    if envelope.get("sanitized_steps", sanitized_steps) != sanitized_steps:
+                        raise ValueError("lesson sanitized-step count mismatch")
+                    if envelope.get("sanitized_fields", sanitized_fields) != sanitized_fields:
+                        raise ValueError("lesson sanitized-field count mismatch")
                     repairs = envelope["repairs"]
                 elif event_type == "lesson.error":
                     terminal_seen = True
@@ -222,6 +235,8 @@ def evaluate_topic(
         board_reasoning_effort=board_reasoning_effort,
         board_prompt_sha256=board_prompt_sha256,
         repair_prompt_sha256=repair_prompt_sha256,
+        sanitized_steps=sanitized_steps,
+        sanitized_fields=sanitized_fields,
         terminal_reason=terminal_reason,
         failure_origin=failure_origin,
     )
@@ -299,6 +314,8 @@ def run_batch(base_url: str, output_dir: Path) -> tuple[dict[str, Any], bool]:
         "board_prompt_sha256": board_hashes,
         "repair_prompt_sha256": repair_hashes,
         "machine_complete_topics": sum(result.status == "complete" for result in results),
+        "sanitized_steps": sum(result.sanitized_steps for result in results),
+        "sanitized_fields": sum(result.sanitized_fields for result in results),
         "representative_browser_timing_file": None,
         "first_visible_ink_target_ms": 6_000,
         "human_pass_topics": None,

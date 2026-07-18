@@ -1,4 +1,10 @@
-import { decodeLesson, type NormalizedLesson, type NormalizedStep } from "../board/decode";
+import {
+  createDecodeContext,
+  decodeStep,
+  type DecodeContext,
+  type NormalizedLesson,
+  type NormalizedStep,
+} from "../board/decode";
 import { isLessonStreamEnvelope, lessonStreamSchemaErrors } from "./schema";
 import type {
   Error as LessonStreamErrorEnvelope,
@@ -27,6 +33,9 @@ export interface LessonStreamProgress {
   steps: NormalizedStep[];
   complete: boolean;
   warnings: number;
+  browserDroppedSteps: number;
+  sanitizedSteps: number;
+  sanitizedFields: number;
   boardModel?: string;
   boardReasoningEffort?: string;
   boardPromptSha256?: string;
@@ -226,6 +235,11 @@ class LessonStreamAssembler {
   private title?: string;
   private steps: NormalizedStep[] = [];
   private warnings = 0;
+  private serverStepEnvelopes = 0;
+  private browserDroppedSteps = 0;
+  private sanitizedSteps = 0;
+  private sanitizedFields = 0;
+  private readonly decodeContext: DecodeContext = createDecodeContext();
   private terminal?: Extract<LessonStreamEnvelope, { type: "lesson.done" }>;
   private serverErrorCode?: ServerErrorCode;
   private serverErrorReason?: UpstreamReason;
@@ -261,6 +275,10 @@ class LessonStreamAssembler {
     }
     if (envelope.type === "lesson.warning") {
       this.warnings += 1;
+      if (envelope.code === "step_sanitized") {
+        this.sanitizedSteps += 1;
+        this.sanitizedFields += envelope.correction_count;
+      }
       this.emit(false);
       return;
     }
@@ -286,21 +304,34 @@ class LessonStreamAssembler {
       return;
     }
     if (envelope.type === "lesson.step") {
-      const decoded = decodeLesson({
-        schema_version: "1.0",
-        title: this.title,
-        steps: [...this.steps, envelope.step],
-      });
-      if (!decoded.lesson || decoded.warnings.length > 0) {
-        throw new LessonStreamError("A streamed step failed browser validation.", "invalid_lesson");
+      // A step the browser rejects costs that step, never the accepted prefix.
+      // The server remains the repair authority; the browser only drops.
+      this.serverStepEnvelopes += 1;
+      const decoded = decodeStep(envelope.step, this.decodeContext);
+      this.warnings += decoded.warnings.length;
+      if (decoded.step) {
+        this.steps.push(decoded.step);
+      } else {
+        this.browserDroppedSteps += 1;
       }
-      this.steps = decoded.lesson.steps;
       this.emit(false);
       return;
     }
     if (envelope.type === "lesson.done") {
-      if (envelope.accepted_steps !== this.steps.length || this.steps.length === 0) {
+      if (envelope.accepted_steps !== this.serverStepEnvelopes || this.serverStepEnvelopes === 0) {
         throw new LessonStreamError("Lesson completion counts do not match accepted steps.", "invalid_sequence");
+      }
+      const hasSanitizedSteps = envelope.sanitized_steps !== undefined;
+      const hasSanitizedFields = envelope.sanitized_fields !== undefined;
+      if (
+        hasSanitizedSteps !== hasSanitizedFields ||
+        (hasSanitizedSteps && envelope.sanitized_steps !== this.sanitizedSteps) ||
+        (hasSanitizedFields && envelope.sanitized_fields !== this.sanitizedFields)
+      ) {
+        throw new LessonStreamError(
+          "Lesson completion counts do not match sanitization warnings.",
+          "invalid_sequence",
+        );
       }
       this.terminal = envelope;
       this.emit(true);
@@ -311,9 +342,8 @@ class LessonStreamAssembler {
     if (!this.title || (!this.terminal && !this.serverErrorCode)) {
       throw new LessonStreamError("Lesson stream ended before a valid completion envelope.", "truncated_stream");
     }
-    const decoded = decodeLesson({ schema_version: "1.0", title: this.title, steps: this.steps });
-    if (!decoded.lesson || decoded.warnings.length > 0) {
-      throw new LessonStreamError("Completed lesson failed browser validation.", "invalid_lesson");
+    if (this.steps.length === 0) {
+      throw new LessonStreamError("No streamed step survived browser validation.", "invalid_lesson");
     }
     return {
       requestId: this.expectedRequestId,
@@ -321,7 +351,10 @@ class LessonStreamAssembler {
       steps: this.steps,
       complete: true,
       warnings: this.warnings,
-      lesson: decoded.lesson,
+      browserDroppedSteps: this.browserDroppedSteps,
+      sanitizedSteps: this.sanitizedSteps,
+      sanitizedFields: this.sanitizedFields,
+      lesson: { schemaVersion: "1.1", title: this.title, steps: this.steps },
       repairs: this.terminal?.repairs ?? this.serverRepairAttempts,
       droppedSteps: this.terminal?.dropped_steps ?? 0,
       partial: this.serverErrorCode !== undefined,
@@ -340,6 +373,9 @@ class LessonStreamAssembler {
       steps: [...this.steps],
       complete,
       warnings: this.warnings,
+      browserDroppedSteps: this.browserDroppedSteps,
+      sanitizedSteps: this.sanitizedSteps,
+      sanitizedFields: this.sanitizedFields,
       ...this.metadata,
     });
   }

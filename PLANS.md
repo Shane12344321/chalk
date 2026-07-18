@@ -3,7 +3,7 @@
 Status: active  
 Owner: repository team  
 Started: 2026-07-15  
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 Target: working localhost demo and three-minute hackathon video
 
 ## How to use this plan
@@ -45,11 +45,11 @@ Non-goals: accounts, authentication, persistence, deployment, mobile, multi-user
 |---|---|---|
 | Product brief | Complete | `chalk-build-plan.md` |
 | Audited agent guidance | Complete | `AGENTS.md` |
-| Architecture baseline | Current through the deterministic M4 interaction slice | `ARCHITECTURE.md`, ADR-010/011, and the active M4 execution plan |
+| Architecture baseline | Current through M4 drawing intelligence | `ARCHITECTURE.md`, ADR-026..028, and the active natural-drawing plan |
 | Git repository | M1, M2, and accepted cached-interaction checkpoints preserved; M3 isolated | M1 `e6822f5`; M2 `4f3d9ed`; accepted cached slice `e0c0aa8`; M3 branch `codex/m3-live-lesson-generation` |
 | Frontend application | M4 deterministic slice implemented and feedback-hardened | 116 tests, product/diagnostic modes, turn-gated microphone, sequential sketches, visible manifest, response coordinator, and checkpoint state machine |
 | Backend scaffold | Complete for M1 | 38 tests, lint/format, compile, health, CORS, safe failures, and live client-secret minting |
-| Shared schema | Implemented for the M2 five-op contract | JSON Schema, generated TypeScript types, fixtures, and decoder tests |
+| Shared schema | Schema 1.1 plus closed sanitization evidence | JSON Schema, generated TypeScript types, three parity fixture families, and decoder/stream tests |
 | Realtime API smoke test | Complete | Mint, WebRTC, voice, dummy-tool continuation, live cost controls, and five consecutive playback-backed interruptions passed on 2026-07-15 |
 | Board renderer | M2 complete; deterministic and live perceptual gates passed | Seeded rough.js SVG, KaTeX, safe mathjs sampling, layout, animation, defensive tests, and three accepted live runs |
 | Live lesson generation | Complete | `docs/exec-plans/completed/m3-live-lesson-generation.md` |
@@ -278,7 +278,7 @@ Active broader execution plan: `docs/exec-plans/active/m4-full-interruption-grou
 - [x] Complete the `TEACHING -> FROZEN -> QA -> TEACHING` path and add one checkpoint asking/listening/feedback loop.
 - [x] Gate microphone input behind **Speak** and auto-mute at `speech_stopped`/assistant playback to prevent self-response loops.
 - [ ] Decide, from rehearsal evidence, whether resume continues frozen ink or replays the current step.
-- [ ] Implement `SYNC_MODE=paced` only after the fixed path remains passing.
+- [x] Implement `SYNC_MODE=paced` as a bounded transcript-progress controller while preserving fixed playback-gated sync.
 - [x] Cache projectile, derivative, and unit-circle lessons through the same validation path.
 
 ### Exit gate

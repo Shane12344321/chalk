@@ -17,6 +17,7 @@ export interface CoordinatedResponse {
   activitySeen: boolean;
   generationDone: boolean;
   playbackStopped: boolean;
+  transcriptCharacters: number;
 }
 
 interface RegisterResponseOptions {
@@ -94,6 +95,14 @@ export class ResponseCoordinator {
     return false;
   }
 
+  hasPending(): boolean {
+    return this.pendingManual.size > 0 || this.pendingAutomatic !== undefined;
+  }
+
+  hasInFlight(): boolean {
+    return this.hasPending() || this.byResponseId.size > 0;
+  }
+
   markActivity(responseId: string): CoordinatedResponse | undefined {
     const record = this.byResponseId.get(responseId);
     if (record) record.activitySeen = true;
@@ -112,6 +121,19 @@ export class ResponseCoordinator {
     return record;
   }
 
+  addTranscriptCharacters(
+    responseId: string,
+    characters: number,
+  ): CoordinatedResponse | undefined {
+    const record = this.byResponseId.get(responseId);
+    if (!record || !Number.isSafeInteger(characters) || characters < 0) return record;
+    record.transcriptCharacters = Math.min(
+      4_096,
+      record.transcriptCharacters + characters,
+    );
+    return record;
+  }
+
   failByClientEventId(clientEventId: string): CoordinatedResponse | undefined {
     const record = this.pendingManual.get(clientEventId);
     if (record) this.pendingManual.delete(clientEventId);
@@ -127,6 +149,12 @@ export class ResponseCoordinator {
 
   release(responseId: string): void {
     this.byResponseId.delete(responseId);
+  }
+
+  failByResponseId(responseId: string): CoordinatedResponse | undefined {
+    const record = this.byResponseId.get(responseId);
+    if (record) this.byResponseId.delete(responseId);
+    return record;
   }
 
   reset(): void {
@@ -166,6 +194,7 @@ function createRecord(options: RegisterResponseOptions): CoordinatedResponse {
     activitySeen: false,
     generationDone: false,
     playbackStopped: false,
+    transcriptCharacters: 0,
   };
 }
 

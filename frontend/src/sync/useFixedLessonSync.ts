@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
-import { estimateNarrationDuration } from "../board/animation";
+import {
+  estimateNarrationDuration,
+  pacedAnimationRate,
+} from "../board/animation";
 import type { NormalizedLesson } from "../board/decode";
-import type { ConnectionStatus, RealtimeClient, RealtimeSemanticEvent } from "../realtime";
+import type {
+  ConnectionStatus,
+  RealtimeClient,
+  RealtimeSemanticEvent,
+  SyncMode,
+} from "../realtime";
 import {
   EMPTY_SYNC_STATE,
   fixedSyncReducer,
@@ -10,6 +18,7 @@ import {
 } from "./reducer";
 
 const AUDIO_DRAIN_GUARD_MS = 260;
+const AUDIO_STOP_FINISH_MS = 400;
 
 interface UseFixedLessonSyncOptions {
   lesson: NormalizedLesson;
@@ -18,6 +27,7 @@ interface UseFixedLessonSyncOptions {
   clientRef: React.MutableRefObject<RealtimeClient | undefined>;
   connectionStatus: ConnectionStatus;
   responseIdle: boolean;
+  syncMode?: SyncMode;
 }
 
 export function useFixedLessonSync({
@@ -27,6 +37,7 @@ export function useFixedLessonSync({
   clientRef,
   connectionStatus,
   responseIdle,
+  syncMode = "fixed",
 }: UseFixedLessonSyncOptions) {
   const fallbackRequestIdRef = useRef<string>();
   if (!fallbackRequestIdRef.current) fallbackRequestIdRef.current = crypto.randomUUID();
@@ -126,13 +137,9 @@ export function useFixedLessonSync({
     checkpointKeyRef.current = key;
     let cancelled = false;
     const context = correlationFor(state);
-    const guidance = checkpointGuidance(
-      checkpoint.question,
-      checkpoint.expected_gist,
-    );
     void (async () => {
       try {
-        await clientRef.current?.setInteractionGuidance(guidance);
+        await clientRef.current?.setInteractionGuidance(undefined);
         if (cancelled || stateRef.current.phase !== "CHECKPOINT_ASKING") return;
         clientRef.current?.requestCheckpointPrompt(checkpoint.question, context);
       } catch {
@@ -146,21 +153,71 @@ export function useFixedLessonSync({
   }, [clientRef, connectionStatus, lesson.steps, responseIdle, state]);
 
   useEffect(() => {
-    if (state.phase !== "TEACHING" || !state.animationStarted || state.animationDone) return;
-    const step = lesson.steps[state.currentStepIndex];
+    const initial = stateRef.current;
+    if (
+      initial.phase !== "TEACHING" ||
+      !initial.animationStarted ||
+      initial.animationDone
+    ) {
+      return;
+    }
+    const step = lesson.steps[initial.currentStepIndex];
     if (!step) return;
     const duration = estimateNarrationDuration(step.script);
-    const startProgress = state.currentStepProgress;
-    const startedAt = performance.now();
+    const correlation = correlationFor(initial);
+    let lastFrameAt = performance.now();
+    let finishStartedAt: number | undefined;
+    let finishStartProgress = 0;
     let frame = 0;
     const tick = (now: number) => {
-      const progress = startProgress + (now - startedAt) / duration;
-      dispatch(correlatedTick(state, progress));
+      const current = stateRef.current;
+      if (
+        current.phase !== "TEACHING" ||
+        current.requestId !== correlation.requestId ||
+        current.stepIds[current.currentStepIndex] !== correlation.stepId ||
+        current.cycle !== correlation.cycle ||
+        current.animationDone
+      ) {
+        return;
+      }
+
+      let progress: number;
+      if (current.audioStopped) {
+        if (finishStartedAt === undefined) {
+          finishStartedAt = now;
+          finishStartProgress = current.currentStepProgress;
+        }
+        const finishFraction = (now - finishStartedAt) / AUDIO_STOP_FINISH_MS;
+        progress =
+          finishStartProgress +
+          Math.min(1, finishFraction) * (1 - finishStartProgress);
+      } else {
+        const elapsed = Math.max(0, now - lastFrameAt);
+        const rate =
+          syncMode === "paced"
+            ? pacedAnimationRate(
+                Math.min(0.95, current.transcriptProgress),
+                current.currentStepProgress,
+              )
+            : 1;
+        progress = current.currentStepProgress + (elapsed / duration) * rate;
+      }
+      lastFrameAt = now;
+      dispatch(correlatedTick(correlation, progress));
       if (progress < 1) frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [lesson.steps, state]);
+  }, [
+    lesson.steps,
+    state.animationDone,
+    state.animationStarted,
+    state.currentStepIndex,
+    state.cycle,
+    state.phase,
+    state.requestId,
+    syncMode,
+  ]);
 
   const onSemanticEvent = useCallback((event: RealtimeSemanticEvent) => {
     if (event.type === "student.speech_started") {
@@ -205,6 +262,16 @@ export function useFixedLessonSync({
     const correlation = event.context;
     if (event.type === "narration.activity") {
       dispatch({ type: "NARRATION_ACTIVITY", ...correlation });
+    } else if (event.type === "narration.transcript_progress") {
+      const step = lesson.steps[stateRef.current.currentStepIndex];
+      const scriptCharacters = step?.script.length ?? 0;
+      if (scriptCharacters > 0) {
+        dispatch({
+          type: "NARRATION_PROGRESS",
+          progress: event.generatedCharacters / scriptCharacters,
+          ...correlation,
+        });
+      }
     } else if (event.type === "narration.generation_done") {
       dispatch({ type: "NARRATION_DONE", ...correlation });
     } else if (event.type === "narration.playback_stopped") {
@@ -217,6 +284,22 @@ export function useFixedLessonSync({
       dispatch({ type: "RESET", requestId: correlation.requestId });
     } else if (event.type === "checkpoint.prompt_activity") {
       dispatch({ type: "CHECKPOINT_PROMPT_ACTIVITY", ...correlation });
+      const current = stateRef.current;
+      const step = lesson.steps[current.currentStepIndex];
+      const checkpoint = step?.checkpoint;
+      if (
+        checkpoint &&
+        current.phase === "CHECKPOINT_ASKING" &&
+        correlation.requestId === current.requestId &&
+        correlation.stepId === step.id &&
+        correlation.cycle === current.cycle
+      ) {
+        void clientRef.current
+          ?.setInteractionGuidance(
+            checkpointGuidance(checkpoint.question, checkpoint.expected_gist),
+          )
+          .catch(() => undefined);
+      }
     } else if (event.type === "checkpoint.prompt_generation_done") {
       dispatch({ type: "CHECKPOINT_PROMPT_DONE", ...correlation });
     } else if (event.type === "checkpoint.prompt_playback_stopped") {
@@ -237,7 +320,7 @@ export function useFixedLessonSync({
         dispatch({ type: "CHECKPOINT_FEEDBACK_DRAIN_ELAPSED", ...correlation });
       }, AUDIO_DRAIN_GUARD_MS);
     }
-  }, [clientRef]);
+  }, [clientRef, lesson.steps]);
 
   const start = useCallback(() => {
     dispatch({ type: "START", requestId });
@@ -260,16 +343,34 @@ export function useFixedLessonSync({
     });
   }, [clientRef]);
 
-  return { state, start, resume, onSemanticEvent };
+  // A new topic during Q&A creates its request boundary immediately so every
+  // late event from the interrupted lesson becomes stale before generation.
+  const abort = useCallback((nextRequestId: string) => {
+    const current = stateRef.current;
+    const stepId = current.stepIds[current.currentStepIndex];
+    if (stepId) {
+      clientRef.current?.cancelExpectedAutomaticResponse("student_qa", {
+        requestId: current.requestId,
+        stepId,
+        cycle: current.cycle,
+      });
+    }
+    narrationKeyRef.current = undefined;
+    checkpointKeyRef.current = undefined;
+    dispatch({ type: "NEW_TOPIC", requestId: nextRequestId });
+  }, [clientRef]);
+
+  return { state, start, resume, abort, onSemanticEvent };
 }
 
-function correlatedTick(state: FixedSyncState, progress: number): Extract<FixedSyncEvent, { type: "TICK" }> {
+function correlatedTick(
+  correlation: Pick<FixedSyncState, "requestId" | "cycle"> & { stepId: string },
+  progress: number,
+): Extract<FixedSyncEvent, { type: "TICK" }> {
   return {
     type: "TICK",
     progress,
-    requestId: state.requestId,
-    stepId: state.stepIds[state.currentStepIndex] ?? "",
-    cycle: state.cycle,
+    ...correlation,
   };
 }
 

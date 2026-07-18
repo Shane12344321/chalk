@@ -48,7 +48,10 @@ def annotation_payload(**overrides: object) -> dict[str, object]:
         "question": "Why does this curve peak here?",
         "manifest_version": 3,
         "board_manifest": "Lesson: projectile range. Visible board: rangecurve.",
-        "visible_element_ids": ["rangeaxes", "rangecurve"],
+        "visible_elements": [
+            {"id": "rangeaxes", "kind": "axes", "bounds": [0.52, 0.18, 0.42, 0.58]},
+            {"id": "rangecurve", "kind": "curve", "bounds": [0.55, 0.22, 0.36, 0.48]},
+        ],
     }
     payload.update(overrides)
     return payload
@@ -198,7 +201,7 @@ def test_annotation_repairs_once_and_preserves_request_identity() -> None:
     repair_input = json.loads(calls[1]["input"][0]["content"])
     assert repair_input["request_id"] == REQUEST_ID
     assert repair_input["manifest_version"] == 3
-    assert repair_input["visible_element_ids"] == ["rangeaxes", "rangecurve"]
+    assert repair_input["visible_elements"] == annotation_payload()["visible_elements"]
 
 
 def test_annotation_stops_after_two_counted_repairs() -> None:
@@ -266,7 +269,12 @@ def test_annotation_rejects_missing_key_invalid_request_and_untrusted_host_befor
         missing = client.post("/annotate", json=annotation_payload())
         invalid = client.post(
             "/annotate",
-            json=annotation_payload(visible_element_ids=["duplicate", "duplicate"]),
+            json=annotation_payload(
+                visible_elements=[
+                    {"id": "duplicate", "kind": "text", "bounds": [0.1, 0.1, 0.2, 0.1]},
+                    {"id": "duplicate", "kind": "text", "bounds": [0.4, 0.1, 0.2, 0.1]},
+                ]
+            ),
         )
         hostile = client.post(
             "/annotate",
@@ -299,3 +307,42 @@ def test_annotation_body_limit_rejects_before_upstream_call() -> None:
     assert response.status_code == 413
     assert response.json()["detail"]["code"] == "request_too_large"
     assert called is False
+
+
+@pytest.mark.parametrize(
+    "bounds",
+    [
+        [-0.001, 0.1, 0.2, 0.2],
+        [0.1, 0.1, 0.0, 0.2],
+        [0.9, 0.1, 0.2, 0.2],
+        [0.1, 0.9, 0.2, 0.2],
+    ],
+)
+def test_annotation_rejects_invalid_structured_bounds(bounds: list[float]) -> None:
+    payload = annotation_payload(
+        visible_elements=[{"id": "rangecurve", "kind": "curve", "bounds": bounds}]
+    )
+    with client_with_transport(lambda _request: completed_output(program())) as client:
+        response = client.post("/annotate", json=payload)
+    assert response.status_code == 422
+
+
+def test_thirty_structured_elements_fit_the_existing_six_kib_request_budget() -> None:
+    visible_elements = [
+        {
+            "id": f"element{index}",
+            "kind": "text",
+            "bounds": [0.02 * (index % 10), 0.03 * (index // 10), 0.015, 0.02],
+        }
+        for index in range(30)
+    ]
+    payload = annotation_payload(visible_elements=visible_elements)
+    encoded = json.dumps(payload, separators=(",", ":")).encode()
+    assert len(encoded) <= 6 * 1024
+
+    accepted_program = program(ops=[{"op": "circle", "id": "mark", "target_id": "element0"}])
+    with client_with_transport(lambda _request: completed_output(accepted_program)) as client:
+        response = client.post(
+            "/annotate", content=encoded, headers={"Content-Type": "application/json"}
+        )
+    assert response.status_code == 200

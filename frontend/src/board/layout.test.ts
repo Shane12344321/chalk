@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import projectileLesson from "../../../demo/cached_lessons/projectile-range.lesson.json";
 import { decodeLesson } from "./decode";
 import { BOARD_HEIGHT, BOARD_WIDTH, layoutSteps, regionBox } from "./layout";
+import { physicsDiagramLesson } from "./physicsTestFixture";
 
 const lesson = decodeLesson(projectileLesson).lesson!;
 
@@ -75,6 +76,19 @@ describe("normalized board layout", () => {
     const title = layout.find(({ op }) => op.id === "title")!.box;
     const broad = layout.find(({ op }) => op.id === "broad")!.box;
     expect(overlapRatio(title, broad)).toBeLessThanOrEqual(0.15);
+  });
+
+  it("keeps related physics marks registered to one prefix-stable canvas", () => {
+    const physics = decodeLesson(physicsDiagramLesson()).lesson!;
+    const first = layoutSteps(physics.steps);
+    const prefix = layoutSteps(physics.steps.slice(0, 1));
+    const boundary = first.find(({ op }) => op.id === "boundary")!;
+    const related = first.filter(({ op }) => ["normal", "incident", "hit", "reflected", "theta"].includes(op.id));
+
+    expect(boundary.canvasBox).toBeDefined();
+    related.forEach((item) => expect(item.canvasBox).toEqual(boundary.canvasBox));
+    expect(first.slice(0, prefix.length)).toEqual(prefix);
+    expect(first.find(({ op }) => op.id === "incident")!.box).not.toEqual(boundary.box);
   });
 });
 

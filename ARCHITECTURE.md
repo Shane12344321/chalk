@@ -132,9 +132,10 @@ It contains:
 - a stroke animator that can freeze at its current progress;
 - a manifest builder derived from committed visible state.
 - a committed-element inventory derived from that same renderer snapshot for
-  local deixis and annotation target validation.
+  local deixis and annotation target validation, including exact normalized
+  bounds sent only to the annotation service.
 
-Rough geometry is seeded by element ID and generated once so React rerenders do not move existing strokes.
+Rough geometry is seeded by element ID and generated once so React rerenders do not move existing strokes. Layout is prefix-stable by construction: region packing uses a flowing per-region cursor that depends only on earlier ops, so a later streamed step can never move ink already on the board. Axes, curves, and sketches reveal their strokes sequentially through one shared reveal-group mechanism, animation weights follow drawn content length, and axis labels appear only after their axes strokes are nearly complete.
 
 ### Backend
 
@@ -148,11 +149,23 @@ Calls the configured board model through the Responses API, incrementally parses
 
 #### Annotation service
 
-Generates a bounded overlay batch from the latest accepted manifest and a student question. It does not create new axes and may return at most five ops.
+Generates a bounded overlay batch from the latest accepted manifest, exact
+committed element kinds/bounds, and a student question. It does not create new
+axes and may return at most five ops. The tutor manifest remains the compact
+Realtime context; the bounds-bearing inventory is scoped to `/annotate`.
 
 #### Validation service
 
-Applies JSON Schema, budgets, reference-state validation, safe expression-AST validation, and normalization. It never evaluates model-produced code.
+Applies a closed safe-only sanitizer, then JSON Schema, budgets,
+reference-state validation, safe expression-AST validation, and normalization.
+The sanitizer trims outer whitespace, rewrites `**` to `^`, and clamps only
+normalized values within 0.05 of a legal boundary; it never guesses a
+reference or meaning. It never evaluates model-produced code: curve
+expressions are numerically sampled by a bounded interpreter over CHALK's own
+already-validated AST node set, mirroring the browser sampling contract pinned
+in `shared/fixtures/curve-parity.json`. Equation LaTeX passes a conservative
+structural lint mirroring the classes KaTeX strict mode rejects, pinned in
+`shared/fixtures/latex-parity.json`.
 
 #### Optional services
 
@@ -328,14 +341,14 @@ Accepted IDs are added only after successful normalization. Later lines cannot r
 The stable mode is `SYNC_MODE=fixed`:
 
 1. `SyncEngine` marks the step active and requests its narration.
-2. The first narration delta or observed audio activity starts a fixed weighted animation schedule.
+2. Observed `output_audio_buffer.started` activity starts a fixed weighted animation schedule. Transcript generation alone never starts ink.
 3. Op weights distribute expected duration; configuration clamps minimum and maximum durations.
-4. Narration completion and animation completion are tracked independently.
+4. If playback drains with ink pending, the remaining portion finishes within 400 ms rather than drawing through a long silent tail.
 5. The next step waits for both plus a measured audio-drain guard.
 
-`SYNC_MODE=paced` adds a bounded controller that adjusts animation rate from transcript-character progress. It is an enhancement, not a dependency.
+`SYNC_MODE=paced` is retained only as an experimental comparison. It keeps the same audible-playback start gate and adds a bounded 0.5×–3× controller from cumulative transcript-character progress, but generation can finish several seconds before audible playout. Transcript progress is therefore not a playback-position signal and paced mode is not the demo default. The backend projects the validated runtime mode in the session response so the browser and server cannot silently disagree.
 
-**SPIKE:** determine whether remote-audio activity can be measured reliably with a Web Audio analyser in the recording browser. If not, calibrate a small drain guard on cached lessons and document the value.
+**SPIKE:** determine whether remote-audio activity can be measured reliably with a Web Audio analyser in the recording browser. The experiment must attach an analyser to the actual remote WebRTC media stream, compare its activity envelope against recorded audible output for at least three cached runs, and prove that pause/stop boundaries do not lead the speaker. An analyser can establish audible activity, not semantic word position; per-op word-to-mark alignment remains a separate future DSL design with narration cues. If the recording browser does not expose reliable remote-stream timing, retain fixed mode and calibrate the drain guard rather than inferring playback from transcript generation.
 
 ### 5. Interruption and resume
 
@@ -450,6 +463,9 @@ Curve expressions cross a two-stage boundary:
 - Annotation output uses its own target-relative overlay schema, never the lesson
   program schema. It permits at most five circle, underline, arrow, text, or
   equation marks and cannot create axes or mutate the lesson manifest.
+- Annotation targets carry committed IDs, kinds, and normalized y-down bounds.
+  Structured geometry is authoritative. Screenshot context is absent from the
+  product request and exists only in an owner-gated two-call evaluation harness.
 - A new lesson aborts lesson generation, annotation, pending playback, and optional widget generation from the prior lesson.
 - Backend repair calls are sequential per line to preserve accepted-ID order and share an aggregate four-call lesson budget.
 - The renderer isolates each op: one render failure cannot cancel sibling ops or the lesson.
@@ -463,6 +479,7 @@ Curve expressions cross a two-stage boundary:
 | Tool arguments invalid | Return soft tool error | Tutor asks again or continues without tool |
 | Board model slow | Realtime gives short bounded filler | Cached lesson after configured timeout |
 | Model line invalid | Repair at most twice for that line and at most four times for the lesson | Drop line; validate later refs against accepted IDs |
+| Streamed step fails browser validation | Drop only that op or step and count it as a browser drop | Cached fallback only when zero streamed steps survive |
 | Repair request fails | Record closed `repair` origin and the already-consumed repair count | Terminate or retain the accepted prefix without exposing upstream content |
 | Stream fails after steps | Finish accepted buffered steps | Explain lesson ended early; cached restart available |
 | Live evaluation request ends for `max_output_tokens` or `content_filter` | Record bounded code/reason; do not retry that topic; continue the fixed sample | Human rubric marks that topic failed |
@@ -486,6 +503,7 @@ Use structured, redacted events with monotonic timestamps where possible:
 - Realtime event type and correlated response/tool IDs;
 - lesson request start, first model delta, first valid step, and terminal status;
 - validation and repair outcomes by error code, never raw student text by default;
+- sanitized-step and sanitized-field counts, never before/after values;
 - animation start/freeze/resume/commit;
 - manifest version publish/ack;
 - fallback activation;
@@ -598,6 +616,19 @@ Client-visible configuration must contain only non-secret feature flags. Never e
 | ADR-016 | 2026-07-16 | Attribute and cap repairs, stop when the acceptance gate is unreachable, and retain paid-path harness failures | A failed repair previously looked like primary generation failure and could disappear from counts; one lesson now permits at most four counted-before-dispatch repairs, terminal evidence carries only closed origin/count fields, the third machine failure stops the 8/10 batch, and summary v2 records redacted harness failures without exception text |
 | ADR-017 | 2026-07-16 | Use plain-text Responses for repair and qualify that seam with an independent one-call probe | The second batch proved the first unit-circle repair request—not primary generation—received `invalid_request`; Luna documents Structured Outputs support, but the repair-only JSON formatting request failed live. Removing the nonessential format parameter keeps schema validation as the trust boundary. The separately approved content-free repair smoke then passed in 2.77 seconds with exactly one request and no retry |
 | ADR-018 | 2026-07-17 | Keep annotations in a separate target-relative overlay schema | The lesson DSL remains the stable recording contract. A five-op overlay contract can ground new explanatory ink to committed IDs without adding axes, absolute placement, or temporary marks to lesson or manifest state; local deixis remains the reliable fallback |
+| ADR-019 | 2026-07-17 | Browser lesson decoding degrades per op/step and never discards an accepted prefix | Previously one browser-rejected op aborted the whole live lesson and loaded the wrong-topic cached fallback; the assembler now drops only the failing op or step, and the fallback is reserved for zero-usable-step lessons |
+| ADR-020 | 2026-07-17 | Pre-sample curves and lint LaTeX on the backend with shared parity fixtures | The backend accepted expressions and equations the browser rejects at runtime (`1/x` across zero, `log`/`sqrt` over non-positive domains, `**`, strict-KaTeX failures), so repair could never fire; a bounded interpreter over the validated AST and a structural lint close the gap without evaluating model code, with `shared/fixtures/*-parity.json` as the two-sided contract |
+| ADR-021 | 2026-07-17 | Layout is prefix-stable via flowing per-region cursors | Count-division slot sizing let a later streamed step resize and move earlier committed ink; cursor packing depends only on earlier ops, so placing step N can never move steps 1..N-1, verified by a corpus-wide prefix property test |
+| ADR-022 | 2026-07-17 | Board prompt v3 carries an explicit spatial contract | The model was never told the grid geometry, region sizes and overlaps, y-down sketch orientation, axes sizing, or curve domain rules, and the hardest op (sketch) had no worked example; v3 states all of them, declares `visible_board` non-anchorable, and pairs with the browser sending an empty board state for fresh lessons. Live rubric qualification of v3 remains a pending approved gate |
+| ADR-023 | 2026-07-17 | `teach` during QA creates a new request boundary before generation | The documented QA → GENERATING transition was unreachable because the teach handler required IDLE/DONE. The switch now cancels the Q&A expectation and immediately installs the replacement request ID with empty step state, so late narration and ink events from the old request are stale before new generation begins. |
+| ADR-024 | 2026-07-18 | Retain transcript-paced ink only as an experimental flag; default to fixed | Transcript deltas measure generation rather than audible position and can race far ahead of speaker playback. The server still projects `SYNC_MODE`, playback stop still bounds the silent tail, but the dependable demo path remains playback-gated fixed scheduling until remote-audio position is measured directly. |
+| ADR-025 | 2026-07-18 | Add schema-1.1 physics marks on a shared normalized canvas | A plain sketch cannot express ray direction, construction lines, labeled points, or measured angles. `line`, `arrow`, `point`, and `angle_arc` use closed properties and inherit an earlier diagram primitive's coordinate canvas, preserving deterministic validation, stable rough geometry, prefix-stable layout, and per-stroke interruption without allowing arbitrary SVG. Cached schema-1.0 lessons remain untouched. |
+| ADR-026 | 2026-07-18 | Generate the v3 and repair wire contract from the shared lesson schema | Handwritten op syntax can drift from the sole wire source. A bounded deterministic renderer now injects exact fields, variants, enums, ranges, IDs, regions, and budgets into the current prompts; v1/v2 remain byte-identical and hashes cover the fully expanded prompt. |
+| ADR-027 | 2026-07-18 | Sanitize only closed near-valid lesson mistakes before repair | Whitespace, `**`, and tiny normalized-boundary overshoot are unambiguous and should not consume a paid repair. Shared fixtures keep Python and TypeScript identical; fuzzy IDs, semantic edits, and material coordinate errors remain repair/drop cases, and closed warning counts preserve evidence honesty. |
+| ADR-028 | 2026-07-18 | Make structured committed bounds authoritative for annotation and gate screenshots as an A/B spike | The renderer knows exact geometry more reliably than vision. `/annotate` now receives normalized ID/kind/bounds while the tutor manifest stays compact. A separate owner-acknowledged CLI may compare one structured call with one structured-plus-low-detail-image call; no screenshot enters the product path until evidence shows material benefit. |
+| ADR-029 | 2026-07-18 | Retry one unprompted incomplete checkpoint, but preserve deliberate early answers | A non-completed checkpoint response previously emitted normal generation/playback completion and advanced to listening after partial speech. Unprompted `cancelled`/`incomplete` prompts now emit a correlated failure and receive one bounded retry; a response cancelled by detected student speech remains an intentional early-answer transition. Answer-evaluation guidance is installed only after prompt audio starts, avoiding contradictory instructions while the question is generated. |
+| ADR-030 | 2026-07-18 | Add deterministic visual lints before vision or mutable patches | The browser already owns exact resolved geometry, so it now reports closed label-overlap, label-boundary, and text-overflow findings in diagnostics without moving committed ink. Prompt v3 also chooses concept-shaped visual structures and applies a word-removal test. Vision remains an optional owner-gated evaluator and cannot replace the human rubric. |
+| ADR-031 | 2026-07-18 | Treat pending Realtime responses as busy and bound every response lifecycle | `response.create` previously had an invisible interval before `response.created`, allowing a generated lesson to enter `TEACHING` while its one-sentence tool continuation was still pending; the narration request then rejected once and never retried, leaving a blank board. Pending registrations now enter the public snapshot immediately, auto-start rechecks authoritative client state after context acknowledgement, scripted requests refuse all in-flight work, transient busy rejection retries only after an observed busy-to-idle transition, and bounded creation/settlement watchdogs prevent either lifecycle phase from remaining stuck indefinitely. |
 
 ## Open spike decisions
 

@@ -7,6 +7,7 @@ import {
   BOARD_MANIFEST_MAX_CHARS,
   buildBoardManifest,
   buildVisibleBoardSnapshot,
+  toAnnotationVisibleElements,
 } from "./manifest";
 
 const lesson = decodeLesson(projectileLesson).lesson!;
@@ -48,5 +49,26 @@ describe("visible board manifest", () => {
     expect(snapshot.manifest).toContain("title");
     expect(snapshot.manifest).not.toContain("cannon");
     expect(snapshot.fingerprint).toContain("title");
+  });
+
+  it("normalizes exact committed boxes for annotation without changing manifest text", () => {
+    const snapshot = buildVisibleBoardSnapshot(
+      lesson.title,
+      geometry.map((item) => ({ geometry: item, progress: 1 })),
+    );
+    const visible = toAnnotationVisibleElements(snapshot.elements);
+    expect(visible).toHaveLength(snapshot.elements.length);
+    expect(visible[0]).toMatchObject({ id: snapshot.elements[0].id, kind: snapshot.elements[0].kind });
+    for (const element of visible) {
+      const [x, y, width, height] = element.bounds;
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(width).toBeGreaterThan(0);
+      expect(height).toBeGreaterThan(0);
+      expect(x + width).toBeLessThanOrEqual(1.001);
+      expect(y + height).toBeLessThanOrEqual(1.001);
+      expect(element.bounds.every((value) => String(value).split(".")[1]?.length <= 3 || Number.isInteger(value))).toBe(true);
+    }
+    expect(snapshot.manifest).not.toContain("bounds");
   });
 });

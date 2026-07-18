@@ -25,6 +25,7 @@ export interface BoardGeometry {
   id: string;
   kind: LessonOp["op"];
   box: LayoutBox;
+  canvasBox?: LayoutBox;
   paths: BoardPath[];
   labels: BoardLabel[];
   text?: string;
@@ -56,7 +57,13 @@ export class BoardGeometryStore {
 
     for (const item of laidOutOps) {
       if (item.op.op === "axes") axes.set(item.op.id, { op: item.op, box: item.box });
-      const signature = JSON.stringify([item.op, item.box, item.stepIndex, item.opIndex]);
+      const signature = JSON.stringify([
+        item.op,
+        item.box,
+        item.canvasBox,
+        item.stepIndex,
+        item.opIndex,
+      ]);
       const cached = this.cache.get(item.op.id);
       if (cached?.signature === signature) {
         geometries.push(cached.geometry);
@@ -90,6 +97,7 @@ function createGeometry(
     id: op.id,
     kind: op.op,
     box,
+    ...(item.canvasBox ? { canvasBox: item.canvasBox } : {}),
     paths: [],
     labels: [],
     manifestSummary: op.op,
@@ -136,18 +144,111 @@ function createGeometry(
     return { ...base, paths, manifestSummary: `sketch with ${op.strokes.length} strokes` };
   }
 
+  if (op.op === "line" || op.op === "arrow") {
+    const canvas = item.canvasBox;
+    if (!canvas) throw new Error(`Diagram ${op.id} has no coordinate canvas.`);
+    const from = diagramPoint(op.from, canvas);
+    const to = diagramPoint(op.to, canvas);
+    const paths = styledLinePaths(generator, from, to, op.stroke, op.id);
+    if (op.op === "arrow") {
+      const angle = Math.atan2(to[1] - from[1], to[0] - from[0]);
+      const headLength = 24;
+      const left: [number, number] = [
+        to[0] - Math.cos(angle - Math.PI / 6) * headLength,
+        to[1] - Math.sin(angle - Math.PI / 6) * headLength,
+      ];
+      const right: [number, number] = [
+        to[0] - Math.cos(angle + Math.PI / 6) * headLength,
+        to[1] - Math.sin(angle + Math.PI / 6) * headLength,
+      ];
+      paths.push(
+        ...roughLinePaths(generator, to, left, `${op.id}:head-left`, 100),
+        ...roughLinePaths(generator, to, right, `${op.id}:head-right`, 101),
+      );
+    }
+    return {
+      ...base,
+      paths,
+      labels: op.label ? [segmentLabel(op.label, from, to)] : [],
+      manifestSummary: `${op.op}${op.label ? `: ${op.label}` : ""}`,
+    };
+  }
+
+  if (op.op === "point") {
+    const canvas = item.canvasBox;
+    if (!canvas) throw new Error(`Diagram ${op.id} has no coordinate canvas.`);
+    const [x, y] = diagramPoint(op.at, canvas);
+    return {
+      ...base,
+      paths: normalizePaths(
+        generator.toPaths(
+          generator.circle(x, y, 16, { seed: stableSeed(`${op.id}:point`) }),
+        ),
+        0,
+        50,
+      ),
+      labels: op.label ? [{ text: op.label, x: x + 16, y: y - 12 }] : [],
+      manifestSummary: `point${op.label ? `: ${op.label}` : ""}`,
+    };
+  }
+
+  if (op.op === "angle_arc") {
+    const canvas = item.canvasBox;
+    if (!canvas) throw new Error(`Diagram ${op.id} has no coordinate canvas.`);
+    const center = diagramPoint(op.center, canvas);
+    const radius = op.radius * Math.min(canvas.width, canvas.height);
+    const sweep = op.end_deg - op.start_deg;
+    const sampleCount = Math.max(8, Math.ceil(Math.abs(sweep) / 8));
+    const points = Array.from({ length: sampleCount + 1 }, (_, index) => {
+      const degrees = op.start_deg + (sweep * index) / sampleCount;
+      const radians = (degrees * Math.PI) / 180;
+      return [
+        center[0] + Math.cos(radians) * radius,
+        center[1] + Math.sin(radians) * radius,
+      ] as [number, number];
+    });
+    const midpointRadians = (((op.start_deg + op.end_deg) / 2) * Math.PI) / 180;
+    return {
+      ...base,
+      paths: styledPolylinePaths(generator, points, op.stroke, op.id),
+      labels: op.label
+        ? [
+            {
+              text: op.label,
+              x: center[0] + Math.cos(midpointRadians) * (radius + 24),
+              y: center[1] + Math.sin(midpointRadians) * (radius + 24),
+              anchor: "middle",
+            },
+          ]
+        : [],
+      manifestSummary: `angle arc${op.label ? `: ${op.label}` : ""}`,
+    };
+  }
+
   if (op.op === "axes") {
     const left = box.x + 58;
     const right = box.x + box.width - 24;
     const top = box.y + 24;
     const bottom = box.y + box.height - 52;
     const paths = [
-      ...generator.toPaths(generator.line(left, bottom, right, bottom, { seed: stableSeed(`${op.id}:x`) })),
-      ...generator.toPaths(generator.line(left, bottom, left, top, { seed: stableSeed(`${op.id}:y`) })),
+      ...normalizePaths(
+        generator.toPaths(
+          generator.line(left, bottom, right, bottom, { seed: stableSeed(`${op.id}:x`) }),
+        ),
+        0,
+        right - left,
+      ),
+      ...normalizePaths(
+        generator.toPaths(
+          generator.line(left, bottom, left, top, { seed: stableSeed(`${op.id}:y`) }),
+        ),
+        1,
+        bottom - top,
+      ),
     ];
     return {
       ...base,
-      paths: normalizePaths(paths),
+      paths,
       manifestSummary: `axes: ${op.x.label} ${op.x.min} to ${op.x.max}; ${op.y.label} ${op.y.min} to ${op.y.max}`,
       labels: [
         { text: op.x.label, x: (left + right) / 2, y: bottom + 42, anchor: "middle" },
@@ -175,18 +276,104 @@ function createGeometry(
     .reduce((highest, point) => (point[1] > highest[1] ? point : highest));
   return {
     ...base,
-    paths: normalizePaths(
-      visibleSegments.flatMap((visible, index) =>
+    paths: visibleSegments.flatMap((visible, index) =>
+      normalizePaths(
         generator.toPaths(generator.curve(visible, {
           seed: stableSeed(`${op.id}:${index}`),
           stroke: "#efc76a",
           strokeWidth: 5,
           roughness: 0.75,
         })),
+        index,
+        polylineLength(visible),
       ),
     ),
     manifestSummary: `curve on ${op.axes_id}; visible peak near x=${formatNumber(peak[0])}, y=${formatNumber(peak[1])}`,
   };
+}
+
+function styledLinePaths(
+  generator: ReturnType<typeof rough.generator>,
+  from: [number, number],
+  to: [number, number],
+  stroke: "solid" | "dashed",
+  seedId: string,
+): BoardPath[] {
+  if (stroke === "solid") return roughLinePaths(generator, from, to, seedId, 0);
+  const distance = Math.hypot(to[0] - from[0], to[1] - from[1]);
+  const count = Math.max(2, Math.ceil(distance / 42));
+  return Array.from({ length: count }, (_, index) => {
+    const start = index / count;
+    const end = Math.min(1, start + 0.58 / count);
+    const dashFrom: [number, number] = [
+      from[0] + (to[0] - from[0]) * start,
+      from[1] + (to[1] - from[1]) * start,
+    ];
+    const dashTo: [number, number] = [
+      from[0] + (to[0] - from[0]) * end,
+      from[1] + (to[1] - from[1]) * end,
+    ];
+    return roughLinePaths(generator, dashFrom, dashTo, `${seedId}:dash-${index}`, index);
+  }).flat();
+}
+
+function styledPolylinePaths(
+  generator: ReturnType<typeof rough.generator>,
+  points: readonly [number, number][],
+  stroke: "solid" | "dashed",
+  seedId: string,
+): BoardPath[] {
+  if (stroke === "solid") {
+    return normalizePaths(
+      generator.toPaths(
+        generator.linearPath([...points], { seed: stableSeed(`${seedId}:arc`) }),
+      ),
+      0,
+      polylineLength(points),
+    );
+  }
+  return points.slice(1).flatMap((to, index) =>
+    styledLinePaths(generator, points[index], to, "dashed", `${seedId}:arc-${index}`),
+  );
+}
+
+function roughLinePaths(
+  generator: ReturnType<typeof rough.generator>,
+  from: [number, number],
+  to: [number, number],
+  seedId: string,
+  revealGroup: number,
+): BoardPath[] {
+  return normalizePaths(
+    generator.toPaths(
+      generator.line(from[0], from[1], to[0], to[1], {
+        seed: stableSeed(seedId),
+      }),
+    ),
+    revealGroup,
+    Math.max(1, Math.hypot(to[0] - from[0], to[1] - from[1])),
+  );
+}
+
+function segmentLabel(
+  text: string,
+  from: [number, number],
+  to: [number, number],
+): BoardLabel {
+  const length = Math.max(1, Math.hypot(to[0] - from[0], to[1] - from[1]));
+  return {
+    text,
+    x: (from[0] + to[0]) / 2 - ((to[1] - from[1]) / length) * 20,
+    y: (from[1] + to[1]) / 2 + ((to[0] - from[0]) / length) * 20,
+    anchor: "middle",
+  };
+}
+
+function diagramPoint(
+  point: readonly [number, number],
+  canvas: LayoutBox,
+): [number, number] {
+  return [canvas.x + point[0] * canvas.width, canvas.y + point[1] * canvas.height];
 }
 
 function equationFontSize(latex: string, width: number): number {

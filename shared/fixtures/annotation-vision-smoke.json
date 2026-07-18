@@ -1,0 +1,15 @@
+{
+  "schema": "chalk.annotation-vision-smoke-fixture.v1",
+  "screenshot": "artifacts/evidence/m3-luna-v2-batch-20260717-0635/screenshots/standing-waves.png",
+  "question": "Add a short label below the standing-wave sketch identifying an antinode.",
+  "manifest_version": 1,
+  "board_manifest": "Lesson: Standing waves. Visible board: wave sketch on the left; nodes label to its right; antinodes label below it; wavelength equations above.",
+  "visible_elements": [
+    { "id": "title", "kind": "text", "bounds": [0.05, 0.07, 0.22, 0.08] },
+    { "id": "wave", "kind": "sketch", "bounds": [0.05, 0.19, 0.42, 0.31] },
+    { "id": "nodes", "kind": "text", "bounds": [0.29, 0.25, 0.16, 0.1] },
+    { "id": "antinodes", "kind": "text", "bounds": [0.05, 0.48, 0.27, 0.09] },
+    { "id": "condition", "kind": "equation", "bounds": [0.34, 0.07, 0.2, 0.09] },
+    { "id": "fundamental", "kind": "equation", "bounds": [0.57, 0.06, 0.13, 0.1] }
+  ]
+}

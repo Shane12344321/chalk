@@ -9,6 +9,7 @@ export type ConnectionStatus =
   | "error";
 
 export type ChalkRuntimeMode = "demo" | "diagnostics";
+export type SyncMode = "fixed" | "paced";
 
 export interface SessionRequest {
   request_id: string;
@@ -21,6 +22,7 @@ export interface SessionCredential {
   expires_at?: number;
   model: string;
   voice: string;
+  sync_mode: SyncMode;
 }
 
 export interface FunctionCall {
@@ -91,7 +93,9 @@ export interface RealtimeSnapshot {
   status: ConnectionStatus;
   sessionModel?: string;
   sessionVoice?: string;
+  syncMode?: SyncMode;
   activeResponseId?: string;
+  responsePending: boolean;
   audioPlaybackActive: boolean;
   microphoneEnabled: boolean;
   lastError?: string;
@@ -130,6 +134,11 @@ export interface NarrationContext {
 export type RealtimeSemanticEvent =
   | { type: "student.speech_started" }
   | { type: "narration.activity"; context: NarrationContext }
+  | {
+      type: "narration.transcript_progress";
+      context: NarrationContext;
+      generatedCharacters: number;
+    }
   | { type: "narration.generation_done"; context: NarrationContext }
   | { type: "narration.playback_stopped"; context: NarrationContext }
   | { type: "narration.failed"; context: NarrationContext }

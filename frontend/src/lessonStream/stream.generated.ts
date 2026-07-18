@@ -5,7 +5,7 @@
  */
 export type LessonStreamEnvelope = Started | Step | Warning | Done | Error;
 export type RequestId = string;
-export type LessonOp = TextOp | EquationOp | SketchOp | AxesOp | CurveOp;
+export type LessonOp = TextOp | EquationOp | SketchOp | AxesOp | CurveOp | LineOp | ArrowOp | PointOp | AngleArcOp;
 export type TextOp = TextRegionOp | TextAnchorOp;
 export type EquationOp = EquationRegionOp | EquationAnchorOp;
 /**
@@ -13,6 +13,11 @@ export type EquationOp = EquationRegionOp | EquationAnchorOp;
  * @maxItems 2
  */
 export type NormalizedPoint = [number, number];
+export type LineOp = LineRegionOp | LineCanvasOp;
+export type ArrowOp = ArrowRegionOp | ArrowCanvasOp;
+export type PointOp = PointRegionOp | PointCanvasOp;
+export type AngleArcOp = AngleArcRegionOp | AngleArcCanvasOp;
+export type Warning = StandardWarning | SanitizedWarning;
 export type Error = UpstreamError | LocalError;
 
 export interface Started {
@@ -128,15 +133,115 @@ export interface CurveOp {
    */
   domain?: [number, number];
 }
+export interface LineRegionOp {
+  op: "line";
+  id: string;
+  region: "A1" | "A2" | "A3" | "B1" | "B2" | "B3" | "C1" | "C2" | "C3" | "D1" | "D2" | "D3" | "left" | "right" | "full";
+  from: NormalizedPoint;
+  to: NormalizedPoint;
+  stroke: "solid" | "dashed";
+  label?: string;
+}
+export interface LineCanvasOp {
+  op: "line";
+  id: string;
+  canvas_id: string;
+  from: NormalizedPoint;
+  to: NormalizedPoint;
+  stroke: "solid" | "dashed";
+  label?: string;
+}
+export interface ArrowRegionOp {
+  op: "arrow";
+  id: string;
+  region: "A1" | "A2" | "A3" | "B1" | "B2" | "B3" | "C1" | "C2" | "C3" | "D1" | "D2" | "D3" | "left" | "right" | "full";
+  from: NormalizedPoint;
+  to: NormalizedPoint;
+  stroke: "solid" | "dashed";
+  label?: string;
+}
+export interface ArrowCanvasOp {
+  op: "arrow";
+  id: string;
+  canvas_id: string;
+  from: NormalizedPoint;
+  to: NormalizedPoint;
+  stroke: "solid" | "dashed";
+  label?: string;
+}
+export interface PointRegionOp {
+  op: "point";
+  id: string;
+  region: "A1" | "A2" | "A3" | "B1" | "B2" | "B3" | "C1" | "C2" | "C3" | "D1" | "D2" | "D3" | "left" | "right" | "full";
+  at: NormalizedPoint;
+  label?: string;
+}
+export interface PointCanvasOp {
+  op: "point";
+  id: string;
+  canvas_id: string;
+  at: NormalizedPoint;
+  label?: string;
+}
+export interface AngleArcRegionOp {
+  op: "angle_arc";
+  id: string;
+  region: "A1" | "A2" | "A3" | "B1" | "B2" | "B3" | "C1" | "C2" | "C3" | "D1" | "D2" | "D3" | "left" | "right" | "full";
+  center: NormalizedPoint;
+  radius: number;
+  start_deg: number;
+  end_deg: number;
+  stroke: "solid" | "dashed";
+  label?: string;
+}
+export interface AngleArcCanvasOp {
+  op: "angle_arc";
+  id: string;
+  canvas_id: string;
+  center: NormalizedPoint;
+  radius: number;
+  start_deg: number;
+  end_deg: number;
+  stroke: "solid" | "dashed";
+  label?: string;
+}
 export interface Checkpoint {
   question: string;
   expected_gist: string;
 }
-export interface Warning {
+export interface StandardWarning {
   type: "lesson.warning";
   request_id: RequestId;
   code: "step_repaired" | "step_dropped" | "truncated_output";
   step_hint?: string;
+}
+export interface SanitizedWarning {
+  type: "lesson.warning";
+  request_id: RequestId;
+  code: "step_sanitized";
+  step_hint?: string;
+  /**
+   * @minItems 1
+   * @maxItems 4
+   */
+  corrections:
+    | ["trimmed_outer_whitespace" | "normalized_power_operator" | "clamped_anchor_gap" | "clamped_normalized_point"]
+    | [
+        "trimmed_outer_whitespace" | "normalized_power_operator" | "clamped_anchor_gap" | "clamped_normalized_point",
+        "trimmed_outer_whitespace" | "normalized_power_operator" | "clamped_anchor_gap" | "clamped_normalized_point"
+      ]
+    | [
+        "trimmed_outer_whitespace" | "normalized_power_operator" | "clamped_anchor_gap" | "clamped_normalized_point",
+        "trimmed_outer_whitespace" | "normalized_power_operator" | "clamped_anchor_gap" | "clamped_normalized_point",
+        "trimmed_outer_whitespace" | "normalized_power_operator" | "clamped_anchor_gap" | "clamped_normalized_point"
+      ]
+    | [
+        "trimmed_outer_whitespace" | "normalized_power_operator" | "clamped_anchor_gap" | "clamped_normalized_point",
+        "trimmed_outer_whitespace" | "normalized_power_operator" | "clamped_anchor_gap" | "clamped_normalized_point",
+        "trimmed_outer_whitespace" | "normalized_power_operator" | "clamped_anchor_gap" | "clamped_normalized_point",
+        "trimmed_outer_whitespace" | "normalized_power_operator" | "clamped_anchor_gap" | "clamped_normalized_point"
+      ];
+  correction_count: number;
 }
 export interface Done {
   type: "lesson.done";
@@ -144,6 +249,8 @@ export interface Done {
   accepted_steps: number;
   repairs: number;
   dropped_steps: number;
+  sanitized_steps?: number;
+  sanitized_fields?: number;
 }
 export interface UpstreamError {
   type: "lesson.error";

@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "title", "steps"],
   "properties": {
-    "schema_version": { "const": "1.0" },
+    "schema_version": { "enum": ["1.0", "1.1"] },
     "title": { "type": "string", "minLength": 1, "maxLength": 80 },
     "steps": {
       "type": "array",
@@ -51,7 +51,7 @@
         "label": { "type": "string", "maxLength": 32 }
       }
     },
-    "point": {
+    "normalizedPoint": {
       "title": "NormalizedPoint",
       "type": "array",
       "items": [
@@ -141,7 +141,7 @@
             "type": "array",
             "minItems": 2,
             "maxItems": 40,
-            "items": { "$ref": "#/$defs/point" }
+            "items": { "$ref": "#/$defs/normalizedPoint" }
           }
         }
       }
@@ -181,6 +181,136 @@
         }
       }
     },
+    "strokeStyle": {
+      "type": "string",
+      "enum": ["solid", "dashed"]
+    },
+    "lineOp": {
+      "title": "LineOp",
+      "oneOf": [
+        { "$ref": "#/$defs/lineRegionOp" },
+        { "$ref": "#/$defs/lineCanvasOp" }
+      ]
+    },
+    "lineRegionOp": {
+      "title": "LineRegionOp",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "region", "from", "to", "stroke"],
+      "properties": {
+        "op": { "const": "line" }, "id": { "$ref": "#/$defs/elementId" },
+        "region": { "$ref": "#/$defs/region" },
+        "from": { "$ref": "#/$defs/normalizedPoint" }, "to": { "$ref": "#/$defs/normalizedPoint" },
+        "stroke": { "$ref": "#/$defs/strokeStyle" }, "label": { "type": "string", "minLength": 1, "maxLength": 32 }
+      }
+    },
+    "lineCanvasOp": {
+      "title": "LineCanvasOp",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "canvas_id", "from", "to", "stroke"],
+      "properties": {
+        "op": { "const": "line" }, "id": { "$ref": "#/$defs/elementId" },
+        "canvas_id": { "$ref": "#/$defs/elementId" },
+        "from": { "$ref": "#/$defs/normalizedPoint" }, "to": { "$ref": "#/$defs/normalizedPoint" },
+        "stroke": { "$ref": "#/$defs/strokeStyle" }, "label": { "type": "string", "minLength": 1, "maxLength": 32 }
+      }
+    },
+    "arrowOp": {
+      "title": "ArrowOp",
+      "oneOf": [
+        { "$ref": "#/$defs/arrowRegionOp" },
+        { "$ref": "#/$defs/arrowCanvasOp" }
+      ]
+    },
+    "arrowRegionOp": {
+      "title": "ArrowRegionOp",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "region", "from", "to", "stroke"],
+      "properties": {
+        "op": { "const": "arrow" }, "id": { "$ref": "#/$defs/elementId" },
+        "region": { "$ref": "#/$defs/region" },
+        "from": { "$ref": "#/$defs/normalizedPoint" }, "to": { "$ref": "#/$defs/normalizedPoint" },
+        "stroke": { "$ref": "#/$defs/strokeStyle" }, "label": { "type": "string", "minLength": 1, "maxLength": 32 }
+      }
+    },
+    "arrowCanvasOp": {
+      "title": "ArrowCanvasOp",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "canvas_id", "from", "to", "stroke"],
+      "properties": {
+        "op": { "const": "arrow" }, "id": { "$ref": "#/$defs/elementId" },
+        "canvas_id": { "$ref": "#/$defs/elementId" },
+        "from": { "$ref": "#/$defs/normalizedPoint" }, "to": { "$ref": "#/$defs/normalizedPoint" },
+        "stroke": { "$ref": "#/$defs/strokeStyle" }, "label": { "type": "string", "minLength": 1, "maxLength": 32 }
+      }
+    },
+    "pointOp": {
+      "title": "PointOp",
+      "oneOf": [
+        { "$ref": "#/$defs/pointRegionOp" },
+        { "$ref": "#/$defs/pointCanvasOp" }
+      ]
+    },
+    "pointRegionOp": {
+      "title": "PointRegionOp",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "region", "at"],
+      "properties": {
+        "op": { "const": "point" }, "id": { "$ref": "#/$defs/elementId" },
+        "region": { "$ref": "#/$defs/region" }, "at": { "$ref": "#/$defs/normalizedPoint" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 32 }
+      }
+    },
+    "pointCanvasOp": {
+      "title": "PointCanvasOp",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "canvas_id", "at"],
+      "properties": {
+        "op": { "const": "point" }, "id": { "$ref": "#/$defs/elementId" },
+        "canvas_id": { "$ref": "#/$defs/elementId" }, "at": { "$ref": "#/$defs/normalizedPoint" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 32 }
+      }
+    },
+    "angleArcOp": {
+      "title": "AngleArcOp",
+      "oneOf": [
+        { "$ref": "#/$defs/angleArcRegionOp" },
+        { "$ref": "#/$defs/angleArcCanvasOp" }
+      ]
+    },
+    "angleArcRegionOp": {
+      "title": "AngleArcRegionOp",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "region", "center", "radius", "start_deg", "end_deg", "stroke"],
+      "properties": {
+        "op": { "const": "angle_arc" }, "id": { "$ref": "#/$defs/elementId" },
+        "region": { "$ref": "#/$defs/region" }, "center": { "$ref": "#/$defs/normalizedPoint" },
+        "radius": { "type": "number", "minimum": 0.02, "maximum": 0.5 },
+        "start_deg": { "type": "number", "minimum": -360, "maximum": 360 },
+        "end_deg": { "type": "number", "minimum": -360, "maximum": 360 },
+        "stroke": { "$ref": "#/$defs/strokeStyle" }, "label": { "type": "string", "minLength": 1, "maxLength": 32 }
+      }
+    },
+    "angleArcCanvasOp": {
+      "title": "AngleArcCanvasOp",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "canvas_id", "center", "radius", "start_deg", "end_deg", "stroke"],
+      "properties": {
+        "op": { "const": "angle_arc" }, "id": { "$ref": "#/$defs/elementId" },
+        "canvas_id": { "$ref": "#/$defs/elementId" }, "center": { "$ref": "#/$defs/normalizedPoint" },
+        "radius": { "type": "number", "minimum": 0.02, "maximum": 0.5 },
+        "start_deg": { "type": "number", "minimum": -360, "maximum": 360 },
+        "end_deg": { "type": "number", "minimum": -360, "maximum": 360 },
+        "stroke": { "$ref": "#/$defs/strokeStyle" }, "label": { "type": "string", "minLength": 1, "maxLength": 32 }
+      }
+    },
     "op": {
       "title": "LessonOp",
       "oneOf": [
@@ -188,7 +318,11 @@
         { "$ref": "#/$defs/equationOp" },
         { "$ref": "#/$defs/sketchOp" },
         { "$ref": "#/$defs/axesOp" },
-        { "$ref": "#/$defs/curveOp" }
+        { "$ref": "#/$defs/curveOp" },
+        { "$ref": "#/$defs/lineOp" },
+        { "$ref": "#/$defs/arrowOp" },
+        { "$ref": "#/$defs/pointOp" },
+        { "$ref": "#/$defs/angleArcOp" }
       ]
     },
     "checkpoint": {
