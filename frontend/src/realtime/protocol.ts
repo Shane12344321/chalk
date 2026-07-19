@@ -36,7 +36,7 @@ export const SERVER_EVENTS = {
   ERROR: "error",
 } as const;
 
-export const SESSION_TOKEN_BUDGET = 20_000;
+export const SESSION_TOKEN_BUDGET = 50_000;
 export const MAX_RESPONSE_OUTPUT_TOKENS = 256;
 
 export const COST_CONTROL_CONFIGURATION = {
@@ -93,7 +93,7 @@ export const TEACH_TOOL = {
 } as const;
 
 function createDeixisTool(
-  name: "point_at" | "circle_el" | "underline" | "flash",
+  name: "point_at" | "circle_el" | "underline" | "flash" | "trace_path" | "focus_on",
   description: string,
 ) {
   return {
@@ -122,6 +122,17 @@ export const DEIXIS_TOOLS = [
   createDeixisTool("flash", "Briefly flash a visible board element for emphasis."),
 ] as const;
 
+export const ATTENTION_CHOREOGRAPHY_TOOLS = [
+  createDeixisTool(
+    "trace_path",
+    "Temporarily trace an already visible board path during Q&A or checkpoint feedback.",
+  ),
+  createDeixisTool(
+    "focus_on",
+    "Temporarily dim unrelated board ink around one visible element during Q&A or checkpoint feedback.",
+  ),
+] as const;
+
 export const ANNOTATE_TOOL = {
   type: "function",
   name: "annotate",
@@ -142,9 +153,79 @@ export const ANNOTATE_TOOL = {
   },
 } as const;
 
+const QA_MARK_SIDE = {
+  type: "string",
+  enum: ["above", "below", "left", "right"],
+  description: "Place the new mark relative to the visible target.",
+} as const;
+
+export const DRAW_QA_ANNOTATION_TOOL = {
+  type: "function",
+  name: "draw_qa_annotation",
+  description:
+    "Immediately add one or two small explanatory marks beside visible board elements during an interrupted-question answer. Use exact IDs from the latest visible-board context. This cannot redraw or erase the lesson.",
+  parameters: {
+    type: "object",
+    properties: {
+      marks: {
+        type: "array",
+        minItems: 1,
+        maxItems: 2,
+        items: {
+          oneOf: [
+            {
+              type: "object",
+              properties: {
+                kind: { type: "string", enum: ["circle", "underline"] },
+                target_id: { type: "string", pattern: "^[a-z][a-z0-9_-]{0,15}$" },
+              },
+              required: ["kind", "target_id"],
+              additionalProperties: false,
+            },
+            {
+              type: "object",
+              properties: {
+                kind: { const: "arrow" },
+                target_id: { type: "string", pattern: "^[a-z][a-z0-9_-]{0,15}$" },
+                side: QA_MARK_SIDE,
+              },
+              required: ["kind", "target_id", "side"],
+              additionalProperties: false,
+            },
+            {
+              type: "object",
+              properties: {
+                kind: { const: "text" },
+                target_id: { type: "string", pattern: "^[a-z][a-z0-9_-]{0,15}$" },
+                side: QA_MARK_SIDE,
+                content: { type: "string", minLength: 1, maxLength: 100 },
+              },
+              required: ["kind", "target_id", "side", "content"],
+              additionalProperties: false,
+            },
+            {
+              type: "object",
+              properties: {
+                kind: { const: "equation" },
+                target_id: { type: "string", pattern: "^[a-z][a-z0-9_-]{0,15}$" },
+                side: QA_MARK_SIDE,
+                latex: { type: "string", minLength: 1, maxLength: 160 },
+              },
+              required: ["kind", "target_id", "side", "latex"],
+              additionalProperties: false,
+            },
+          ],
+        },
+      },
+    },
+    required: ["marks"],
+    additionalProperties: false,
+  },
+} as const;
+
 export const BASE_TUTOR_PROMPT = `You are Chalk, a warm, concise math and physics tutor conducting a live whiteboard lesson.
 The application may give you exact narration scripts. Recite those scripts exactly without introductions or commentary.
-When the student interrupts, the board freezes. Answer the question in at most two short sentences using only the conversation and the supplied visible-board context.
+When the student interrupts, the board freezes. Answer the question in at most two short sentences using only the conversation and the supplied visible-board context. Diagram-part entries describe actually revealed marks, their direction, and their spatial relationship; use those facts as the authoritative view of the board.
 After an interruption answer, say that the student can use Resume when ready. Do not claim to see an element unless it appears in the visible-board context. When referring to a visible element, call one local pointing or emphasis tool with its exact ID. Call annotate only when the answer truly needs new explanatory ink; prefer local pointing for emphasis.
 When the student asks to begin a new math or physics topic and no lesson is running, call teach once with a concise topic and relevant prior knowledge.
 If the student has interrupted the lesson and clearly asks to learn a different topic instead, acknowledge briefly and call teach once with the new topic; the board starts fresh. If teach reports the lesson is busy, explain the current lesson must finish loading first.
@@ -152,6 +233,12 @@ Be conversational and Socratic. Never mention internal event names, credentials,
 
 export const DIAGNOSTIC_TUTOR_ADDENDUM = `
 Diagnostics mode is active. If the student explicitly asks to test debug echo, call debug_echo with a short message, then naturally confirm the result.`;
+
+export const QA_DIRECT_DRAW_ADDENDUM = `
+During an interrupted-question answer, draw_qa_annotation may add at most two small target-relative explanatory marks. Use exact IDs from VISIBLE BOARD. Prefer pointing for emphasis. Use annotate as the fallback when the needed visual cannot be expressed safely by those marks.`;
+
+export const ATTENTION_CHOREOGRAPHY_ADDENDUM = `
+During Q&A or checkpoint feedback only, trace_path may follow one existing visible path and focus_on may briefly dim unrelated ink. Use at most one temporary attention tool in an answer, with an exact ID from VISIBLE BOARD. These actions add no permanent ink.`;
 
 export const SERVER_VAD_CONFIGURATION = {
   type: "server_vad",
@@ -204,10 +291,14 @@ export function buildTutorInstructions(
   mode: ChalkRuntimeMode,
   boardContext?: string,
   interactionGuidance?: string,
+  qaDirectDraw = false,
+  attentionChoreography = false,
 ): string {
   return [
     BASE_TUTOR_PROMPT,
     mode === "diagnostics" ? DIAGNOSTIC_TUTOR_ADDENDUM : undefined,
+    qaDirectDraw ? QA_DIRECT_DRAW_ADDENDUM : undefined,
+    attentionChoreography ? ATTENTION_CHOREOGRAPHY_ADDENDUM : undefined,
     boardContext ? `VISIBLE BOARD\n${boardContext}` : undefined,
     interactionGuidance ? `CURRENT INTERACTION\n${interactionGuidance}` : undefined,
   ]
@@ -221,10 +312,19 @@ export function createSessionUpdate(
   mode: ChalkRuntimeMode = "demo",
   boardContext?: string,
   interactionGuidance?: string,
+  qaDirectDraw = false,
+  attentionChoreography = false,
 ) {
+  const productTools = [
+    TEACH_TOOL,
+    ...DEIXIS_TOOLS,
+    ...(attentionChoreography ? ATTENTION_CHOREOGRAPHY_TOOLS : []),
+    ...(qaDirectDraw ? [DRAW_QA_ANNOTATION_TOOL] : []),
+    ANNOTATE_TOOL,
+  ];
   const tools = mode === "diagnostics"
-    ? [TEACH_TOOL, ...DEIXIS_TOOLS, ANNOTATE_TOOL, DEBUG_ECHO_TOOL]
-    : [TEACH_TOOL, ...DEIXIS_TOOLS, ANNOTATE_TOOL];
+    ? [...productTools, DEBUG_ECHO_TOOL]
+    : productTools;
   return {
     type: CLIENT_EVENTS.SESSION_UPDATE,
     session: {
@@ -232,7 +332,13 @@ export function createSessionUpdate(
       model,
       output_modalities: ["audio"],
       max_output_tokens: MAX_RESPONSE_OUTPUT_TOKENS,
-      instructions: buildTutorInstructions(mode, boardContext, interactionGuidance),
+      instructions: buildTutorInstructions(
+        mode,
+        boardContext,
+        interactionGuidance,
+        qaDirectDraw,
+        attentionChoreography,
+      ),
       audio: {
         input: {
           turn_detection: SERVER_VAD_CONFIGURATION,
@@ -252,16 +358,25 @@ export function createTutorContextUpdate(
   mode: ChalkRuntimeMode,
   boardContext?: string,
   interactionGuidance?: string,
+  qaDirectDraw = false,
+  attentionChoreography = false,
 ) {
+  const attentionTools = attentionChoreography ? ATTENTION_CHOREOGRAPHY_TOOLS : [];
   return {
     type: CLIENT_EVENTS.SESSION_UPDATE,
     session: {
       type: "realtime",
-      instructions: buildTutorInstructions(mode, boardContext, interactionGuidance),
+      instructions: buildTutorInstructions(
+        mode,
+        boardContext,
+        interactionGuidance,
+        qaDirectDraw,
+        attentionChoreography,
+      ),
       tools:
         mode === "diagnostics"
-          ? [TEACH_TOOL, ...DEIXIS_TOOLS, ANNOTATE_TOOL, DEBUG_ECHO_TOOL]
-          : [TEACH_TOOL, ...DEIXIS_TOOLS, ANNOTATE_TOOL],
+          ? [TEACH_TOOL, ...DEIXIS_TOOLS, ...attentionTools, ...(qaDirectDraw ? [DRAW_QA_ANNOTATION_TOOL] : []), ANNOTATE_TOOL, DEBUG_ECHO_TOOL]
+          : [TEACH_TOOL, ...DEIXIS_TOOLS, ...attentionTools, ...(qaDirectDraw ? [DRAW_QA_ANNOTATION_TOOL] : []), ANNOTATE_TOOL],
       tool_choice: "auto",
     },
   } as const;

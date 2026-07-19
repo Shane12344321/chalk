@@ -3,8 +3,23 @@ import projectileLessonSource from "../../demo/cached_lessons/projectile-range.l
 import derivativeLessonSource from "../../demo/cached_lessons/derivative-slope.lesson.json";
 import unitCircleLessonSource from "../../demo/cached_lessons/unit-circle-sine.lesson.json";
 import { AnnotationClient, type AnnotationOp } from "./annotations";
-import { Board } from "./board/Board";
+import { buildQaAnnotationProgram } from "./annotations/qaAnnotation";
+import { BoardSurface as Board } from "./board/BoardSurface";
+import { useAttentionChoreography } from "./board/attentionChoreography";
+import { boardRenderContextForPlan } from "./board/compositionPlan";
 import { decodeLesson } from "./board/decode";
+import { RoughSvgBoardRenderer, type BoardRenderContext } from "./board/renderer";
+import { buildResolvedBoardScene } from "./board/resolvedScene";
+import { withRecoveryFindings } from "./board/resolvedScene";
+import {
+  RecoveryLedger,
+  recoveryEvidenceFromRenderer,
+} from "./board/failureRecovery";
+import {
+  createBrowserMeasurementRuntime,
+  PrecommitMeasurementCache,
+} from "./board/precommitMeasurement";
+import { premeasureLessonRoots } from "./board/premeasureLesson";
 import { buildBoardManifest, toAnnotationVisibleElements } from "./board/manifest";
 import type { VisibleBoardState } from "./board/manifest";
 import type { DeixisKind, DeixisOverlay } from "./board/overlays";
@@ -17,6 +32,7 @@ import {
   LessonStreamClient,
   type LessonStreamProgress,
 } from "./lessonStream";
+import { LessonContinuationClient } from "./lessonStream/continuation";
 import {
   getOrCreateClientId,
   manifestHash,
@@ -30,15 +46,24 @@ import type {
   RealtimeSnapshot,
   TraceEntry,
 } from "./realtime";
+import { SESSION_TOKEN_BUDGET } from "./realtime/protocol";
+import type { QaAnnotationMark } from "./realtime/toolRouter";
 import { useFixedLessonSync } from "./sync/useFixedLessonSync";
 
 const API_BASE_URL = resolveLocalApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 const CHALK_MODE =
   import.meta.env.VITE_CHALK_MODE === "diagnostics" ? "diagnostics" : "demo";
+const LESSON_GENERATION_MODE = import.meta.env.VITE_LESSON_GENERATION === "resolved-stepwise"
+  ? "resolved_stepwise"
+  : "one_shot";
+const QA_DIRECT_DRAW = import.meta.env.VITE_QA_DIRECT_DRAW === "on";
+const ATTENTION_CHOREOGRAPHY = import.meta.env.VITE_ATTENTION_CHOREOGRAPHY === "on";
+const REMOTE_AUDIO_ACTIVITY = import.meta.env.VITE_REMOTE_AUDIO_ACTIVITY === "on";
 
 const INITIAL_SNAPSHOT: RealtimeSnapshot = {
   status: "disconnected",
   responsePending: false,
+  responseInFlight: false,
   audioPlaybackActive: false,
   microphoneEnabled: false,
   trace: [],
@@ -53,7 +78,7 @@ const INITIAL_SNAPSHOT: RealtimeSnapshot = {
     input_audio_tokens: 0,
     output_audio_tokens: 0,
   },
-  tokenBudget: 20_000,
+  tokenBudget: SESSION_TOKEN_BUDGET,
   contextPublications: [],
 };
 
@@ -108,17 +133,40 @@ function App() {
   if (!lessonStreamRef.current) {
     lessonStreamRef.current = new LessonStreamClient(API_BASE_URL, clientIdRef.current);
   }
+  const lessonContinuationRef = useRef<LessonContinuationClient>();
+  if (!lessonContinuationRef.current) {
+    lessonContinuationRef.current = new LessonContinuationClient(
+      API_BASE_URL,
+      clientIdRef.current,
+    );
+  }
+  const measurementCacheRef = useRef<PrecommitMeasurementCache>();
+  if (!measurementCacheRef.current) {
+    measurementCacheRef.current = new PrecommitMeasurementCache(
+      createBrowserMeasurementRuntime(),
+    );
+  }
+  const resolvedRendererRef = useRef<RoughSvgBoardRenderer>();
+  if (!resolvedRendererRef.current) {
+    resolvedRendererRef.current = new RoughSvgBoardRenderer(measurementCacheRef.current);
+  }
   const annotationClientRef = useRef<AnnotationClient>();
   if (!annotationClientRef.current) {
     annotationClientRef.current = new AnnotationClient(API_BASE_URL, clientIdRef.current);
   }
   const semanticHandlerRef = useRef<(event: RealtimeSemanticEvent) => void>();
+  const qaAnnotationHandlerRef = useRef<
+    (marks: readonly QaAnnotationMark[]) =>
+      | { ok: true; requestId: string; marks: number }
+      | { ok: false; reason: "not_in_qa" | "unknown_element" | "invalid_arguments" }
+  >();
   const generationTimingRef = useRef<M3GenerationTiming>();
   const teachHandlerRef = useRef<
     (topic: string, studentContext: string) => { requestId: string }
   >();
   const [snapshot, setSnapshot] = useState(INITIAL_SNAPSHOT);
   const [boardManifest, setBoardManifest] = useState(EMPTY_PROJECTILE_MANIFEST);
+  const [visibleBoardVersion, setVisibleBoardVersion] = useState(0);
   const visibleBoardRef = useRef(EMPTY_VISIBLE_BOARD);
   const [deixisOverlays, setDeixisOverlays] = useState<DeixisOverlay[]>([]);
   const [annotationOps, setAnnotationOps] = useState<AnnotationOp[]>([]);
@@ -130,6 +178,7 @@ function App() {
     requestId: string;
     complete: boolean;
     source: "cached" | "live" | "review";
+    renderContext?: BoardRenderContext;
   }>({
     lesson: PROJECTILE_LESSON,
     requestId: cachedRequestIdRef.current,
@@ -165,19 +214,32 @@ function App() {
   );
   const [generationTiming, setGenerationTiming] = useState<M3GenerationTiming>();
   const [reviewStepIndex, setReviewStepIndex] = useState(0);
+  const realtimeResponseBusy =
+    snapshot.responseInFlight ||
+    Boolean(snapshot.activeResponseId) ||
+    snapshot.audioPlaybackActive;
   const lessonSync = useFixedLessonSync({
     lesson: activeLesson.lesson,
     lessonRequestId: activeLesson.requestId,
     lessonComplete: activeLesson.complete,
     clientRef,
     connectionStatus: snapshot.status,
-    responseIdle:
-      !snapshot.responsePending &&
-      !snapshot.activeResponseId &&
-      !snapshot.audioPlaybackActive,
+    responseIdle: !realtimeResponseBusy,
     syncMode: snapshot.syncMode ?? "fixed",
   });
   semanticHandlerRef.current = lessonSync.onSemanticEvent;
+
+  const {
+    overlays: attentionOverlays,
+    enqueue: enqueueAttention,
+    cancel: cancelAttention,
+  } = useAttentionChoreography({
+    requestId: activeLesson.requestId,
+    manifestVersion: visibleBoardVersion,
+    phase: lessonSync.state.phase,
+    visibleElementIds: visibleBoardRef.current.elements.map((element) => element.id),
+    interruptionEpoch: snapshot.interruptions.length,
+  });
 
   const clearDeixisOverlays = useCallback(() => {
     for (const timeout of overlayTimeoutsRef.current.values()) {
@@ -185,15 +247,24 @@ function App() {
     }
     overlayTimeoutsRef.current.clear();
     setDeixisOverlays([]);
-  }, []);
+    cancelAttention();
+  }, [cancelAttention]);
 
   const handleVisibleStateChange = useCallback((state: VisibleBoardState) => {
     visibleBoardRef.current = state;
+    setVisibleBoardVersion(state.version);
     setBoardManifest(state.manifest);
   }, []);
 
   const showDeixis = useCallback(
     (kind: DeixisKind, elementId: string): { overlayId: string } | undefined => {
+      if (ATTENTION_CHOREOGRAPHY) {
+        const result = enqueueAttention(kind, elementId);
+        return result.ok ? { overlayId: result.overlayId } : undefined;
+      }
+      // The two Phase-5-only actions are never exposed while the experiment is
+      // off, but reject them defensively if an old/stale tool call arrives.
+      if (kind === "trace_path" || kind === "focus_on") return undefined;
       if (!visibleBoardRef.current.elements.some((element) => element.id === elementId)) {
         return undefined;
       }
@@ -209,7 +280,7 @@ function App() {
       overlayTimeoutsRef.current.set(overlayId, timeout);
       return { overlayId };
     },
-    [],
+    [enqueueAttention],
   );
 
   const clearAnnotations = useCallback(() => {
@@ -242,6 +313,31 @@ function App() {
     return { requestId };
   }, []);
 
+  qaAnnotationHandlerRef.current = (marks) => {
+    const built = buildQaAnnotationProgram(
+      marks,
+      lessonSync.state.phase,
+      visibleBoardRef.current,
+    );
+    if (!built.ok) {
+      return {
+        ok: false,
+        reason:
+          built.reason === "not_in_qa"
+            ? "not_in_qa"
+            : built.reason === "unknown_element" || built.reason === "empty_board"
+              ? "unknown_element"
+              : "invalid_arguments",
+      };
+    }
+    setAnnotationOps(built.program.ops);
+    return {
+      ok: true,
+      requestId: built.program.request_id,
+      marks: built.program.ops.length,
+    };
+  };
+
   useEffect(() => {
     const client = new RealtimeClient({
       apiBaseUrl: API_BASE_URL,
@@ -257,13 +353,26 @@ function App() {
         },
         onDeixisRequested: showDeixis,
         onAnnotateRequested: requestAnnotation,
+        ...(QA_DIRECT_DRAW
+          ? {
+              onDrawQaAnnotationRequested: (marks: readonly QaAnnotationMark[]) =>
+                qaAnnotationHandlerRef.current?.(marks) ?? {
+                  ok: false as const,
+                  reason: "not_in_qa" as const,
+                },
+            }
+          : {}),
       },
+      qaDirectDraw: QA_DIRECT_DRAW,
+      attentionChoreography: ATTENTION_CHOREOGRAPHY,
+      remoteAudioActivity: REMOTE_AUDIO_ACTIVITY,
     });
     clientRef.current = client;
     void client.setBoardContext(EMPTY_PROJECTILE_MANIFEST);
     return () => {
       clientRef.current = undefined;
       lessonStreamRef.current?.cancel();
+      lessonContinuationRef.current?.cancel();
       clearDeixisOverlays();
       clearAnnotations();
       void client.disconnect();
@@ -310,9 +419,7 @@ function App() {
       lessonSync.state.requestId !== activeLesson.requestId ||
       lessonSync.state.phase !== "IDLE" ||
       snapshot.status !== "connected" ||
-      snapshot.responsePending ||
-      snapshot.activeResponseId ||
-      snapshot.audioPlaybackActive
+      realtimeResponseBusy
     ) {
       return;
     }
@@ -323,7 +430,7 @@ function App() {
         const currentSnapshot = clientRef.current?.getSnapshot();
         if (
           !currentSnapshot ||
-          currentSnapshot.responsePending ||
+          currentSnapshot.responseInFlight ||
           currentSnapshot.activeResponseId ||
           currentSnapshot.audioPlaybackActive
         ) {
@@ -342,9 +449,7 @@ function App() {
     activeLesson,
     autoStartRequestId,
     lessonSync,
-    snapshot.activeResponseId,
-    snapshot.audioPlaybackActive,
-    snapshot.responsePending,
+    realtimeResponseBusy,
     snapshot.status,
   ]);
 
@@ -366,6 +471,16 @@ function App() {
       clientRef.current?.setMicrophoneEnabled(!snapshot.microphoneEnabled);
     } catch {
       // Connection errors are already represented by the client snapshot.
+    }
+  };
+
+  const activateVoiceOrb = () => {
+    if (canConnect) {
+      connect();
+      return;
+    }
+    if (snapshot.status === "connected") {
+      toggleMicrophone();
     }
   };
 
@@ -420,6 +535,8 @@ function App() {
     }
     clearDeixisOverlays();
     clearAnnotations();
+    lessonContinuationRef.current?.cancel();
+    measurementCacheRef.current!.beginLesson();
     const requestId = crypto.randomUUID();
     if (lessonSync.state.phase === "QA") {
       lessonStreamRef.current?.cancel();
@@ -449,9 +566,12 @@ function App() {
           // A fresh lesson erases the board, so the previous manifest would
           // only invite anchors to elements that no longer exist.
           boardState: "",
+          generationMode: LESSON_GENERATION_MODE,
         },
         (progress: LessonStreamProgress) => {
           if (progress.steps.length === 0) return;
+          premeasureLessonRoots(measurementCacheRef.current!, progress.steps);
+          const progressRenderContext = boardRenderContextForPlan(progress.plan);
           const currentTiming = generationTimingRef.current;
           if (
             currentTiming?.requestId === progress.requestId &&
@@ -476,13 +596,14 @@ function App() {
           }
           setActiveLesson({
             lesson: {
-              schemaVersion: "1.1",
+              schemaVersion: "1.4",
               title: progress.title,
               steps: progress.steps,
             },
             requestId: progress.requestId,
             complete: progress.complete,
             source: "live",
+            ...(progressRenderContext ? { renderContext: progressRenderContext } : {}),
           });
           setGeneration((current) => ({
             ...current,
@@ -494,7 +615,7 @@ function App() {
           }));
         },
       )
-      .then((result) => {
+      .then(async (result) => {
         const currentTiming = generationTimingRef.current;
         if (currentTiming?.requestId === result.requestId) {
           const updatedTiming = {
@@ -519,19 +640,167 @@ function App() {
           generationTimingRef.current = updatedTiming;
           setGenerationTiming(updatedTiming);
         }
+        let resolvedLesson = result.lesson;
+        const renderContext = boardRenderContextForPlan(result.plan);
+        let repairs = result.repairs;
+        let continuationReceipt = result.continuationReceipt;
+        let receiptPrefix = result.receiptPrefix;
+        let continuationEndedEarly = false;
+        const recoveryLedger = new RecoveryLedger(result.requestId, result.recoveryEvidence);
+        if (result.continuationAvailable && result.plan && continuationReceipt) {
+          while (
+            (
+              resolvedLesson.steps.length < result.plan.progression.length ||
+              recoveryLedger.pendingIds().length > 0
+            ) &&
+            resolvedLesson.steps.length < 8 &&
+            activeGenerationTokenRef.current === result.requestId
+          ) {
+            const prefixVersion = resolvedLesson.steps.length;
+            const prepared = resolvedRendererRef.current!.prepareLesson(
+              resolvedLesson,
+              renderContext,
+            );
+            recoveryLedger.add(
+              result.requestId,
+              recoveryEvidenceFromRenderer(result.requestId, resolvedLesson, prepared),
+            );
+            const baseScene = buildResolvedBoardScene(
+              result.requestId,
+              prefixVersion,
+              prepared,
+              Math.min(lessonSync.state.currentStepIndex, prefixVersion),
+            );
+            const scene = withRecoveryFindings(
+              baseScene,
+              recoveryLedger.findings(baseScene.elements),
+            );
+            const attemptedRecoveryIds = scene.recovery_findings
+              ?.filter((finding) => finding.status === "pending")
+              .map((finding) => finding.finding_id) ?? [];
+            try {
+              const continuation = await lessonContinuationRef.current!.next({
+                requestId: result.requestId,
+                topic: normalizedTopic,
+                studentContext,
+                acceptedPrefix: resolvedLesson.steps,
+                receiptPrefix,
+                plan: result.plan,
+                resolvedScene: scene,
+                repairsUsed: repairs,
+                continuationReceipt,
+              });
+              if (activeGenerationTokenRef.current !== result.requestId) return;
+              repairs = continuation.repairs;
+              if (continuation.done) {
+                recoveryLedger.settle(
+                  result.requestId,
+                  attemptedRecoveryIds,
+                  "abandoned",
+                );
+                continuationEndedEarly = continuation.reason !== "plan_complete";
+                break;
+              }
+              continuationReceipt = continuation.continuationReceipt;
+              receiptPrefix = [...resolvedLesson.steps, continuation.receiptStep];
+              const decoderFailureIds = continuation.recoveryEvidence.map(
+                (finding) => finding.findingId,
+              );
+              recoveryLedger.add(result.requestId, continuation.recoveryEvidence);
+              if (continuation.browserDropped) {
+                recoveryLedger.settle(
+                  result.requestId,
+                  attemptedRecoveryIds,
+                  "abandoned",
+                );
+                if (attemptedRecoveryIds.length > 0) {
+                  recoveryLedger.settle(
+                    result.requestId,
+                    decoderFailureIds,
+                    "abandoned",
+                  );
+                  continuationEndedEarly = true;
+                  break;
+                }
+                continue;
+              }
+              const nextLesson: NormalizedLesson = {
+                ...resolvedLesson,
+                schemaVersion: "1.4",
+                steps: [...resolvedLesson.steps, continuation.step],
+              };
+              premeasureLessonRoots(measurementCacheRef.current!, [continuation.step]);
+              const nextPrepared = resolvedRendererRef.current!.prepareLesson(
+                nextLesson,
+                renderContext,
+              );
+              const newOpIds = new Set(continuation.step.ops.map((op) => op.id));
+              const newFailures = recoveryEvidenceFromRenderer(
+                result.requestId,
+                nextLesson,
+                nextPrepared,
+              ).filter((finding) =>
+                finding.affectedElementIds.some((id) => newOpIds.has(id)),
+              );
+              const recoveryFailed =
+                continuation.recoveryEvidence.length > 0 || newFailures.length > 0;
+              recoveryLedger.settle(
+                result.requestId,
+                attemptedRecoveryIds,
+                recoveryFailed ? "abandoned" : "recovered",
+              );
+              recoveryLedger.add(result.requestId, newFailures);
+              if (attemptedRecoveryIds.length > 0 && recoveryFailed) {
+                recoveryLedger.settle(
+                  result.requestId,
+                  [
+                    ...decoderFailureIds,
+                    ...newFailures.map((finding) => finding.findingId),
+                  ],
+                  "abandoned",
+                );
+              }
+              resolvedLesson = nextLesson;
+              setActiveLesson({
+                lesson: resolvedLesson,
+                requestId: result.requestId,
+                complete: false,
+                source: "live",
+                ...(renderContext ? { renderContext } : {}),
+              });
+            } catch (error) {
+              if (error instanceof DOMException && error.name === "AbortError") return;
+              recoveryLedger.settle(
+                result.requestId,
+                attemptedRecoveryIds,
+                "abandoned",
+              );
+              continuationEndedEarly = true;
+              break;
+            }
+          }
+          if (recoveryLedger.pendingIds().length > 0) {
+            recoveryLedger.abandonAll(result.requestId);
+            continuationEndedEarly = true;
+          }
+        } else if (result.continuationAvailable) {
+          continuationEndedEarly = true;
+        }
+        if (activeGenerationTokenRef.current !== result.requestId) return;
         setActiveLesson({
-          lesson: result.lesson,
+          lesson: resolvedLesson,
           requestId: result.requestId,
           complete: true,
           source: "live",
+          ...(renderContext ? { renderContext } : {}),
         });
         setGeneration({
           status: "ready",
-          ...(result.partial
+          ...(result.partial || continuationEndedEarly
             ? { message: "Generation ended early; Chalk is continuing with the accepted validated steps." }
             : {}),
           warnings: result.warnings,
-          repairs: result.repairs,
+          repairs,
           droppedSteps: result.droppedSteps,
           browserDroppedSteps: result.browserDroppedSteps,
           sanitizedSteps: result.sanitizedSteps,
@@ -540,6 +809,8 @@ function App() {
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
+        if (activeGenerationTokenRef.current !== requestId) return;
+        measurementCacheRef.current!.beginLesson();
         const fallbackRequestId = crypto.randomUUID();
         const fallbackLesson = CACHED_LESSONS[pickCachedLessonKey(normalizedTopic)];
         setActiveLesson({
@@ -570,6 +841,8 @@ function App() {
 
   const useCachedLesson = () => {
     lessonStreamRef.current?.cancel();
+    lessonContinuationRef.current?.cancel();
+    measurementCacheRef.current!.beginLesson();
     const requestId = crypto.randomUUID();
     setActiveLesson({
       lesson: CACHED_LESSONS[cachedLessonKey],
@@ -597,6 +870,7 @@ function App() {
     try {
       const result = decodeLessonNdjson(await file.text());
       lessonStreamRef.current?.cancel();
+      measurementCacheRef.current!.beginLesson();
       generationTimingRef.current = undefined;
       setGenerationTiming(undefined);
       setActiveLesson({
@@ -729,11 +1003,12 @@ function App() {
             {isDiagnostics ? "Diagnostics · deterministic board" : "Live visual tutoring"}
           </p>
           <h1>CHALK</h1>
-          <p className="tagline">A tutor that draws while it talks—and stops when you do.</p>
+          <p className="tagline">Live voice tutoring on an intelligent whiteboard.</p>
         </div>
         <StatusPill status={snapshot.status} />
       </header>
 
+      <div className="teaching-console">
       <section className="lesson-stage" aria-labelledby="lesson-title">
         <form
           className="topic-form"
@@ -755,7 +1030,7 @@ function App() {
             }
           }}
         >
-          <label htmlFor="lesson-topic">What should Chalk teach?</label>
+          <label htmlFor="lesson-topic">Ask Chalk to teach</label>
           <div>
             <input
               id="lesson-topic"
@@ -771,19 +1046,17 @@ function App() {
                 snapshot.status !== "connected" ||
                 generation.status === "generating" ||
                 !["IDLE", "DONE"].includes(lessonSync.state.phase) ||
-                Boolean(snapshot.activeResponseId) ||
-                snapshot.responsePending ||
-                snapshot.audioPlaybackActive
+                realtimeResponseBusy
               }
             >
-              {generation.status === "generating" ? "Preparing lesson…" : "Generate & teach"}
+              {generation.status === "generating" ? "Preparing…" : "Create lesson"}
             </button>
             <button
               className="secondary"
               type="button"
               onClick={useCachedLesson}
             >
-              Load cached lesson
+              Use demo lesson
             </button>
             <select
               aria-label="Cached lesson"
@@ -804,7 +1077,7 @@ function App() {
                 ? `${activeLesson.source} lesson · ${activeLesson.complete ? "complete" : "streaming"}`
                 : activeLesson.source === "live"
                   ? "Live generated lesson"
-                  : "Interactive cached lesson"}
+                  : "Demo lesson"}
             </p>
             <h2 id="lesson-title">{activeLesson.lesson.title}</h2>
           </div>
@@ -815,13 +1088,11 @@ function App() {
               onClick={startLesson}
               disabled={
                 snapshot.status !== "connected" ||
-                snapshot.responsePending ||
-                Boolean(snapshot.activeResponseId) ||
-                snapshot.audioPlaybackActive ||
+                realtimeResponseBusy ||
                 !["IDLE", "DONE"].includes(lessonSync.state.phase)
               }
             >
-              {lessonSync.state.phase === "DONE" ? "Replay current lesson" : "Start current lesson"}
+              {lessonSync.state.phase === "DONE" ? "Replay lesson" : "Start lesson"}
             </button>
             <button
               className="secondary"
@@ -830,9 +1101,7 @@ function App() {
               disabled={
                 lessonSync.state.phase !== "QA" ||
                 snapshot.status !== "connected" ||
-                Boolean(snapshot.activeResponseId) ||
-                snapshot.responsePending ||
-                snapshot.audioPlaybackActive
+                realtimeResponseBusy
               }
             >
               Resume frozen step
@@ -861,11 +1130,13 @@ function App() {
                 : lessonSync.state.phase
           }
           onVisibleStateChange={handleVisibleStateChange}
-          overlays={deixisOverlays}
+          overlays={ATTENTION_CHOREOGRAPHY ? attentionOverlays : deixisOverlays}
           annotations={annotationOps}
           measurementId={activeLesson.source === "live" ? activeLesson.requestId : undefined}
+          measurementCache={measurementCacheRef.current}
           onFirstVisibleInk={recordFirstVisibleInk}
           showDiagnostics={isDiagnostics}
+          renderContext={activeLesson.renderContext}
         />
         {isDiagnostics && activeLesson.source === "review" ? (
           <div className="review-controls" aria-label="Captured lesson review controls">
@@ -948,7 +1219,7 @@ function App() {
             Local review mode shows all accepted geometry through the selected step. Capture the board and record the human layout verdict in the evaluation summary.
           </p>
         ) : snapshot.status !== "connected" ? (
-          <p className="lesson-hint">Connect the microphone below, then start the lesson. Routine board rendering is local; only narration uses the mini Realtime model.</p>
+          null
         ) : lessonSync.state.phase === "TEACHING" ? (
           <p className="lesson-hint lesson-hint-live">Interrupt while a stroke is moving. The ink should remain exactly where it stopped.</p>
         ) : lessonSync.state.phase === "QA" ? (
@@ -971,11 +1242,34 @@ function App() {
       </section>
 
       <section className="voice-stage" aria-labelledby="voice-title">
-        <div className={`orb ${snapshot.audioPlaybackActive ? "orb-speaking" : ""}`} aria-hidden="true">
-          <span />
-          <span />
-          <span />
-        </div>
+        <button
+          className={`orb-control ${
+            lessonSync.state.phase === "CHECKPOINT_ASKING" ||
+            lessonSync.state.phase === "CHECKPOINT_LISTENING"
+              ? "orb-control-asking"
+              : ""
+          }`}
+          type="button"
+          onClick={activateVoiceOrb}
+          disabled={isBusy || snapshot.status === "disconnecting"}
+          aria-label={
+            snapshot.status !== "connected"
+              ? "Connect to Chalk"
+              : snapshot.microphoneEnabled
+                ? "Stop listening"
+                : "Talk to Chalk"
+          }
+          aria-pressed={snapshot.status === "connected" && snapshot.microphoneEnabled}
+        >
+          <span
+            className={`orb ${snapshot.audioPlaybackActive ? "orb-speaking" : ""} ${snapshot.microphoneEnabled ? "orb-listening" : ""}`}
+            aria-hidden="true"
+          >
+            <span />
+            <span />
+            <span />
+          </span>
+        </button>
         <div className="voice-copy">
           <h2 id="voice-title">
             {snapshot.status === "connected"
@@ -984,38 +1278,28 @@ function App() {
                 : snapshot.microphoneEnabled
                   ? "Listening to you"
                   : "Microphone paused"
-              : "Connect the voice loop"}
+              : "Voice is offline"}
           </h2>
           <p>
             {snapshot.status === "connected"
               ? snapshot.microphoneEnabled
                 ? "Speak now. The microphone pauses automatically when your turn ends."
-                : "Press Space when you want to answer or interrupt Chalk."
-              : "The browser will ask for microphone access after the backend mints a short-lived session credential."}
+                : "Click the orb or press Space when you want to answer or interrupt Chalk."
+              : "Click the orb to connect."}
           </p>
           <div className="button-row">
-            <button className="primary" type="button" onClick={connect} disabled={!canConnect || isBusy}>
-              {isBusy ? "Connecting…" : "Connect microphone"}
-            </button>
-            <button
-              className={snapshot.microphoneEnabled ? "secondary" : "primary"}
-              type="button"
-              onClick={toggleMicrophone}
-              disabled={snapshot.status !== "connected"}
-              aria-pressed={snapshot.microphoneEnabled}
-              title="You can also press Space anywhere outside a form control"
-            >
-              {snapshot.microphoneEnabled ? "Stop listening" : "Speak"}
-            </button>
-            <button className="secondary" type="button" onClick={disconnect} disabled={!canDisconnect}>
-              Disconnect
-            </button>
+            {canDisconnect ? (
+              <button className="voice-disconnect" type="button" onClick={disconnect}>
+                Disconnect
+              </button>
+            ) : null}
           </div>
           {snapshot.lastError ? (
             <p className="error" role="alert">{snapshot.lastError}</p>
           ) : null}
         </div>
       </section>
+      </div>
 
       {isDiagnostics ? (
         <>

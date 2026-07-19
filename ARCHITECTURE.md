@@ -526,7 +526,7 @@ Do not claim perceived audio interruption latency from the animation-freeze meas
 
 ## Live API test budget
 
-Credentialed API checks are narrow acceptance probes, not load tests. Default automated tests use deterministic fakes and fixtures. Live Realtime validation stays on `gpt-realtime-2.1-mini`, uses brief synthetic speech and bounded responses, and disconnects immediately after the required handshake, tool, or interruption evidence is captured. There are no automatic live retries or credentialed test loops. M1 caps each response at 256 output tokens, bounds the post-instruction conversation window at 4,000 tokens with 0.8 retention, leaves input transcription disabled, displays cumulative billed usage, and auto-disconnects a connection at 20,000 total response tokens. Reconnecting resets that local counter, so it is not an account-wide budget. A larger model, a batch of generated topics, or an extended live session requires explicit owner approval and a recorded reason in `PROGRESS.md`.
+Credentialed API checks are narrow acceptance probes, not load tests. Default automated tests use deterministic fakes and fixtures. Live Realtime validation stays on `gpt-realtime-2.1-mini`, uses brief synthetic speech and bounded responses, and disconnects immediately after the required handshake, tool, or interruption evidence is captured. There are no automatic live retries or credentialed test loops. M1 caps each response at 256 output tokens, bounds the post-instruction conversation window at 4,000 tokens with 0.8 retention, leaves input transcription disabled, displays cumulative billed usage, and auto-disconnects a connection at 50,000 total response tokens. Reconnecting resets that local counter, so it is not an account-wide budget. A larger model, a batch of generated topics, or an extended live session requires explicit owner approval and a recorded reason in `PROGRESS.md`.
 
 ## Security and privacy
 
@@ -539,6 +539,92 @@ Credentialed API checks are narrow acceptance probes, not load tests. Default au
 - KaTeX trust is disabled; no model-generated HTML or URLs are rendered.
 - Request size, stream duration, expression complexity, sampling work, repair attempts, and concurrent jobs are bounded.
 - The README identifies CHALK as a local hackathon prototype, not a production or unsupervised child-learning system.
+
+## Drawing-experiment evidence boundary
+
+Drawing experiments produce one bounded record per homogeneous configuration under
+`shared/schema/drawing-experiment-record.schema.json`. Model, reasoning effort,
+all three prompt hashes, lesson-schema version and content hash, plan/scene schema
+content hashes, a deliberately bumped resolver-policy revision, renderer, sync,
+partial-ink, Q&A-draw, and lesson-generation flags are all part of one canonical
+configuration digest. Live gates additionally pin the complete Realtime
+model/voice/base-instruction/tool-contract identity, browser engine/version, and
+annotation prompt/schema identity when those paths apply; nullable fields mean the
+path is genuinely absent, not unknown. A run cannot store arrays of competing prompt
+hashes or flag values and call them one configuration; comparisons reference two or
+more independently verified records. Browser-dropped steps and renderer-dropped
+operations are separate closed counters at both topic and aggregate level: one may
+never stand in for the other.
+
+The backend verifier is read-only and offline. It rejects oversized/non-finite JSON,
+duplicate file keys, stale configuration digests, missing or reordered retained
+topics/ratings, inconsistent aggregate counts, exceeded request/model-call ceilings,
+and post-run evidence inserted into a planned record. Records carry closed metrics and
+numeric rubric scores only—not model content, student utterances, images, exception
+text, or raw renderer state.
+
+A stopped live run uses the schema-1.1 `aborted` form. Completed topic results must be
+the exact retained-topic prefix, any human ratings must be a prefix of those completed
+results, and the one unfinished terminal attempt carries only a closed stop category,
+the next retained topic ID (or null before any topic was attempted), and bounded
+request/model-call/repair counts. Aggregate totals include that explicit attempt, so a
+transport or HTTP failure counted before dispatch cannot disappear merely because no
+topic result completed. Aborted evidence is always decision-pending and cannot carry a
+vision calibration.
+
+Experiment runners must construct `ExperimentBudgetGuard` from the predeclared
+ceilings and claim each outward request and each model call immediately before
+dispatch. Transport failures therefore remain counted, and a call that would exceed
+the ceiling is refused before network activity. Post-run verification is defense in
+depth, not the only spend control.
+
+Vision can earn a regression-proxy role only through the one predeclared calibration:
+tie-aware Spearman rank correlation over 5–20 already-retained human ratings, with a
+fixed passing threshold of 0.70 and at least three distinct human score levels. The
+current binary M3 `layout_pass` values are insufficient ordinal evidence, so the helper
+refuses them rather than manufacturing a correlation. It consumes numeric scores only,
+makes no API call, and cannot validate mathematical or renderer truth.
+
+Exact layout rescoring remains a browser responsibility because only the production
+decoder/resolver/lints own fonts and final geometry. The no-network
+`npm --prefix frontend run evidence:rescore` producer replays retained NDJSON and all
+golden/cached fixtures and emits only closed topic/finding counts, with the same pinned
+resolver-policy revision consumed by continuation receipts. Python must not grow an
+approximate second layout engine to fill this gap.
+
+The lifecycle and review milestone for each current experimental flag is normative in
+`docs/experiment-flag-lifecycle.md`. Missing promotion evidence at the named milestone
+means park or remove, never silent extension or default promotion.
+
+## Universal geometric construction boundary
+
+Schema 1.3 lets the board model declare five exact relationships without emitting
+their resolved coordinates: along a contiguous line/curve, midpoint of point or
+endpoint references, one bounded intersection, a perpendicular through a point, and
+an offset from existing geometry. All inputs must be accepted in a prior step. This
+deliberately trades same-line convenience for a stronger streaming invariant: every
+source is already committed, cannot be moved by a current layout relation, and cannot
+form a forward edge or cycle.
+
+FastAPI validates the closed relation shape, reference inventory, and element types.
+It does not reproduce browser layout. The browser resolves against final 1600x900
+geometry, enforces one inherited coordinate space, rejects ambiguity/parallelism/
+degeneracy/off-canvas output with closed codes, and excludes only the failing op.
+Derived endpoints never exist in the wire program. The resulting point or line enters
+the normal rough-path animation, renderer snapshot, semantic manifest, and
+continuation scene only after successful resolution. Shared parity fixtures document
+both the common backend reference decision and browser-only geometry decisions rather
+than pretending the server knows rendered coordinates.
+
+Schema 1.4 adds a sixth, intentionally conservative construction for local rate of
+change: `tangent_at(curve,x,length)`. It can target only a previously accepted
+axes-backed curve and an interior data-space `x`. The browser reuses the same finite
+visible curve samples it renders, interpolates that local geometry, and constructs a
+line of normalized length only when incoming and outgoing directions agree. Endpoints,
+points outside the visible segment, disconnected branches, degenerate samples, and
+corner-like direction changes fail closed; FastAPI only checks the prior accepted curve
+reference and closed shape. This is a tangent to the renderer's visible finite polyline,
+not a claim of a symbolic derivative.
 
 ## Runtime configuration
 
@@ -629,6 +715,29 @@ Client-visible configuration must contain only non-secret feature flags. Never e
 | ADR-029 | 2026-07-18 | Retry one unprompted incomplete checkpoint, but preserve deliberate early answers | A non-completed checkpoint response previously emitted normal generation/playback completion and advanced to listening after partial speech. Unprompted `cancelled`/`incomplete` prompts now emit a correlated failure and receive one bounded retry; a response cancelled by detected student speech remains an intentional early-answer transition. Answer-evaluation guidance is installed only after prompt audio starts, avoiding contradictory instructions while the question is generated. |
 | ADR-030 | 2026-07-18 | Add deterministic visual lints before vision or mutable patches | The browser already owns exact resolved geometry, so it now reports closed label-overlap, label-boundary, and text-overflow findings in diagnostics without moving committed ink. Prompt v3 also chooses concept-shaped visual structures and applies a word-removal test. Vision remains an optional owner-gated evaluator and cannot replace the human rubric. |
 | ADR-031 | 2026-07-18 | Treat pending Realtime responses as busy and bound every response lifecycle | `response.create` previously had an invisible interval before `response.created`, allowing a generated lesson to enter `TEACHING` while its one-sentence tool continuation was still pending; the narration request then rejected once and never retried, leaving a blank board. Pending registrations now enter the public snapshot immediately, auto-start rechecks authoritative client state after context acknowledgement, scripted requests refuse all in-flight work, transient busy rejection retries only after an observed busy-to-idle transition, and bounded creation/settlement watchdogs prevent either lifecycle phase from remaining stuck indefinitely. |
+| ADR-032 | 2026-07-18 | Add a bounded composite diagram op while keeping geometry renderer-owned | Multi-part educational drawings were forced through four-op step budgets and disconnected standalone marks. A composite op now groups up to sixteen semantic line, through-point smooth, rectangle, ellipse, arc, and point primitives on one canvas; the browser—not the model—constructs cubic paths, arrowheads, stable rough ink, exact curve/arc extents, and progressive reveal. This borrows the useful intent/geometry separation observed in Penecho without copying its AGPL source, accepting arbitrary SVG, or changing cached lessons. |
+| ADR-033 | 2026-07-18 | Use coordinator-wide in-flight state as the authoritative Realtime busy signal | The short post-tool framing response could stop audible playback before its later `response.done`. During that interval the UI saw no pending creation, active response ID, or audio playback and started lesson narration, while the response coordinator correctly rejected it as still in flight. Because the public idle inputs did not change again, narration—and therefore ink—never retried. Snapshots now expose coordinator-wide `responseInFlight`; lesson auto-start, scripted narration, and UI actions all wait on the same settlement boundary. A reversed event-order regression pins playback-stop-before-generation-done. |
+| ADR-034 | 2026-07-18 | Improve spatial work through one generic composite canvas, not topic-specific renderers | A renderer-owned operation for each lesson topic would expand the DSL without making novel topics better. Composite diagrams now also support bounded positioned text, so aligned arithmetic, derivations, tables, and annotated figures can share the same local coordinate system. Deliberate text positions remain fixed; incidental primitive labels use deterministic collision candidates against other labels and exact ink bounds before board clamping. No long-division-specific operation or code path is retained. |
+| ADR-035 | 2026-07-18 | Ground questions with completed composite subparts and refresh context at detected speech | Treating a composite diagram as one indivisible manifest element hid useful rays, labels, forces, and spatial relations until the whole op settled. The renderer now assigns stable virtual IDs, exact bounds, and semantic summaries to completed primitive reveal groups, never future or partially drawn groups. At `input_audio_buffer.speech_started`, the browser republishes the current renderer snapshot through the existing queued `session.update` path so a voice question uses the freshest factual board state. |
+| ADR-036 | 2026-07-18 | Separate board truth from React painting and add generic schema-1.2 layout relations | A renderer swap cannot be evaluated honestly while layout, manifest extraction, and diagnostics are embedded in one component. `BoardRenderer` now prepares immutable geometry and committed snapshots, while `BoardPatch` provides exact reversible candidate diffs. Generic place/align/stack/distribute relations move only new independent roots and their dependent geometry; prior committed ink remains immutable and cached schema-1.0 lessons are byte-identical. |
+| ADR-037 | 2026-07-18 | Keep tldraw 5.2.5 as a lazy, licensed experiment; retain rough.js as default | The SDK can host locked CHALK-owned shapes and export board-only images, but the spike adds about 1.68 MB of lazy JavaScript plus CSS and currently preserves CHALK's SVG geometry rather than proving better native bindings or typography. It is therefore opt-in through `VITE_BOARD_RENDERER=tldraw`, obtains its licence from a no-store localhost endpoint, and cannot replace the dependable renderer until retained visual, interruption, performance, and bundle evidence wins the documented matrix. |
+| ADR-038 | 2026-07-18 | Reserve partial ink for a dedicated append-only envelope, not partial lesson JSON | Repeatedly parsing unfinished lesson output would weaken the server-validation boundary. The experimental `lesson.ink_delta` carries only bounded normalized point additions for a separately accepted op header. A request-local store enforces monotonic sequence, total budgets, immutable prefixes, cancellation, and stale rejection; no backend producer or default rendering path is enabled before a measured latency gate. |
+| ADR-039 | 2026-07-18 | Keep board-question images supplementary and evaluation-only | The active renderer can produce a board-only crop and a builder can pair it with authoritative IDs, bounds, and summaries, but no image is appended to Realtime instructions or routine questions. Invalid capture fails closed to structured context, evidence omits Base64, and the existing two-call no-retry smoke still requires fresh owner approval before any product integration decision. |
+| ADR-040 | 2026-07-18 | Close the drawing loop through stateless resolved-prefix continuation | One-shot generation cannot observe post-layout geometry. Under the opt-in `resolved-stepwise` mode, the opening call emits a bounded persistent plan and one or two validated steps, targeting two; the browser resolves their actual scene and FastAPI independently generates one next step per continuation. Every call replays the complete accepted prefix to reconstruct validation/checkpoint/reference state, carries cumulative repair use, and rejects stale request/prefix identity. Committed history is immutable, future buffered geometry may grow only by append, and failure finishes the accepted prefix cleanly. The browser never holds a board-model credential or sends raw renderer records. |
+| ADR-041 | 2026-07-18 | Preserve conceptual meaning only where derived summaries are insufficient | Blanket model-authored descriptions would duplicate labels and increase prompt noise. Optional bounded `meaning` is therefore limited to diagram primitives and bare sketch/line ops; renderer-owned summaries prefer it when present, while all other elements keep deterministic derived summaries. |
+| ADR-042 | 2026-07-18 | Trial direct Realtime drawing only as bounded Q&A overlays | A unified tutor can improve visual answers without replacing compiled lessons or granting raw canvas access. Behind `VITE_QA_DIRECT_DRAW=on`, Realtime may request at most two target-relative circle, underline, arrow, text, or equation marks during `QA`; the browser assigns IDs, stamps current renderer-state version, validates the existing annotation schema and visible-target allowlist, and keeps the result out of lesson/manifest state. The board-model `/annotate` path and flag-off demo behavior remain unchanged until a live mini-model placement/interruption gate passes. |
+| ADR-043 | 2026-07-18 | Failed checkpoint feedback advances rather than trapping the lesson | Checkpoint feedback is pedagogical commentary, not accepted board state, so a cancelled, incomplete, missing, or never-settling automatic response must not hold the lesson indefinitely. Feedback now has an explicit correlated failure event; non-completed responses fail immediately, created responses retain the bounded settlement watchdog, and automatic expectations gain the same eight-second creation watchdog as manual responses. Each failure completes the checkpoint and advances cleanly, while successful feedback still requires generation, playback stop, and drain settlement. |
+| ADR-044 | 2026-07-18 | Promote drawing experiments only from bounded homogeneous records | Each run has one canonical configuration digest, predeclared ceilings and decision policy, closed per-topic metrics, retained numeric human ratings, and an explicit promote/park/remove outcome. The offline verifier rejects mixed/stale identity and inconsistent evidence. Vision is limited to a single fixed Spearman calibration against retained ratings, while exact geometry rescoring stays with the browser-owned renderer rather than being reimplemented in Python. |
+| ADR-045 | 2026-07-18 | Authenticate every resolved-step continuation with a rotating state receipt | A client-supplied prefix, prompt context, and repair count are not authority by themselves. The opening stream now issues an opaque HMAC capability bound to request/client identity, the canonical accepted prefix and plan, a content-free hash of the bounded topic/student context, cumulative repairs, and the complete model/prompt/schema/resolver configuration identity; every accepted continuation consumes it and rotates a new receipt over the enlarged prefix. Exact lesson, plan, and resolved-scene schema bytes are SHA-256-bound, while browser-only placement policy uses one deliberately maintained revision because FastAPI must not inspect or hash arbitrary frontend source at runtime. Shared request/success/terminal schemas are validated on both sides, exact reuse is rejected by a bounded digest-only process ledger, and tampering, noncanonical Base64URL aliases, topic/context substitution, repair-budget downgrade, any identity drift, missing ordinary scene roots, or phantom ordinary IDs fail before model dispatch. Canonical opaque encoding is required because the replay ledger hashes receipt strings; accepting alternate spellings of the same signed bytes would create multiple ledger identities for one capability. HMAC state binding survives backend restart, while the best-effort exact-replay ledger intentionally does not; rotating the server-only API key invalidates outstanding receipts. |
+| ADR-046 | 2026-07-18 | Express lesson-wide composition through five closed archetypes | Free-form plan rectangles would recreate model-authored layout and bypass renderer truth. The optional persistent-plan field therefore selects exactly one of five semantic archetypes; a browser-owned table maps it only to existing named regions and qualitative occupancy roles. Board v3 and continuation prompts receive the generated plan contract, legacy plans and board v1/v2 remain byte-identical, and committed ink is unaffected. The mapping is intentionally isolated until the density/candidate resolver consumes it in a coordinated phase-boundary change. |
+| ADR-047 | 2026-07-18 | Keep visual attention on a bounded transient rail | Permanent geometry and the accepted manifest are the wrong place for momentary pointing. Behind `VITE_ATTENTION_CHOREOGRAPHY=on`, Q&A and checkpoint feedback may queue at most four browser-stamped actions and show only one at a time. Existing point/circle/underline/flash gain the same request, manifest-version, target, expiry, stale, and interruption boundary; trace copies already-rendered path geometry and focus uses a temporary mask. No action mutates lesson geometry or enters the manifest, and the legacy local-deixis path remains the flag-off fallback until three cached human loops pass. |
+| ADR-048 | 2026-07-18 | Measure remote-audio activity without treating it as speech position | `VITE_REMOTE_AUDIO_ACTIVITY=on` attaches a bounded Web Audio analyser to the already-playing remote WebRTC stream and retains only start/stop transitions, sample count, and maximum sampling cost. A fixed RMS threshold with separate start/stop hysteresis can measure broad audible activity and pauses, but carries no transcript, word, sentence, or audio samples and does not pace ink. Unsupported Web Audio fails closed while playback continues; fixed sync remains authoritative until the Phase 6 perceptual gate wins. |
+| ADR-049 | 2026-07-18 | Select annotation sides from exact committed whitespace behind a fallback flag | Structured bounds can do more than ground target IDs: the backend can mirror the current maximum overlay box, score all four target-relative sides against board edges and every visible bound, and expose the two least-crowded sides. Under `ANNOTATION_WHITESPACE=bounded`, generation and repair receive this compact allowlist and semantic validation rejects a sided mark that ignores it. `off` omits the field and preserves the prior `/annotate` contract; circle/underline remain unaffected, the browser still renders target-relative marks, and the flag cannot promote until retained placement improves without a repair/latency regression. |
+| ADR-050 | 2026-07-18 | Resolve five universal geometric constructions only from committed browser geometry | Model-authored coordinates cannot reliably create exact contact. Schema 1.3 therefore adds along, midpoint, unique intersection, perpendicular-through, and offset relations whose inputs must be prior-step accepted geometry. FastAPI validates shape/type/reference safety; the browser owns inherited coordinate spaces and exact resolution, omits one failing op on parallel, ambiguous, degenerate, mismatched, or off-canvas results, and publishes concise relation semantics only after successful geometry. No topic-specific renderer or derived coordinate field is introduced. |
+| ADR-051 | 2026-07-18 | Treat browser visual failures as authenticated append-only continuation tombstones | Backend validation cannot prove that a browser accepted or drew an operation. The stream now retains the exact server-issued prefix for receipt verification while the browser may send only an immutable ordered projection, with every filtered op or step covered by a closed redacted recovery finding. Decoder and renderer failures carry a bounded code, semantic intent, source indexes, unavailable IDs, and resolved neighborhood—not raw model/exception/renderer content. One continuation may re-express pending intent with entirely fresh IDs; recovered and abandoned findings remain tombstones, dangling references and resurrection fail closed, and stale, invalid, or unavailable recovery ends the accepted prefix cleanly as `recovery_abandoned`. The one-shot and cached paths remain unchanged. |
+| ADR-052 | 2026-07-18 | Preserve stopped drawing experiments as closed aborted evidence and pin every applicable live identity | A record that allowed only planned or fully completed runs forced a transport/configuration failure between topics either to disappear or violate aggregate totals. Schema 1.1 adds one redacted aborted form: completed results are an exact retained prefix, the next terminal attempt carries only an allowlisted stop category plus bounded pre-dispatch request/model-call/repair counts, and promotion/calibration are forbidden. The canonical configuration now also requires nullable Realtime model, voice, base-instruction and tool-contract hashes, browser engine/version, and annotation prompt/schema hashes; semantic checks require complete bundles whenever paced/audio, attention, direct-Q&A, tldraw, annotation-whitespace, or browser-latency paths are enabled. Null means demonstrably not applicable, and partial identity fails verification. |
+| ADR-053 | 2026-07-18 | Make Phase 6 comparisons executable only through bounded evaluation recorders | Aggregate analyser snapshots and an unconnected sentence planner could not prove the live synchronization gate. A shared content-free evidence schema now binds three audio runs across both candidate voices and an exact single-versus-sentence pair to cached-step SHA-256, model/voice/browser, fixed detector policy, exact call ceilings, monotonic lifecycle timing, abort/stale identity, first-failure termination, recomputed pause/gap/latency metrics, interruption evidence, and terminal human decisions. Evaluation runners have no product client, fetch, credential, retry, or built-in network dispatcher: an exact owner-approved harness must inject dispatch explicitly. They retain no script text, transcript, RMS value, waveform, audio, or upstream error. This records evidence only; it cannot pace ink, authorize Phase 6C, or displace authoritative `SYNC_MODE=fixed`. |
+| ADR-054 | 2026-07-19 | Add a renderer-sampled tangent construction without claiming symbolic calculus | A generic local tangent improves rate-of-change diagrams across calculus, kinematics, and graph interpretation, but a model-authored line or a server-claimed derivative would violate the browser-truth boundary. Schema 1.4 therefore adds `tangent_at(curve,x,length)` only for a prior accepted axes-backed curve at an interior finite data x. The browser derives the line from the same visible sampled polyline, requires locally agreeing directions, and rejects endpoints, off-visible points, branches, degenerate samples, and corners. The backend validates only the closed relation and prior curve reference; no derived coordinates cross the wire. The resolver-policy revision changes, preventing pre- and post-tangent evidence from mixing. |
 
 ## Open spike decisions
 
@@ -641,5 +750,7 @@ These must be resolved with measurements, not preference:
 5. Session-instruction manifest publication latency and timing.
 6. Luna lesson quality on the ten-topic rubric; if it fails, a bounded comparison of failed topics on Terra.
 7. Direct Realtime image input for student sketches versus the vision-text fallback.
+8. Adopt, hybridize, or reject the lazy tldraw renderer after the retained comparison matrix.
+9. Whether validated pen-prefix streaming produces enough first-ink latency improvement to justify a producer and product renderer path.
 
 Record each resolution as a new ADR row with evidence in `PROGRESS.md`.
