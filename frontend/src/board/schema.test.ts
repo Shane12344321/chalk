@@ -103,6 +103,36 @@ describe("lesson wire contract and defensive decoder", () => {
     ]);
   });
 
+  it("accepts schema 1.2 relational layout and drops unsafe relation references", () => {
+    const source = {
+      schema_version: "1.2",
+      title: "Relational layout",
+      steps: [{
+        id: "s1",
+        script: "Keep the spatial relationship deterministic.",
+        ops: [
+          { op: "text", id: "first", region: "A1", content: "First" },
+          { op: "text", id: "second", region: "A2", content: "Second" },
+        ],
+        layout: [
+          {
+            kind: "place", id: "second", relative_to: "first",
+            side: "below", align: "start", gap: 0.03,
+          },
+          {
+            kind: "place", id: "first", relative_to: "future",
+            side: "below", align: "start", gap: 0.03,
+          },
+        ],
+        checkpoint: null,
+      }],
+    };
+    expect(isLessonProgram(source)).toBe(true);
+    const decoded = decodeLesson(source);
+    expect(decoded.lesson?.steps[0].layout).toHaveLength(1);
+    expect(decoded.warnings.map((warning) => warning.code)).toContain("unknown_reference");
+  });
+
   it("drops a primitive whose canvas is not an accepted diagram element", () => {
     const source = physicsDiagramLesson();
     source.steps[0].ops[1] = {

@@ -1,0 +1,189 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://chalk.local/schema/resolved-board-scene.schema.json",
+  "title": "ResolvedBoardScene",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "request_id", "prefix_version", "elements", "findings"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "request_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "prefix_version": { "type": "integer", "minimum": 1, "maximum": 8 },
+    "elements": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "bounds", "summary", "state"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,15}$" },
+          "kind": {
+            "enum": ["text", "equation", "axes", "curve", "sketch", "line", "arrow", "point", "angle_arc", "diagram"]
+          },
+          "bounds": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": { "type": "number", "minimum": 0, "maximum": 1 }
+          },
+          "summary": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "state": { "enum": ["committed", "buffered"] }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "evidence", "element_ids"],
+            "properties": {
+              "code": {
+                "enum": [
+                  "label_overlap", "label_out_of_bounds", "text_overflow",
+                  "element_overlap", "reading_order_conflict", "measurement_unavailable"
+                ]
+              },
+              "evidence": { "enum": ["estimated", "measured", "semantic"] },
+              "element_ids": {
+                "type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true,
+                "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,15}$" }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "evidence", "element_ids", "zone"],
+            "properties": {
+              "code": { "enum": ["region_crowded", "board_imbalanced"] },
+              "evidence": { "enum": ["estimated", "measured", "semantic"] },
+              "element_ids": {
+                "type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true,
+                "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,15}$" }
+              },
+              "zone": {
+                "enum": [
+                  "A1", "A2", "A3", "B1", "B2", "B3",
+                  "C1", "C2", "C3", "D1", "D2", "D3",
+                  "left", "right", "full"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "evidence", "element_ids", "zone"],
+            "properties": {
+              "code": { "const": "region_sparse" },
+              "evidence": { "enum": ["estimated", "measured", "semantic"] },
+              "element_ids": {
+                "type": "array", "maxItems": 4, "uniqueItems": true,
+                "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,15}$" }
+              },
+              "zone": {
+                "enum": [
+                  "A1", "A2", "A3", "B1", "B2", "B3",
+                  "C1", "C2", "C3", "D1", "D2", "D3",
+                  "left", "right", "full"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    "recovery_findings": {
+      "description": "Closed, redacted browser evidence for visual intent that did not become visible ink. These are unavailable IDs, not board elements.",
+      "type": "array",
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/recoveryFinding" }
+    }
+  },
+  "$defs": {
+    "elementId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,15}$"
+    },
+    "zone": {
+      "enum": [
+        "A1", "A2", "A3", "B1", "B2", "B3",
+        "C1", "C2", "C3", "D1", "D2", "D3",
+        "left", "right", "full"
+      ]
+    },
+    "recoveryFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "finding_id",
+        "code",
+        "intent",
+        "status",
+        "affected_element_ids",
+        "affected_op_indexes",
+        "neighborhood"
+      ],
+      "properties": {
+        "finding_id": {
+          "type": "string",
+          "pattern": "^rf_[0-9a-f]{8}$"
+        },
+        "code": {
+          "enum": [
+            "browser_invalid_step",
+            "browser_invalid_op",
+            "browser_duplicate_id",
+            "browser_unknown_reference",
+            "browser_invalid_expression",
+            "browser_invalid_equation",
+            "browser_invalid_axes",
+            "renderer_geometry_failed"
+          ]
+        },
+        "intent": {
+          "enum": [
+            "step", "text", "equation", "sketch", "axes", "curve",
+            "diagram", "line", "arrow", "point", "angle_arc"
+          ]
+        },
+        "status": { "enum": ["pending", "recovered", "abandoned"] },
+        "affected_element_ids": {
+          "type": "array",
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/elementId" }
+        },
+        "affected_op_indexes": {
+          "type": "array",
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 0, "maximum": 3 }
+        },
+        "source_step_id": { "$ref": "#/$defs/elementId" },
+        "neighborhood": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["nearby_element_ids"],
+          "properties": {
+            "zone": { "$ref": "#/$defs/zone" },
+            "nearby_element_ids": {
+              "type": "array",
+              "maxItems": 4,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/elementId" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -25,6 +25,7 @@ def settings(**overrides: object) -> Settings:
         "openai_api_key": SecretStr(API_KEY),
         "frontend_origin": "http://localhost:5173",
         "safety_identifier_salt": SALT,
+        "annotation_whitespace": "bounded",
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
@@ -113,6 +114,37 @@ def test_annotation_validator_accepts_only_visible_targets() -> None:
         )
 
 
+def test_annotation_validator_enforces_renderer_whitespace_for_sided_marks() -> None:
+    arrow = program(
+        ops=[
+            {
+                "op": "arrow",
+                "id": "peakarrow",
+                "target_id": "rangecurve",
+                "side": "right",
+            }
+        ]
+    )
+    with pytest.raises(AnnotationValidationError, match="whitespace allowlist"):
+        validate_annotation(
+            arrow,
+            request_id=REQUEST_ID,
+            manifest_version=3,
+            visible_element_ids={"rangecurve"},
+            allowed_sides={"rangecurve": {"left", "above"}},
+        )
+    assert (
+        validate_annotation(
+            arrow,
+            request_id=REQUEST_ID,
+            manifest_version=3,
+            visible_element_ids={"rangecurve"},
+            allowed_sides={"rangecurve": {"right", "below"}},
+        )
+        == arrow
+    )
+
+
 @pytest.mark.parametrize(
     "invalid",
     [
@@ -167,6 +199,7 @@ def test_annotation_endpoint_returns_only_validated_schema_and_safe_headers() ->
     assert response.status_code == 200
     assert response.json() == program()
     assert response.headers["x-chalk-annotation-repairs"] == "0"
+    assert response.headers["x-chalk-annotation-whitespace"] == "bounded"
     assert response.headers["cache-control"] == "no-store"
     assert captured is not None
     assert captured.url == "https://api.openai.com/v1/responses"
@@ -180,6 +213,30 @@ def test_annotation_endpoint_returns_only_validated_schema_and_safe_headers() ->
     assert upstream["reasoning"] == {"effort": "none"}
     assert upstream["max_output_tokens"] == 1_200
     assert upstream["store"] is False
+    annotation_input = json.loads(upstream["input"][0]["content"])
+    assert annotation_input["annotation_open_sides"] == {
+        "rangeaxes": ["below", "left"],
+        "rangecurve": ["left", "above"],
+    }
+
+
+def test_annotation_whitespace_flag_off_preserves_existing_model_input() -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.read()))
+        return completed_output(program())
+
+    with client_with_transport(
+        handler,
+        app_settings=settings(annotation_whitespace="off"),
+    ) as client:
+        response = client.post("/annotate", json=annotation_payload())
+
+    assert response.status_code == 200
+    annotation_input = json.loads(captured["input"][0]["content"])
+    assert "annotation_open_sides" not in annotation_input
+    assert response.headers["x-chalk-annotation-whitespace"] == "off"
 
 
 def test_annotation_repairs_once_and_preserves_request_identity() -> None:
@@ -202,6 +259,10 @@ def test_annotation_repairs_once_and_preserves_request_identity() -> None:
     assert repair_input["request_id"] == REQUEST_ID
     assert repair_input["manifest_version"] == 3
     assert repair_input["visible_elements"] == annotation_payload()["visible_elements"]
+    assert repair_input["annotation_open_sides"] == {
+        "rangeaxes": ["below", "left"],
+        "rangecurve": ["left", "above"],
+    }
 
 
 def test_annotation_stops_after_two_counted_repairs() -> None:

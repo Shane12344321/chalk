@@ -74,6 +74,8 @@ Only one milestone may be active at a time. M5 and M6 are optional; M7 may not b
 
 Planned follow-on feature plan (after the M4 gate): `docs/exec-plans/active/natural-drawing.md` — live-generation resilience, backend/browser validation parity, board-engine prompt v2 spatial contract, prefix-stable layout and stroke choreography, and mid-lesson topic switching, based on the 2026-07-17 bug audit.
 
+Proposed post-hardening roadmap: `docs/exec-plans/active/drawing-intelligence-roadmap.md` — evidence promotion, density-aware and measured-first placement, universal geometric constructions, renderer-failure recovery, attention choreography, audible-position experiments, adaptive Q&A, one simulation-backed widget, and a later tool-driven board-agent experiment. It does not supersede the active M4 gate or authorize live spend.
+
 ## M0 — Planning and repository baseline
 
 Objective: establish a versioned, internally consistent starting point before application code.

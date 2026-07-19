@@ -40,7 +40,7 @@ interface ClientHarness {
   waitUntilSessionUpdated(attempt: number): Promise<void>;
 }
 
-type FakeListener = (event: { data?: unknown }) => void;
+type FakeListener = (event: { data?: unknown; streams?: MediaStream[]; track?: MediaStreamTrack }) => void;
 
 class FakeDataChannel {
   readyState = "open";
@@ -66,8 +66,11 @@ class FakePeer {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
   }
 
-  emit(type: string): void {
-    for (const listener of this.listeners.get(type) ?? []) listener({});
+  emit(
+    type: string,
+    event: { data?: unknown; streams?: MediaStream[]; track?: MediaStreamTrack } = {},
+  ): void {
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
   }
 }
 
@@ -133,6 +136,7 @@ function createHarness(
   onTeachRequested?: (topic: string, studentContext: string) => { requestId: string },
   onDeixisRequested?: RealtimeClientCallbacks["onDeixisRequested"],
   onAnnotateRequested?: RealtimeClientCallbacks["onAnnotateRequested"],
+  onDrawQaAnnotationRequested?: RealtimeClientCallbacks["onDrawQaAnnotationRequested"],
 ) {
   let latest: RealtimeSnapshot | undefined;
   const client = new RealtimeClient({
@@ -144,6 +148,7 @@ function createHarness(
       onTeachRequested,
       onDeixisRequested,
       onAnnotateRequested,
+      onDrawQaAnnotationRequested,
     },
     now: (() => {
       let now = 0;
@@ -398,6 +403,32 @@ describe("RealtimeClient event coordination", () => {
     );
   });
 
+  it("refreshes the latest visible-board instructions when student speech begins", async () => {
+    const send = vi.fn();
+    const { client, harness } = createHarness(send);
+    harness.status = "connected";
+    const publication = client.setBoardContext(
+      "Lesson: optics. Visible board: ray from lower-left to center.",
+    );
+    await flushMicrotasks();
+    harness.handleServerEvent({ type: SERVER_EVENTS.SESSION_UPDATED });
+    await publication;
+    send.mockClear();
+
+    harness.handleServerEvent({ type: SERVER_EVENTS.INPUT_AUDIO_BUFFER_SPEECH_STARTED });
+    await flushMicrotasks();
+
+    expect(send).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(send.mock.calls[0][0]))).toMatchObject({
+      type: "session.update",
+      session: {
+        instructions: expect.stringContaining("ray from lower-left to center"),
+      },
+    });
+    harness.handleServerEvent({ type: SERVER_EVENTS.SESSION_UPDATED });
+    await flushMicrotasks();
+  });
+
   it("tracks checkpoint prompt and automatic feedback as separate responses", () => {
     const semanticEvents: RealtimeSemanticEvent[] = [];
     const { client, harness } = createHarness(vi.fn(), (event) =>
@@ -485,6 +516,83 @@ describe("RealtimeClient event coordination", () => {
       expect(harness.responseCoordinator.hasPurpose("checkpoint_prompt")).toBe(false);
     },
   );
+
+  it.each(["cancelled", "incomplete"])(
+    "fails %s checkpoint feedback instead of leaving the lesson waiting",
+    (status) => {
+      const semanticEvents: RealtimeSemanticEvent[] = [];
+      const { client, harness } = createHarness(vi.fn(), (event) =>
+        semanticEvents.push(event),
+      );
+      const context = { requestId: "req-1", stepId: "s2", cycle: 2 };
+      client.expectAutomaticResponse("checkpoint_feedback", context);
+      harness.handleServerEvent({
+        type: SERVER_EVENTS.RESPONSE_CREATED,
+        response: { id: "resp_feedback" },
+      });
+      harness.handleServerEvent(responseDone("resp_feedback", status));
+
+      expect(semanticEvents).toEqual([
+        { type: "checkpoint.feedback_failed", context },
+      ]);
+      expect(harness.responseCoordinator.hasPurpose("checkpoint_feedback")).toBe(false);
+    },
+  );
+
+  it("fails checkpoint feedback whose response lifecycle never settles", () => {
+    vi.useFakeTimers();
+    try {
+      const semanticEvents: RealtimeSemanticEvent[] = [];
+      const { client, harness } = createHarness(vi.fn(), (event) =>
+        semanticEvents.push(event),
+      );
+      const context = { requestId: "req-1", stepId: "s2", cycle: 2 };
+      client.expectAutomaticResponse("checkpoint_feedback", context);
+      harness.handleServerEvent({
+        type: SERVER_EVENTS.RESPONSE_CREATED,
+        response: { id: "resp_feedback" },
+      });
+
+      vi.advanceTimersByTime(20_100);
+
+      expect(semanticEvents).toContainEqual({
+        type: "checkpoint.feedback_failed",
+        context,
+      });
+      expect(harness.responseCoordinator.hasPurpose("checkpoint_feedback")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails checkpoint feedback that never receives response.created", () => {
+    vi.useFakeTimers();
+    try {
+      const semanticEvents: RealtimeSemanticEvent[] = [];
+      const { client, harness, latest } = createHarness(vi.fn(), (event) =>
+        semanticEvents.push(event),
+      );
+      const context = { requestId: "req-1", stepId: "s2", cycle: 2 };
+      client.expectAutomaticResponse("checkpoint_feedback", context);
+      expect(latest().responsePending).toBe(true);
+
+      vi.advanceTimersByTime(8_100);
+
+      expect(semanticEvents).toContainEqual({
+        type: "checkpoint.feedback_failed",
+        context,
+      });
+      expect(latest().responsePending).toBe(false);
+      expect(
+        latest().trace.some(
+          (entry) => entry.type === "response.automatic_create_timeout",
+        ),
+      ).toBe(true);
+      expect(harness.responseCoordinator.hasPurpose("checkpoint_feedback")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it("does not retry a checkpoint prompt cancelled by an early student answer", () => {
     const semanticEvents: RealtimeSemanticEvent[] = [];
@@ -751,6 +859,58 @@ describe("RealtimeClient event coordination", () => {
       sessionModel: undefined,
       activeResponseId: undefined,
     });
+  });
+
+  it("attaches the opt-in remote-audio activity monitor and retains only closed evidence", async () => {
+    let latest: RealtimeSnapshot | undefined;
+    let transition: ((event: { active: boolean; observedAtMs: number; rms: number }) => void) | undefined;
+    const stop = vi.fn();
+    const monitorFactory = vi.fn((_stream, onTransition) => {
+      transition = onTransition;
+      return {
+        snapshot: () => ({
+          active: false,
+          transitions: 0,
+          samples: 12,
+          maxSampleCostMs: 0.08,
+        }),
+        stop,
+      };
+    });
+    const client = new RealtimeClient({
+      apiBaseUrl: "http://127.0.0.1:8000",
+      clientId: "00000000-0000-4000-8000-000000000001",
+      callbacks: { onSnapshot: (snapshot) => (latest = snapshot) },
+      remoteAudioActivity: true,
+      audioActivityMonitorFactory: monitorFactory,
+    });
+    const harness = client as unknown as ClientHarness;
+    harness.status = "connected";
+    const peer = new FakePeer();
+    const stream = fakeStream(fakeTrack());
+    const audio = { ...fakeAudio(), play: vi.fn().mockResolvedValue(undefined) };
+    const OriginalAudio = globalThis.Audio;
+    vi.stubGlobal("Audio", vi.fn(() => audio));
+    try {
+      harness.installPeerHandlers(peer as unknown as RTCPeerConnection, harness.attempt);
+      peer.emit("track", { streams: [stream], track: stream.getTracks()[0] });
+      expect(monitorFactory).toHaveBeenCalledWith(stream, expect.any(Function));
+      expect(latest?.remoteAudioActivity).toEqual({
+        active: false,
+        transitions: 0,
+        samples: 12,
+        maxSampleCostMs: 0.08,
+      });
+      transition?.({ active: true, observedAtMs: 100, rms: 0.025 });
+      expect(latest?.remoteAudioActivity?.active).toBe(true);
+      expect(latest?.trace.at(-1)).toMatchObject({ type: "audio_activity.started" });
+      expect(JSON.stringify(latest)).not.toContain("0.025");
+      await client.disconnect();
+      expect(stop).toHaveBeenCalledOnce();
+      expect(latest?.remoteAudioActivity).toBeUndefined();
+    } finally {
+      vi.stubGlobal("Audio", OriginalAudio);
+    }
   });
 
   it("counts speech start only after response audio playback begins", () => {
@@ -1059,6 +1219,61 @@ describe("RealtimeClient event coordination", () => {
     }
   });
 
+  it("keeps a stopped filler busy until response.done releases its coordinator record", () => {
+    const teach = vi.fn().mockReturnValue({ requestId: "request-live" });
+    const { client, harness, latest } = createHarness(vi.fn(), undefined, teach);
+    harness.status = "connected";
+    harness.handleServerEvent(
+      responseDone("resp_tool", "completed", [
+        {
+          type: "function_call",
+          call_id: "call_teach",
+          name: "teach",
+          arguments: '{"topic":"Chain rule","student_context":""}',
+        },
+      ]),
+    );
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.RESPONSE_CREATED,
+      response: {
+        id: "resp_filler",
+        metadata: { chalk_kind: "tool_continuation" },
+      },
+    });
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.OUTPUT_AUDIO_BUFFER_STARTED,
+      response_id: "resp_filler",
+    });
+    harness.handleServerEvent({
+      type: SERVER_EVENTS.OUTPUT_AUDIO_BUFFER_STOPPED,
+      response_id: "resp_filler",
+    });
+
+    expect(latest()).toMatchObject({
+      activeResponseId: undefined,
+      responsePending: false,
+      responseInFlight: true,
+      audioPlaybackActive: false,
+    });
+    expect(() =>
+      client.requestNarration("Begin the actual lesson.", {
+        requestId: "request-live",
+        stepId: "s1",
+        cycle: 1,
+      }),
+    ).toThrow("Wait for the active response");
+
+    harness.handleServerEvent(responseDone("resp_filler", "completed"));
+    expect(latest().responseInFlight).toBe(false);
+    expect(() =>
+      client.requestNarration("Begin the actual lesson.", {
+        requestId: "request-live",
+        stepId: "s1",
+        cycle: 1,
+      }),
+    ).not.toThrow();
+  });
+
   it("refuses lesson narration while a filler response is still pending", () => {
     const { client, harness } = createHarness();
     harness.status = "connected";
@@ -1142,6 +1357,42 @@ describe("RealtimeClient event coordination", () => {
       response: {
         metadata: { chalk_kind: "tool_continuation" },
         instructions: expect.stringContaining("optional explanatory ink"),
+      },
+    });
+  });
+
+  it("renders a validated Q&A annotation locally and continues the spoken answer", () => {
+    const draw = vi.fn().mockReturnValue({ ok: true, requestId: "qa-request", marks: 1 });
+    const send = vi.fn();
+    const { harness } = createHarness(
+      send,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      draw,
+    );
+
+    harness.handleServerEvent(responseDone("resp_tool", "completed", [{
+      type: "function_call",
+      call_id: "call_qa_draw",
+      name: "draw_qa_annotation",
+      arguments: '{"marks":[{"kind":"circle","target_id":"ray1"}]}',
+    }]));
+
+    expect(draw).toHaveBeenCalledWith([{ kind: "circle", target_id: "ray1" }]);
+    expect(JSON.parse(String(send.mock.calls[0][0]))).toMatchObject({
+      item: { output: JSON.stringify({
+        ok: true,
+        status: "qa_annotation_shown",
+        request_id: "qa-request",
+        marks: 1,
+      }) },
+    });
+    expect(JSON.parse(String(send.mock.calls[1][0]))).toMatchObject({
+      response: {
+        metadata: { chalk_kind: "tool_continuation" },
+        instructions: expect.stringContaining("highlighted board element"),
       },
     });
   });

@@ -85,11 +85,24 @@ class HealthBoardStatus(BaseModel):
     reasoning_effort: str
 
 
+class HealthRendererStatus(BaseModel):
+    tldraw_license_configured: bool
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
     service: Literal["chalk-backend"] = "chalk-backend"
     realtime: HealthRealtimeStatus
     board: HealthBoardStatus
+    renderer: HealthRendererStatus
+
+
+class RuntimeRendererConfig(BaseModel):
+    """Client-required SDK configuration, deliberately excluded from logs."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    tldraw_license_key: str | None = Field(default=None, repr=False)
 
 
 class _UpstreamClientSecret(BaseModel):
@@ -136,6 +149,29 @@ async def health(
             model=settings.board_model,
             reasoning_effort=settings.board_reasoning_effort,
         ),
+        renderer=HealthRendererStatus(
+            tldraw_license_configured=settings.has_tldraw_license_key,
+        ),
+    )
+
+
+@router.get(
+    "/runtime-config/renderer",
+    response_model=RuntimeRendererConfig,
+    response_model_exclude_none=True,
+)
+async def runtime_renderer_config(
+    response: Response,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> RuntimeRendererConfig:
+    """Project the browser-required tldraw key without caching or logging it."""
+
+    response.headers["Cache-Control"] = "no-store"
+    key = settings.tldraw_license_key
+    return RuntimeRendererConfig(
+        tldraw_license_key=(
+            key.get_secret_value().strip() if key and key.get_secret_value().strip() else None
+        )
     )
 
 

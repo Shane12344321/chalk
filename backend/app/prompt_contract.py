@@ -9,8 +9,15 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LESSON_SCHEMA_PATH = PROJECT_ROOT / "shared/schema/lesson.schema.json"
+LESSON_PLAN_SCHEMA_PATH = PROJECT_ROOT / "shared/schema/lesson-plan.schema.json"
 LESSON_WIRE_CONTRACT_MARKER = "{{LESSON_WIRE_CONTRACT}}"
-MAX_LESSON_WIRE_CONTRACT_CHARS = 2_500
+LESSON_PLAN_CONTRACT_MARKER = "{{LESSON_PLAN_CONTRACT}}"
+# Schema 1.4 adds the bounded tangent-at construction. Keep a deliberately
+# small fixed headroom above the measured generated contract (4,707 chars),
+# so a later schema expansion still fails loudly rather than silently bloating
+# every board-model request.
+MAX_LESSON_WIRE_CONTRACT_CHARS = 4_720
+MAX_LESSON_PLAN_CONTRACT_CHARS = 1_000
 
 
 @lru_cache(maxsize=1)
@@ -24,8 +31,14 @@ def lesson_wire_contract() -> str:
     region = definitions["region"]
     anchor = definitions["anchor"]
     normalized_point = definitions["normalizedPoint"]
+    geometry_point_reference = definitions["geometryPointReference"]
+    point_construction = definitions["pointConstruction"]
+    perpendicular_construction = definitions["perpendicularConstruction"]
+    tangent_construction = definitions["tangentConstruction"]
+    line_construction = definitions["lineConstruction"]
     axis_spec = definitions["axisSpec"]
     stroke_style = definitions["strokeStyle"]
+    diagram_primitive = definitions["diagramPrimitive"]
 
     lines = [
         "Wire contract (generated from shared/schema/lesson.schema.json):",
@@ -37,8 +50,42 @@ def lesson_wire_contract() -> str:
         f"- region = {_enum(region['enum'])}.",
         f"- anchor = {_object_shape(anchor, definitions)}.",
         f"- normalizedPoint = {_describe(normalized_point, definitions)}.",
+        (
+            "- geometryPointReference = "
+            + " OR ".join(
+                _object_shape(_resolve(item, definitions), definitions)
+                for item in geometry_point_reference["oneOf"]
+            )
+            + "."
+        ),
+        (
+            "- pointConstruction = "
+            + " OR ".join(
+                _object_shape(_resolve(item, definitions), definitions)
+                for item in point_construction["oneOf"]
+            )
+            + "."
+        ),
+        f"- perpendicularConstruction = {_object_shape(perpendicular_construction, definitions)}.",
+        f"- tangentConstruction = {_object_shape(tangent_construction, definitions)}.",
+        (
+            "- lineConstruction = "
+            + " OR ".join(
+                _object_shape(_resolve(item, definitions), definitions)
+                for item in line_construction["oneOf"]
+            )
+            + "."
+        ),
         f"- axisSpec = {_object_shape(axis_spec, definitions)}.",
         f"- strokeStyle = {_enum(stroke_style['enum'])}.",
+        (
+            "- diagramPrimitive = "
+            + " OR ".join(
+                _object_shape(_resolve(item, definitions), definitions)
+                for item in diagram_primitive["oneOf"]
+            )
+            + "."
+        ),
         "- Ops are exact JSON objects (a `?` suffix marks an optional key):",
     ]
 
@@ -52,14 +99,37 @@ def lesson_wire_contract() -> str:
     return contract
 
 
+@lru_cache(maxsize=1)
+def lesson_plan_contract() -> str:
+    """Return the exact bounded plan shape derived from its shared schema."""
+
+    schema = json.loads(LESSON_PLAN_SCHEMA_PATH.read_text(encoding="utf-8"))
+    contract = "\n".join(
+        [
+            "Lesson-plan contract (generated from shared/schema/lesson-plan.schema.json):",
+            f"- Emit exactly {_object_shape(schema, {})}.",
+            "- Optional composition_archetype selects browser-owned named zones only; "
+            "never emit rectangles, coordinates, bounds, percentages, or custom zones.",
+        ]
+    )
+    if len(contract) > MAX_LESSON_PLAN_CONTRACT_CHARS:
+        raise ValueError("generated lesson-plan contract exceeds prompt budget")
+    return contract
+
+
 def expand_prompt_contract(template: str) -> str:
-    """Expand exactly one schema marker and reject unresolved prompt templates."""
+    """Expand the required lesson marker and optional lesson-plan marker."""
 
     count = template.count(LESSON_WIRE_CONTRACT_MARKER)
     if count != 1:
         raise ValueError("schema-derived prompt must contain exactly one contract marker")
+    plan_count = template.count(LESSON_PLAN_CONTRACT_MARKER)
+    if plan_count > 1:
+        raise ValueError("schema-derived prompt must contain at most one lesson-plan marker")
     expanded = template.replace(LESSON_WIRE_CONTRACT_MARKER, lesson_wire_contract())
-    if LESSON_WIRE_CONTRACT_MARKER in expanded:
+    if plan_count == 1:
+        expanded = expanded.replace(LESSON_PLAN_CONTRACT_MARKER, lesson_plan_contract())
+    if LESSON_WIRE_CONTRACT_MARKER in expanded or LESSON_PLAN_CONTRACT_MARKER in expanded:
         raise ValueError("schema-derived prompt contract marker was not resolved")
     return expanded
 

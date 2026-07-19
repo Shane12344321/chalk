@@ -86,6 +86,72 @@ describe("lesson NDJSON streaming", () => {
     expect(progress.some((value) => value.steps.length === 1 && !value.complete)).toBe(true);
   });
 
+  it("routes only schema-valid experimental ink deltas across arbitrary chunks", async () => {
+    const inkDeltas: unknown[] = [];
+    const lines = [
+      envelope({ type: "lesson.started", request_id: REQUEST_ID, title: "Derivative" }),
+      envelope({
+        type: "lesson.ink_delta",
+        request_id: REQUEST_ID,
+        step_id: "s1",
+        op_id: "pen1",
+        stroke_index: 0,
+        sequence: 0,
+        points: [[0.1, 0.2], [0.2, 0.3]],
+        complete: false,
+      }),
+      envelope({ type: "lesson.step", request_id: REQUEST_ID, step }),
+      envelope({
+        type: "lesson.done",
+        request_id: REQUEST_ID,
+        accepted_steps: 1,
+        repairs: 0,
+        dropped_steps: 0,
+      }),
+    ];
+    const result = await streamLesson({
+      apiBaseUrl: "http://127.0.0.1:8000",
+      request: request(),
+      fetchImpl: vi.fn().mockResolvedValue(streamResponse(lines, 1)),
+      onInkDelta: (delta) => inkDeltas.push(delta),
+    });
+
+    expect(result.lesson.steps).toHaveLength(1);
+    expect(inkDeltas).toHaveLength(1);
+    expect(inkDeltas[0]).toMatchObject({ op_id: "pen1", sequence: 0 });
+  });
+
+  it("retains a bounded plan and marks an opening buffer as continuable", async () => {
+    const plan = {
+      kind: "lesson_plan",
+      visual_structure: "A left-to-right slope argument",
+      progression: ["define slope", "draw curve", "add tangent"],
+      checkpoint_step: 2,
+    };
+    const result = await streamLesson({
+      apiBaseUrl: "http://127.0.0.1:8000",
+      request: { ...request(), generationMode: "resolved_stepwise" },
+      fetchImpl: vi.fn().mockResolvedValue(streamResponse([
+        envelope({ type: "lesson.started", request_id: REQUEST_ID, title: "Derivative" }),
+        envelope({ type: "lesson.plan", request_id: REQUEST_ID, plan }),
+        envelope({ type: "lesson.step", request_id: REQUEST_ID, step }),
+        envelope({
+          type: "lesson.done",
+          request_id: REQUEST_ID,
+          accepted_steps: 1,
+          repairs: 0,
+          dropped_steps: 0,
+          continuation_available: true,
+          continuation_receipt: `v1.${"a".repeat(60)}.${"b".repeat(43)}`,
+        }),
+      ])),
+    });
+    expect(result.complete).toBe(false);
+    expect(result.continuationAvailable).toBe(true);
+    expect(result.continuationReceipt).toMatch(/^v1\./u);
+    expect(result.plan).toEqual(plan);
+  });
+
   it("decodes one captured validated stream without a network request", () => {
     const captured = [
       envelope({ type: "lesson.started", request_id: REQUEST_ID, title: "Derivative" }),
@@ -250,6 +316,23 @@ describe("lesson NDJSON streaming", () => {
     expect(result.browserDroppedSteps).toBe(2);
     expect(result.warnings).toBeGreaterThanOrEqual(2);
     expect(result.complete).toBe(true);
+    expect(result.receiptPrefix.map((value) => value.id)).toEqual(["s1", "s2", "s3"]);
+    expect(result.recoveryEvidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "browser_unknown_reference",
+        intent: "curve",
+        affectedElementIds: ["curve1"],
+        affectedOpIndexes: [0],
+        sourceStepId: "s2",
+      }),
+      expect.objectContaining({
+        code: "browser_unknown_reference",
+        intent: "text",
+        affectedElementIds: ["orphan"],
+        affectedOpIndexes: [0],
+        sourceStepId: "s3",
+      }),
+    ]));
   });
 
   it("falls back only when no streamed step survives browser validation", async () => {
@@ -311,6 +394,14 @@ describe("lesson NDJSON streaming", () => {
     expect(result.lesson.steps[1].ops.map((op) => op.id)).toEqual(["keepme"]);
     expect(result.browserDroppedSteps).toBe(0);
     expect(result.warnings).toBe(1);
+    expect(result.recoveryEvidence).toEqual([
+      expect.objectContaining({
+        code: "browser_unknown_reference",
+        affectedElementIds: ["badcurve"],
+        affectedOpIndexes: [1],
+        sourceStepId: "s2",
+      }),
+    ]);
   });
 
   it("rejects a truncated final envelope and a stream without lesson.done", async () => {
@@ -543,6 +634,64 @@ describe("lesson NDJSON streaming", () => {
     await expect(second).resolves.toMatchObject({ requestId: STALE_ID });
     expect(signals[0].aborted).toBe(true);
     expect(firstProgress).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale final result when the transport ignores abort", async () => {
+    let resolveFirst!: (response: Response) => void;
+    let call = 0;
+    const firstProgress = vi.fn();
+    const fetchImpl = vi.fn(() => {
+      call += 1;
+      if (call === 2) {
+        return Promise.resolve(streamResponse([
+          envelope({ type: "lesson.started", request_id: STALE_ID, title: "Integral" }),
+          envelope({ type: "lesson.step", request_id: STALE_ID, step }),
+          envelope({
+            type: "lesson.done",
+            request_id: STALE_ID,
+            accepted_steps: 1,
+            repairs: 0,
+            dropped_steps: 0,
+          }),
+        ]));
+      }
+      return new Promise<Response>((resolve) => {
+        resolveFirst = resolve;
+      });
+    });
+    const client = new LessonStreamClient("http://127.0.0.1:8000", CLIENT_ID, fetchImpl);
+    const stale = client.start(
+      { requestId: REQUEST_ID, topic: "Derivative" },
+      firstProgress,
+    );
+    await expect(client.start({ requestId: STALE_ID, topic: "Integral" })).resolves.toMatchObject({
+      requestId: STALE_ID,
+    });
+    resolveFirst(streamResponse([
+      envelope({ type: "lesson.started", request_id: REQUEST_ID, title: "Derivative" }),
+      envelope({ type: "lesson.step", request_id: REQUEST_ID, step }),
+      envelope({
+        type: "lesson.done",
+        request_id: REQUEST_ID,
+        accepted_steps: 1,
+        repairs: 0,
+        dropped_steps: 0,
+      }),
+    ]));
+    await expect(stale).rejects.toMatchObject({ name: "AbortError" });
+    expect(firstProgress).not.toHaveBeenCalled();
+  });
+
+  it("rejects a late failure after cancellation so callers cannot install fallback", async () => {
+    let rejectLate!: (error: Error) => void;
+    const fetchImpl = vi.fn(() => new Promise<Response>((_resolve, reject) => {
+      rejectLate = reject;
+    }));
+    const client = new LessonStreamClient("http://127.0.0.1:8000", CLIENT_ID, fetchImpl);
+    const pending = client.start({ requestId: REQUEST_ID, topic: "Derivative" });
+    client.cancel();
+    rejectLate(new Error("late transport failure"));
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
   });
 
   it("bounds individual envelope size", () => {

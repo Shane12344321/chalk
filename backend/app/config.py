@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     )
 
     openai_api_key: SecretStr | None = Field(default=None, repr=False)
+    tldraw_license_key: SecretStr | None = Field(default=None, repr=False)
     openai_api_base_url: Literal["https://api.openai.com/v1"] = "https://api.openai.com/v1"
     openai_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
 
@@ -46,6 +47,7 @@ class Settings(BaseSettings):
     lesson_max_concurrent: int = Field(default=2, ge=1, le=4)
     annotation_generation_timeout_seconds: float = Field(default=15.0, gt=0, le=30)
     annotation_max_concurrent: int = Field(default=1, ge=1, le=2)
+    annotation_whitespace: Literal["off", "bounded"] = "off"
     frontend_origin: str = "http://localhost:5173"
     safety_identifier_salt: str = Field(
         default="chalk-local-development-v1",
@@ -88,6 +90,12 @@ class Settings(BaseSettings):
         """Report configuration state without exposing the configured value."""
 
         return bool(self.openai_api_key and self.openai_api_key.get_secret_value().strip())
+
+    @property
+    def has_tldraw_license_key(self) -> bool:
+        """Report SDK licence configuration without exposing the key."""
+
+        return bool(self.tldraw_license_key and self.tldraw_license_key.get_secret_value().strip())
 
     @property
     def board_prompt_name(self) -> str:

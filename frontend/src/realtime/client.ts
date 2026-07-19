@@ -45,6 +45,12 @@ import type {
   TokenUsageSummary,
   TraceEntry,
 } from "./types";
+import {
+  createRemoteAudioActivityMonitor,
+  type AudioActivityEvidence,
+  type RemoteAudioActivityMonitor,
+  type RemoteAudioActivityMonitorFactory,
+} from "./remoteAudioActivity";
 
 const MAX_TRACE_ENTRIES = 500;
 const MAX_INTERRUPTION_MARKERS = 50;
@@ -70,6 +76,10 @@ export interface RealtimeClientOptions {
   callbacks: RealtimeClientCallbacks;
   fetchImpl?: typeof fetch;
   now?: () => number;
+  qaDirectDraw?: boolean;
+  attentionChoreography?: boolean;
+  remoteAudioActivity?: boolean;
+  audioActivityMonitorFactory?: RemoteAudioActivityMonitorFactory;
 }
 
 export class RealtimeClient implements BoardContextPublisher {
@@ -79,6 +89,10 @@ export class RealtimeClient implements BoardContextPublisher {
   private readonly callbacks: RealtimeClientCallbacks;
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => number;
+  private readonly qaDirectDraw: boolean;
+  private readonly attentionChoreography: boolean;
+  private readonly remoteAudioActivityEnabled: boolean;
+  private readonly audioActivityMonitorFactory: RemoteAudioActivityMonitorFactory;
   private startedAt: number;
 
   private status: ConnectionStatus = "disconnected";
@@ -110,11 +124,18 @@ export class RealtimeClient implements BoardContextPublisher {
   private lastAcknowledgedManifestHash?: string;
   private readonly responseCreateTimeouts = new Map<string, number>();
   private readonly responseSettlementTimeouts = new Map<string, number>();
+  private automaticResponseCreationTimeout?: {
+    timeout: number;
+    purpose: "student_qa" | "checkpoint_feedback";
+    context: NarrationContext;
+  };
 
   private peer?: RTCPeerConnection;
   private dataChannel?: RTCDataChannel;
   private microphoneStream?: MediaStream;
   private remoteAudio?: HTMLAudioElement;
+  private remoteAudioActivityMonitor?: RemoteAudioActivityMonitor;
+  private remoteAudioActivityEvidence?: AudioActivityEvidence;
   private requestAbort?: AbortController;
   private attempt = 0;
   private sessionCreated = false;
@@ -133,6 +154,11 @@ export class RealtimeClient implements BoardContextPublisher {
     // a bound function so invoking it through this client cannot change `this`.
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
     this.now = options.now ?? (() => performance.now());
+    this.qaDirectDraw = options.qaDirectDraw ?? false;
+    this.attentionChoreography = options.attentionChoreography ?? false;
+    this.remoteAudioActivityEnabled = options.remoteAudioActivity ?? false;
+    this.audioActivityMonitorFactory =
+      options.audioActivityMonitorFactory ?? createRemoteAudioActivityMonitor;
     this.startedAt = this.now();
     this.emitSnapshot();
   }
@@ -310,6 +336,7 @@ export class RealtimeClient implements BoardContextPublisher {
     context: NarrationContext,
   ): void {
     this.responseCoordinator.armAutomatic({ purpose, context });
+    this.trackAutomaticResponseCreation(purpose, context);
     this.emitSnapshot();
   }
 
@@ -318,6 +345,7 @@ export class RealtimeClient implements BoardContextPublisher {
     context: NarrationContext,
   ): void {
     if (this.responseCoordinator.cancelAutomatic(purpose, context)) {
+      this.clearAutomaticResponseCreationTimeout();
       this.emitSnapshot();
     }
   }
@@ -374,6 +402,7 @@ export class RealtimeClient implements BoardContextPublisher {
       syncMode: this.observedSyncMode,
       activeResponseId: this.activeResponseId,
       responsePending: this.responseCoordinator.hasPending(),
+      responseInFlight: this.responseCoordinator.hasInFlight(),
       audioPlaybackActive:
         this.activeResponseId !== undefined &&
         this.activeResponseId === this.playbackResponseId,
@@ -389,6 +418,9 @@ export class RealtimeClient implements BoardContextPublisher {
       tokenBudget: SESSION_TOKEN_BUDGET,
       contextPublications: this.contextPublications.map((item) => ({ ...item })),
       lastAcknowledgedManifestHash: this.lastAcknowledgedManifestHash,
+      ...(this.remoteAudioActivityEvidence
+        ? { remoteAudioActivity: { ...this.remoteAudioActivityEvidence } }
+        : {}),
     };
   }
 
@@ -399,7 +431,36 @@ export class RealtimeClient implements BoardContextPublisher {
 
     peer.addEventListener("track", (event) => {
       if (attempt !== this.attempt) return;
-      remoteAudio.srcObject = event.streams[0] ?? new MediaStream([event.track]);
+      const remoteStream = event.streams[0] ?? new MediaStream([event.track]);
+      remoteAudio.srcObject = remoteStream;
+      if (this.remoteAudioActivityEnabled) {
+        this.remoteAudioActivityMonitor?.stop();
+        try {
+          const monitor = this.audioActivityMonitorFactory(remoteStream, (transition) => {
+            if (attempt !== this.attempt) return;
+            const observed = this.remoteAudioActivityMonitor?.snapshot();
+            this.remoteAudioActivityEvidence = observed
+              ? { ...observed, active: transition.active }
+              : {
+                  active: transition.active,
+                  transitions: 1,
+                  samples: 0,
+                  maxSampleCostMs: 0,
+                };
+            this.addLocalTrace(
+              transition.active ? "audio_activity.started" : "audio_activity.stopped",
+            );
+            this.emitSnapshot();
+          });
+          this.remoteAudioActivityMonitor = monitor;
+          this.remoteAudioActivityEvidence = monitor.snapshot();
+          this.addLocalTrace("audio_activity.attached");
+        } catch {
+          this.remoteAudioActivityMonitor = undefined;
+          this.remoteAudioActivityEvidence = undefined;
+          this.addLocalTrace("audio_activity.unavailable", { code: "web_audio" });
+        }
+      }
       void remoteAudio.play().catch(() => {
         this.addLocalTrace("audio.playback_blocked", { code: "autoplay" });
       });
@@ -490,6 +551,9 @@ export class RealtimeClient implements BoardContextPublisher {
         if (coordinated?.clientEventId) {
           this.clearResponseCreationTimeout(coordinated.clientEventId);
         }
+        if (coordinated && !coordinated.clientEventId) {
+          this.clearAutomaticResponseCreationTimeout();
+        }
         if (coordinated) this.trackResponseSettlement(this.activeResponseId);
       }
       this.emitSnapshot();
@@ -533,6 +597,12 @@ export class RealtimeClient implements BoardContextPublisher {
     }
 
     if (event.type === SERVER_EVENTS.INPUT_AUDIO_BUFFER_SPEECH_STARTED) {
+      // Refresh the already-rendered semantic snapshot at question time. The
+      // update is queued ahead of later interaction-guidance changes and will
+      // usually acknowledge while the student is still speaking.
+      void this.queueTutorContextUpdate().catch(() => {
+        this.addLocalTrace("question_context.failed", { code: "context_update" });
+      });
       this.emitSemanticEvent({ type: "student.speech_started" });
       this.markInterruption();
       return;
@@ -574,12 +644,13 @@ export class RealtimeClient implements BoardContextPublisher {
       const responseId = getResponseId(event);
       const responseStatus = getResponseStatus(event);
       const coordinated = this.responseCoordinator.get(responseId);
-      const checkpointPromptFailed =
+      const checkpointResponseFailed =
         responseId !== undefined &&
         responseStatus !== "completed" &&
-        coordinated?.purpose === "checkpoint_prompt" &&
+        (coordinated?.purpose === "checkpoint_prompt" ||
+          coordinated?.purpose === "checkpoint_feedback") &&
         !this.interruptedResponseIds.has(responseId);
-      if (checkpointPromptFailed && responseId) {
+      if (checkpointResponseFailed && responseId) {
         const failed = this.responseCoordinator.failByResponseId(responseId);
         this.clearResponseSettlementTimeout(responseId);
         if (failed) this.emitFailedResponse(failed);
@@ -591,7 +662,7 @@ export class RealtimeClient implements BoardContextPublisher {
         responseStatus !== "completed" &&
         responseId !== this.playbackResponseId
       ) {
-        if (!checkpointPromptFailed) {
+        if (!checkpointResponseFailed) {
           this.emitResponseLifecycle(responseId, "playback_stopped");
         }
       }
@@ -659,6 +730,8 @@ export class RealtimeClient implements BoardContextPublisher {
         this.mode,
         this.boardContext,
         this.interactionGuidance,
+        this.qaDirectDraw,
+        this.attentionChoreography,
       ),
     );
   }
@@ -689,6 +762,8 @@ export class RealtimeClient implements BoardContextPublisher {
             this.mode,
             this.boardContext,
             this.interactionGuidance,
+            this.qaDirectDraw,
+            this.attentionChoreography,
           ),
         );
       } catch (error) {
@@ -795,6 +870,8 @@ export class RealtimeClient implements BoardContextPublisher {
       this.emitSemanticEvent({ type: "narration.failed", context: response.context });
     } else if (response.purpose === "checkpoint_prompt") {
       this.emitSemanticEvent({ type: "checkpoint.prompt_failed", context: response.context });
+    } else if (response.purpose === "checkpoint_feedback") {
+      this.emitSemanticEvent({ type: "checkpoint.feedback_failed", context: response.context });
     }
   }
 
@@ -915,6 +992,7 @@ export class RealtimeClient implements BoardContextPublisher {
           teach: this.callbacks.onTeachRequested,
           deixis: this.callbacks.onDeixisRequested,
           annotate: this.callbacks.onAnnotateRequested,
+          drawQaAnnotation: this.callbacks.onDrawQaAnnotationRequested,
         });
         this.sendEvent(createFunctionCallOutput(call.callId, result));
         this.addLocalTrace("tool.output_sent", {
@@ -926,6 +1004,7 @@ export class RealtimeClient implements BoardContextPublisher {
           if (result.status === "started") lessonStarted = true;
           if (result.status === "shown") localActionShown = true;
           if (result.status === "annotation_started") annotationStarted = true;
+          if (result.status === "qa_annotation_shown") localActionShown = true;
         }
       }
       const purpose =
@@ -1006,6 +1085,35 @@ export class RealtimeClient implements BoardContextPublisher {
       this.addLocalTrace("response.create_timeout", { code: "timeout" });
     }, RESPONSE_CREATED_TIMEOUT_MS);
     this.responseCreateTimeouts.set(clientEventId, timeout);
+  }
+
+  private trackAutomaticResponseCreation(
+    purpose: "student_qa" | "checkpoint_feedback",
+    context: NarrationContext,
+  ): void {
+    this.clearAutomaticResponseCreationTimeout();
+    const attempt = this.attempt;
+    const timeout = window.setTimeout(() => {
+      this.automaticResponseCreationTimeout = undefined;
+      if (attempt !== this.attempt) return;
+      const failed = this.responseCoordinator.failAutomatic(purpose, context);
+      if (!failed) return;
+      this.emitFailedResponse(failed);
+      this.addLocalTrace("response.automatic_create_timeout", { code: "timeout" });
+      this.emitSnapshot();
+    }, RESPONSE_CREATED_TIMEOUT_MS);
+    this.automaticResponseCreationTimeout = {
+      timeout,
+      purpose,
+      context: { ...context },
+    };
+  }
+
+  private clearAutomaticResponseCreationTimeout(): void {
+    if (this.automaticResponseCreationTimeout) {
+      window.clearTimeout(this.automaticResponseCreationTimeout.timeout);
+      this.automaticResponseCreationTimeout = undefined;
+    }
   }
 
   private clearResponseCreationTimeout(clientEventId: string): void {
@@ -1167,6 +1275,7 @@ export class RealtimeClient implements BoardContextPublisher {
     this.toolRoundTrips = 0;
     this.responseCoordinator.reset();
     this.clearResponseCreationTimeouts();
+    this.clearAutomaticResponseCreationTimeout();
     this.clearResponseSettlementTimeouts();
     this.interactionGuidance = undefined;
     this.contextUpdateTail = Promise.resolve();
@@ -1229,12 +1338,16 @@ export class RealtimeClient implements BoardContextPublisher {
       this.remoteAudio.srcObject = null;
     }
     this.remoteAudio = undefined;
+    this.remoteAudioActivityMonitor?.stop();
+    this.remoteAudioActivityMonitor = undefined;
+    this.remoteAudioActivityEvidence = undefined;
     this.dataChannelOpen = false;
     this.sessionCreated = false;
     this.sessionUpdated = false;
     this.sessionUpdateSent = false;
     this.responseCoordinator.reset();
     this.clearResponseCreationTimeouts();
+    this.clearAutomaticResponseCreationTimeout();
     this.clearResponseSettlementTimeouts();
     this.playbackResponseId = undefined;
   }

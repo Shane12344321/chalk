@@ -5,7 +5,9 @@
   "description": "Validated backend-to-browser NDJSON envelopes for live lesson generation.",
   "oneOf": [
     { "$ref": "#/$defs/started" },
+    { "$ref": "#/$defs/plan" },
     { "$ref": "#/$defs/step" },
+    { "$ref": "#/$defs/inkDelta" },
     { "$ref": "#/$defs/warning" },
     { "$ref": "#/$defs/done" },
     { "$ref": "#/$defs/error" }
@@ -25,6 +27,16 @@
         "title": { "type": "string", "minLength": 1, "maxLength": 80 }
       }
     },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "request_id", "plan"],
+      "properties": {
+        "type": { "const": "lesson.plan" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "plan": { "$ref": "lesson-plan.schema.json" }
+      }
+    },
     "step": {
       "type": "object",
       "additionalProperties": false,
@@ -35,6 +47,34 @@
         "step": {
           "$ref": "lesson.schema.json#/$defs/step"
         }
+      }
+    },
+    "inkDelta": {
+      "description": "Experimental append-only ink prefix. The server may emit this only after accepting a bounded operation header; normal and cached lesson paths never emit it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type", "request_id", "step_id", "op_id", "stroke_index", "sequence", "points", "complete"
+      ],
+      "properties": {
+        "type": { "const": "lesson.ink_delta" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "step_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,15}$" },
+        "op_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,15}$" },
+        "stroke_index": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "sequence": { "type": "integer", "minimum": 0, "maximum": 4095 },
+        "points": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "complete": { "type": "boolean" }
       }
     },
     "warning": {
@@ -88,6 +128,25 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["type", "request_id", "accepted_steps", "repairs", "dropped_steps"],
+      "allOf": [
+        {
+          "if": {
+            "required": ["continuation_available"],
+            "properties": { "continuation_available": { "const": true } }
+          },
+          "then": {
+            "required": ["continuation_receipt"],
+            "properties": { "continuation_receipt": { "type": "string" } }
+          }
+        },
+        {
+          "if": { "required": ["continuation_receipt"] },
+          "then": {
+            "required": ["continuation_available"],
+            "properties": { "continuation_available": { "const": true } }
+          }
+        }
+      ],
       "properties": {
         "type": { "const": "lesson.done" },
         "request_id": { "$ref": "#/$defs/requestId" },
@@ -95,7 +154,14 @@
         "repairs": { "type": "integer", "minimum": 0, "maximum": 4 },
         "dropped_steps": { "type": "integer", "minimum": 0, "maximum": 8 },
         "sanitized_steps": { "type": "integer", "minimum": 0, "maximum": 8 },
-        "sanitized_fields": { "type": "integer", "minimum": 0, "maximum": 512 }
+        "sanitized_fields": { "type": "integer", "minimum": 0, "maximum": 512 },
+        "continuation_available": { "type": "boolean" },
+        "continuation_receipt": {
+          "type": "string",
+          "minLength": 96,
+          "maxLength": 1024,
+          "pattern": "^v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]{43}$"
+        }
       }
     },
     "error": {

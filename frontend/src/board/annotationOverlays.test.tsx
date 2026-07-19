@@ -8,6 +8,7 @@ const target: VisibleBoardElement = {
   id: "rangecurve",
   kind: "curve",
   box: { x: 800, y: 100, width: 620, height: 430 },
+  summary: "range curve",
 };
 
 describe("annotation overlay layer", () => {

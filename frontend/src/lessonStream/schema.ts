@@ -1,11 +1,13 @@
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 import lessonSchema from "../../../shared/schema/lesson.schema.json";
 import streamSchema from "../../../shared/schema/lesson-stream.schema.json";
+import planSchema from "../../../shared/schema/lesson-plan.schema.json";
 import type { LessonStreamEnvelope } from "./stream.generated";
 
 const STREAM_SCHEMA_ID = "https://chalk.local/schema/lesson-stream.schema.json";
 const ajv = new Ajv({ allErrors: true, strict: true });
 ajv.addSchema(lessonSchema);
+ajv.addSchema(planSchema);
 ajv.addSchema(streamSchema, STREAM_SCHEMA_ID);
 
 const streamValidator = requiredValidator<LessonStreamEnvelope>(STREAM_SCHEMA_ID);

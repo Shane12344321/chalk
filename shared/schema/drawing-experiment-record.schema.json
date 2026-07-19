@@ -1,0 +1,435 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://chalk.local/schema/drawing-experiment-record.schema.json",
+  "title": "DrawingExperimentRecord",
+  "description": "Bounded, redacted evidence for one homogeneous CHALK drawing experiment run.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "experiment_id",
+    "status",
+    "abort_evidence",
+    "configuration",
+    "configuration_sha256",
+    "retained_topic_ids",
+    "ceilings",
+    "success_policy",
+    "observations",
+    "human_rubric",
+    "decision"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.1" },
+    "experiment_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{2,63}$"
+    },
+    "status": { "enum": ["planned", "completed", "aborted"] },
+    "abort_evidence": {
+      "oneOf": [{ "$ref": "#/$defs/abortEvidence" }, { "type": "null" }]
+    },
+    "configuration": { "$ref": "#/$defs/configuration" },
+    "configuration_sha256": { "$ref": "#/$defs/sha256" },
+    "retained_topic_ids": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/topicId" }
+    },
+    "ceilings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests", "model_calls"],
+      "properties": {
+        "requests": { "type": "integer", "minimum": 0, "maximum": 40 },
+        "model_calls": { "type": "integer", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "success_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary_metric",
+        "minimum_improvement",
+        "max_latency_regression_percent",
+        "max_call_regression",
+        "no_regression_invariants",
+        "promote_when",
+        "park_when",
+        "remove_when",
+        "review_by_milestone"
+      ],
+      "properties": {
+        "primary_metric": {
+          "enum": [
+            "human_rubric_mean",
+            "hard_finding_rate",
+            "first_visible_ink_ms",
+            "buffer_stall_rate",
+            "vision_rank_agreement"
+          ]
+        },
+        "minimum_improvement": { "type": "number", "minimum": 0, "maximum": 100 },
+        "max_latency_regression_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "max_call_regression": { "type": "integer", "minimum": 0, "maximum": 20 },
+        "no_regression_invariants": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "zero_renderer_crashes",
+              "committed_prefix_stable",
+              "cached_lessons_byte_identical",
+              "stale_results_rejected",
+              "interruption_behavior_preserved",
+              "no_student_payload_retained",
+              "call_ceiling_respected",
+              "fixed_sync_available"
+            ]
+          }
+        },
+        "promote_when": { "$ref": "#/$defs/criterion" },
+        "park_when": { "$ref": "#/$defs/criterion" },
+        "remove_when": { "$ref": "#/$defs/criterion" },
+        "review_by_milestone": { "$ref": "#/$defs/milestone" }
+      }
+    },
+    "observations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requests",
+        "model_calls",
+        "repairs",
+        "dropped_steps",
+        "renderer_dropped_ops",
+        "sanitized_fields",
+        "buffer_stalls",
+        "renderer_crashes",
+        "topic_results"
+      ],
+      "properties": {
+        "requests": { "type": "integer", "minimum": 0, "maximum": 40 },
+        "model_calls": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "repairs": { "type": "integer", "minimum": 0, "maximum": 80 },
+        "dropped_steps": { "type": "integer", "minimum": 0, "maximum": 160 },
+        "renderer_dropped_ops": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 640
+        },
+        "sanitized_fields": { "type": "integer", "minimum": 0, "maximum": 10240 },
+        "buffer_stalls": { "type": "integer", "minimum": 0, "maximum": 160 },
+        "renderer_crashes": { "type": "integer", "minimum": 0, "maximum": 20 },
+        "topic_results": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/topicResult" }
+        }
+      }
+    },
+    "human_rubric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rubric_version", "score_min", "score_max", "ratings"],
+      "properties": {
+        "rubric_version": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,39}$"
+        },
+        "score_min": { "type": "number", "minimum": 0, "maximum": 10 },
+        "score_max": { "type": "number", "minimum": 0, "maximum": 10 },
+        "ratings": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["topic_id", "score"],
+            "properties": {
+              "topic_id": { "$ref": "#/$defs/topicId" },
+              "score": { "type": "number", "minimum": 0, "maximum": 10 }
+            }
+          }
+        }
+      }
+    },
+    "vision_proxy_calibration": { "$ref": "#/$defs/visionProxyCalibration" },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "rationale"],
+      "properties": {
+        "outcome": { "enum": ["pending", "promote", "park", "remove"] },
+        "rationale": { "type": "string", "minLength": 1, "maxLength": 300 }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "topicId": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,47}$" },
+    "criterion": { "type": "string", "minLength": 8, "maxLength": 300 },
+    "milestone": {
+      "type": "string",
+      "pattern": "^(M[0-9]+|drawing-phase-[0-9]+)(-[a-z0-9-]+)?$"
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "board_model",
+        "board_reasoning_effort",
+        "board_prompt_sha256",
+        "repair_prompt_sha256",
+        "continuation_prompt_sha256",
+        "lesson_schema_version",
+        "lesson_schema_sha256",
+        "lesson_plan_schema_sha256",
+        "resolved_scene_schema_sha256",
+        "resolver_policy_revision",
+        "realtime_model",
+        "realtime_voice",
+        "realtime_base_instructions_sha256",
+        "realtime_tool_contract_sha256",
+        "browser_engine",
+        "browser_version",
+        "annotation_prompt_sha256",
+        "annotation_schema_sha256",
+        "board_renderer",
+        "sync_mode",
+        "partial_ink",
+        "qa_direct_draw",
+        "attention_choreography",
+        "remote_audio_activity",
+        "annotation_whitespace",
+        "lesson_generation"
+      ],
+      "properties": {
+        "board_model": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,39}$"
+        },
+        "board_reasoning_effort": { "enum": ["none", "low", "not_applicable"] },
+        "board_prompt_sha256": {
+          "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+        },
+        "repair_prompt_sha256": {
+          "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+        },
+        "continuation_prompt_sha256": {
+          "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+        },
+        "lesson_schema_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+$"
+        },
+        "lesson_schema_sha256": { "$ref": "#/$defs/sha256" },
+        "lesson_plan_schema_sha256": { "$ref": "#/$defs/sha256" },
+        "resolved_scene_schema_sha256": { "$ref": "#/$defs/sha256" },
+        "resolver_policy_revision": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{2,63}$"
+        },
+        "realtime_model": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+            },
+            { "type": "null" }
+          ]
+        },
+        "realtime_voice": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9._-]{0,31}$"
+            },
+            { "type": "null" }
+          ]
+        },
+        "realtime_base_instructions_sha256": {
+          "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+        },
+        "realtime_tool_contract_sha256": {
+          "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+        },
+        "browser_engine": {
+          "oneOf": [
+            { "enum": ["chromium", "firefox", "webkit"] },
+            { "type": "null" }
+          ]
+        },
+        "browser_version": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9][0-9A-Za-z._-]{0,39}$"
+            },
+            { "type": "null" }
+          ]
+        },
+        "annotation_prompt_sha256": {
+          "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+        },
+        "annotation_schema_sha256": {
+          "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+        },
+        "board_renderer": { "enum": ["rough-svg", "tldraw"] },
+        "sync_mode": { "enum": ["fixed", "paced"] },
+        "partial_ink": { "enum": ["off", "pen-prefix"] },
+        "qa_direct_draw": { "enum": ["off", "on"] },
+        "attention_choreography": { "enum": ["off", "on"] },
+        "remote_audio_activity": { "enum": ["off", "on"] },
+        "annotation_whitespace": { "enum": ["off", "bounded"] },
+        "lesson_generation": { "enum": ["one-shot", "resolved-stepwise"] }
+      }
+    },
+    "abortEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "category",
+        "attempted_topic_id",
+        "requests",
+        "model_calls",
+        "repairs"
+      ],
+      "properties": {
+        "category": {
+          "enum": [
+            "access_or_configuration",
+            "transport_unavailable",
+            "http_rejection",
+            "upstream_incomplete",
+            "upstream_failed",
+            "validation_failure",
+            "budget_exhausted",
+            "cancelled",
+            "harness_failure"
+          ]
+        },
+        "attempted_topic_id": {
+          "oneOf": [{ "$ref": "#/$defs/topicId" }, { "type": "null" }]
+        },
+        "requests": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "model_calls": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "repairs": { "type": "integer", "minimum": 0, "maximum": 4 }
+      }
+    },
+    "findingCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "evidence", "count"],
+      "properties": {
+        "code": {
+          "enum": [
+            "label_overlap",
+            "label_out_of_bounds",
+            "text_overflow",
+            "element_overlap",
+            "region_crowded",
+            "board_imbalanced",
+            "region_sparse",
+            "reading_order_conflict",
+            "measurement_unavailable"
+          ]
+        },
+        "evidence": { "enum": ["estimated", "measured", "semantic"] },
+        "count": { "type": "integer", "minimum": 1, "maximum": 200 }
+      }
+    },
+    "topicResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topic_id",
+        "requests",
+        "request_to_first_visible_ink_ms",
+        "request_to_terminal_ms",
+        "model_calls",
+        "accepted_steps",
+        "repairs",
+        "dropped_steps",
+        "renderer_dropped_ops",
+        "sanitized_fields",
+        "buffer_stalls",
+        "renderer_crash",
+        "findings"
+      ],
+      "properties": {
+        "topic_id": { "$ref": "#/$defs/topicId" },
+        "requests": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "request_to_first_visible_ink_ms": {
+          "oneOf": [
+            { "type": "number", "minimum": 0, "maximum": 120000 },
+            { "type": "null" }
+          ]
+        },
+        "request_to_terminal_ms": {
+          "oneOf": [
+            { "type": "number", "minimum": 0, "maximum": 300000 },
+            { "type": "null" }
+          ]
+        },
+        "model_calls": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "accepted_steps": { "type": "integer", "minimum": 0, "maximum": 8 },
+        "repairs": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "dropped_steps": { "type": "integer", "minimum": 0, "maximum": 8 },
+        "renderer_dropped_ops": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32
+        },
+        "sanitized_fields": { "type": "integer", "minimum": 0, "maximum": 512 },
+        "buffer_stalls": { "type": "integer", "minimum": 0, "maximum": 8 },
+        "renderer_crash": { "type": "boolean" },
+        "findings": {
+          "type": "array",
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/findingCount" }
+        }
+      }
+    },
+    "visionProxyCalibration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "metric",
+        "minimum_correlation",
+        "samples",
+        "observed_correlation",
+        "qualifies_as_proxy"
+      ],
+      "properties": {
+        "metric": { "const": "spearman_rho" },
+        "minimum_correlation": { "const": 0.7 },
+        "samples": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["topic_id", "human_score", "proxy_score"],
+            "properties": {
+              "topic_id": { "$ref": "#/$defs/topicId" },
+              "human_score": { "type": "number", "minimum": 0, "maximum": 10 },
+              "proxy_score": { "type": "number", "minimum": 0, "maximum": 10 }
+            }
+          }
+        },
+        "observed_correlation": { "type": "number", "minimum": -1, "maximum": 1 },
+        "qualifies_as_proxy": { "type": "boolean" }
+      }
+    }
+  }
+}

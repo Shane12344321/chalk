@@ -3,9 +3,10 @@
 /**
  * Validated backend-to-browser NDJSON envelopes for live lesson generation.
  */
-export type LessonStreamEnvelope = Started | Step | Warning | Done | Error;
+export type LessonStreamEnvelope = Started | Plan | Step | InkDelta | Warning | Done | Error;
 export type RequestId = string;
-export type LessonOp = TextOp | EquationOp | SketchOp | AxesOp | CurveOp | LineOp | ArrowOp | PointOp | AngleArcOp;
+export type LessonOp =
+  TextOp | EquationOp | SketchOp | AxesOp | CurveOp | DiagramOp | LineOp | ArrowOp | PointOp | AngleArcOp;
 export type TextOp = TextRegionOp | TextAnchorOp;
 export type EquationOp = EquationRegionOp | EquationAnchorOp;
 /**
@@ -13,17 +14,73 @@ export type EquationOp = EquationRegionOp | EquationAnchorOp;
  * @maxItems 2
  */
 export type NormalizedPoint = [number, number];
-export type LineOp = LineRegionOp | LineCanvasOp;
+export type DiagramPrimitive =
+  | DiagramLinePrimitive
+  | DiagramSmoothPrimitive
+  | DiagramRectPrimitive
+  | DiagramEllipsePrimitive
+  | DiagramArcPrimitive
+  | DiagramTextPrimitive
+  | DiagramPointPrimitive;
+export type LineOp = LineRegionOp | LineCanvasOp | LineConstructionOp;
+export type LineConstruction = PerpendicularConstruction | TangentConstruction;
+export type GeometryPointReference =
+  | {
+      kind: "point";
+      element_id: string;
+    }
+  | {
+      kind: "endpoint";
+      element_id: string;
+      endpoint: "start" | "end";
+    };
 export type ArrowOp = ArrowRegionOp | ArrowCanvasOp;
-export type PointOp = PointRegionOp | PointCanvasOp;
+export type PointOp = PointRegionOp | PointCanvasOp | PointConstructionOp;
+export type PointConstruction =
+  AlongConstruction | MidpointConstruction | IntersectionConstruction | OffsetConstruction;
 export type AngleArcOp = AngleArcRegionOp | AngleArcCanvasOp;
+export type LayoutRelation = LayoutPlace | LayoutAlign | LayoutStack | LayoutDistribute;
 export type Warning = StandardWarning | SanitizedWarning;
+export type Done = {
+  [k: string]: unknown;
+} & {
+  type: "lesson.done";
+  request_id: RequestId;
+  accepted_steps: number;
+  repairs: number;
+  dropped_steps: number;
+  sanitized_steps?: number;
+  sanitized_fields?: number;
+  continuation_available?: boolean;
+  continuation_receipt?: string;
+};
 export type Error = UpstreamError | LocalError;
 
 export interface Started {
   type: "lesson.started";
   request_id: RequestId;
   title: string;
+}
+export interface Plan {
+  type: "lesson.plan";
+  request_id: RequestId;
+  plan: LessonPlan;
+}
+export interface LessonPlan {
+  kind: "lesson_plan";
+  visual_structure: string;
+  composition_archetype?:
+    | "single_large_figure"
+    | "derivation_plus_diagram"
+    | "worked_example_column"
+    | "comparison_pair"
+    | "graph_with_summary";
+  /**
+   * @minItems 3
+   * @maxItems 5
+   */
+  progression: [string, string, string] | [string, string, string, string] | [string, string, string, string, string];
+  checkpoint_step: number | null;
 }
 export interface Step {
   type: "lesson.step";
@@ -38,6 +95,28 @@ export interface LessonStep {
    * @maxItems 4
    */
   ops: [LessonOp] | [LessonOp, LessonOp] | [LessonOp, LessonOp, LessonOp] | [LessonOp, LessonOp, LessonOp, LessonOp];
+  /**
+   * @minItems 1
+   * @maxItems 8
+   */
+  layout?:
+    | [LayoutRelation]
+    | [LayoutRelation, LayoutRelation]
+    | [LayoutRelation, LayoutRelation, LayoutRelation]
+    | [LayoutRelation, LayoutRelation, LayoutRelation, LayoutRelation]
+    | [LayoutRelation, LayoutRelation, LayoutRelation, LayoutRelation, LayoutRelation]
+    | [LayoutRelation, LayoutRelation, LayoutRelation, LayoutRelation, LayoutRelation, LayoutRelation]
+    | [LayoutRelation, LayoutRelation, LayoutRelation, LayoutRelation, LayoutRelation, LayoutRelation, LayoutRelation]
+    | [
+        LayoutRelation,
+        LayoutRelation,
+        LayoutRelation,
+        LayoutRelation,
+        LayoutRelation,
+        LayoutRelation,
+        LayoutRelation,
+        LayoutRelation
+      ];
   checkpoint: null | Checkpoint;
 }
 export interface TextRegionOp {
@@ -73,6 +152,7 @@ export interface SketchOp {
   op: "sketch";
   id: string;
   region: "A1" | "A2" | "A3" | "B1" | "B2" | "B3" | "C1" | "C2" | "C3" | "D1" | "D2" | "D3" | "left" | "right" | "full";
+  meaning?: string;
   /**
    * @minItems 1
    * @maxItems 6
@@ -133,6 +213,380 @@ export interface CurveOp {
    */
   domain?: [number, number];
 }
+export interface DiagramOp {
+  op: "diagram";
+  id: string;
+  region: "A1" | "A2" | "A3" | "B1" | "B2" | "B3" | "C1" | "C2" | "C3" | "D1" | "D2" | "D3" | "left" | "right" | "full";
+  /**
+   * @minItems 1
+   * @maxItems 16
+   */
+  primitives:
+    | [DiagramPrimitive]
+    | [DiagramPrimitive, DiagramPrimitive]
+    | [DiagramPrimitive, DiagramPrimitive, DiagramPrimitive]
+    | [DiagramPrimitive, DiagramPrimitive, DiagramPrimitive, DiagramPrimitive]
+    | [DiagramPrimitive, DiagramPrimitive, DiagramPrimitive, DiagramPrimitive, DiagramPrimitive]
+    | [DiagramPrimitive, DiagramPrimitive, DiagramPrimitive, DiagramPrimitive, DiagramPrimitive, DiagramPrimitive]
+    | [
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive
+      ]
+    | [
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive
+      ]
+    | [
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive
+      ]
+    | [
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive
+      ]
+    | [
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive
+      ]
+    | [
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive
+      ]
+    | [
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive
+      ]
+    | [
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive
+      ]
+    | [
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive
+      ]
+    | [
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive,
+        DiagramPrimitive
+      ];
+  tension?: number;
+}
+export interface DiagramLinePrimitive {
+  kind: "line";
+  /**
+   * @minItems 2
+   * @maxItems 12
+   */
+  points:
+    | [NormalizedPoint, NormalizedPoint]
+    | [NormalizedPoint, NormalizedPoint, NormalizedPoint]
+    | [NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint]
+    | [NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint]
+    | [NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint]
+    | [
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint
+      ]
+    | [
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint
+      ]
+    | [
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint
+      ]
+    | [
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint
+      ]
+    | [
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint
+      ]
+    | [
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint
+      ];
+  stroke: "solid" | "dashed";
+  arrow?: boolean;
+  label?: string;
+  meaning?: string;
+}
+export interface DiagramSmoothPrimitive {
+  kind: "smooth";
+  /**
+   * @minItems 3
+   * @maxItems 12
+   */
+  points:
+    | [NormalizedPoint, NormalizedPoint, NormalizedPoint]
+    | [NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint]
+    | [NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint]
+    | [NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint]
+    | [
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint
+      ]
+    | [
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint
+      ]
+    | [
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint
+      ]
+    | [
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint
+      ]
+    | [
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint
+      ]
+    | [
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint,
+        NormalizedPoint
+      ];
+  stroke: "solid" | "dashed";
+  arrow?: boolean;
+  label?: string;
+  meaning?: string;
+}
+export interface DiagramRectPrimitive {
+  kind: "rect";
+  from: NormalizedPoint;
+  to: NormalizedPoint;
+  stroke: "solid" | "dashed";
+  fill?: boolean;
+  label?: string;
+  meaning?: string;
+}
+export interface DiagramEllipsePrimitive {
+  kind: "ellipse";
+  center: NormalizedPoint;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  radius: [number, number];
+  stroke: "solid" | "dashed";
+  fill?: boolean;
+  label?: string;
+  meaning?: string;
+}
+export interface DiagramArcPrimitive {
+  kind: "arc";
+  center: NormalizedPoint;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  radius: [number, number];
+  start_deg: number;
+  end_deg: number;
+  stroke: "solid" | "dashed";
+  arrow?: boolean;
+  label?: string;
+  meaning?: string;
+}
+export interface DiagramTextPrimitive {
+  kind: "text";
+  at: NormalizedPoint;
+  content: string;
+  align?: "left" | "center" | "right";
+  size?: "small" | "normal" | "large";
+  meaning?: string;
+}
+export interface DiagramPointPrimitive {
+  kind: "point";
+  at: NormalizedPoint;
+  label?: string;
+  meaning?: string;
+}
 export interface LineRegionOp {
   op: "line";
   id: string;
@@ -141,6 +595,7 @@ export interface LineRegionOp {
   to: NormalizedPoint;
   stroke: "solid" | "dashed";
   label?: string;
+  meaning?: string;
 }
 export interface LineCanvasOp {
   op: "line";
@@ -150,6 +605,27 @@ export interface LineCanvasOp {
   to: NormalizedPoint;
   stroke: "solid" | "dashed";
   label?: string;
+  meaning?: string;
+}
+export interface LineConstructionOp {
+  op: "line";
+  id: string;
+  construct: LineConstruction;
+  stroke: "solid" | "dashed";
+  label?: string;
+  meaning?: string;
+}
+export interface PerpendicularConstruction {
+  kind: "perpendicular_through";
+  line: string;
+  point: GeometryPointReference;
+  length: number;
+}
+export interface TangentConstruction {
+  kind: "tangent_at";
+  curve: string;
+  x: number;
+  length: number;
 }
 export interface ArrowRegionOp {
   op: "arrow";
@@ -183,6 +659,33 @@ export interface PointCanvasOp {
   at: NormalizedPoint;
   label?: string;
 }
+export interface PointConstructionOp {
+  op: "point";
+  id: string;
+  construct: PointConstruction;
+  label?: string;
+}
+export interface AlongConstruction {
+  kind: "along";
+  element_id: string;
+  t: number;
+}
+export interface MidpointConstruction {
+  kind: "midpoint_of";
+  a: GeometryPointReference;
+  b: GeometryPointReference;
+}
+export interface IntersectionConstruction {
+  kind: "intersection_of";
+  a: string;
+  b: string;
+}
+export interface OffsetConstruction {
+  kind: "offset_from";
+  element_id: string;
+  side: "above" | "below" | "left" | "right";
+  gap: number;
+}
 export interface AngleArcRegionOp {
   op: "angle_arc";
   id: string;
@@ -205,9 +708,307 @@ export interface AngleArcCanvasOp {
   stroke: "solid" | "dashed";
   label?: string;
 }
+export interface LayoutPlace {
+  kind: "place";
+  id: string;
+  relative_to: string;
+  side: "above" | "below" | "left" | "right";
+  align: "start" | "center" | "end";
+  gap: number;
+}
+export interface LayoutAlign {
+  kind: "align";
+  /**
+   * @minItems 2
+   * @maxItems 8
+   */
+  ids:
+    | [string, string]
+    | [string, string, string]
+    | [string, string, string, string]
+    | [string, string, string, string, string]
+    | [string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string];
+  axis: "horizontal" | "vertical";
+  alignment: "start" | "center" | "end";
+}
+export interface LayoutStack {
+  kind: "stack";
+  /**
+   * @minItems 2
+   * @maxItems 8
+   */
+  ids:
+    | [string, string]
+    | [string, string, string]
+    | [string, string, string, string]
+    | [string, string, string, string, string]
+    | [string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string];
+  direction: "horizontal" | "vertical";
+  align: "start" | "center" | "end";
+  gap: number;
+}
+export interface LayoutDistribute {
+  kind: "distribute";
+  /**
+   * @minItems 3
+   * @maxItems 8
+   */
+  ids:
+    | [string, string, string]
+    | [string, string, string, string]
+    | [string, string, string, string, string]
+    | [string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string];
+  direction: "horizontal" | "vertical";
+}
 export interface Checkpoint {
   question: string;
   expected_gist: string;
+}
+/**
+ * Experimental append-only ink prefix. The server may emit this only after accepting a bounded operation header; normal and cached lesson paths never emit it.
+ */
+export interface InkDelta {
+  type: "lesson.ink_delta";
+  request_id: RequestId;
+  step_id: string;
+  op_id: string;
+  stroke_index: number;
+  sequence: number;
+  /**
+   * @minItems 1
+   * @maxItems 20
+   */
+  points:
+    | [[number, number]]
+    | [[number, number], [number, number]]
+    | [[number, number], [number, number], [number, number]]
+    | [[number, number], [number, number], [number, number], [number, number]]
+    | [[number, number], [number, number], [number, number], [number, number], [number, number]]
+    | [[number, number], [number, number], [number, number], [number, number], [number, number], [number, number]]
+    | [
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number]
+      ]
+    | [
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number]
+      ]
+    | [
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number]
+      ]
+    | [
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number]
+      ]
+    | [
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number]
+      ]
+    | [
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number]
+      ]
+    | [
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number]
+      ]
+    | [
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number]
+      ]
+    | [
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number]
+      ]
+    | [
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number]
+      ]
+    | [
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number]
+      ]
+    | [
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number]
+      ]
+    | [
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number]
+      ]
+    | [
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number]
+      ];
+  complete: boolean;
 }
 export interface StandardWarning {
   type: "lesson.warning";
@@ -242,15 +1043,6 @@ export interface SanitizedWarning {
         "trimmed_outer_whitespace" | "normalized_power_operator" | "clamped_anchor_gap" | "clamped_normalized_point"
       ];
   correction_count: number;
-}
-export interface Done {
-  type: "lesson.done";
-  request_id: RequestId;
-  accepted_steps: number;
-  repairs: number;
-  dropped_steps: number;
-  sanitized_steps?: number;
-  sanitized_fields?: number;
 }
 export interface UpstreamError {
   type: "lesson.error";

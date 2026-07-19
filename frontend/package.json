@@ -8,10 +8,15 @@
   },
   "scripts": {
     "dev": "vite --host localhost --port 5173",
-    "schema:types": "npm run schema:lesson && npm run schema:stream && npm run schema:annotation",
+    "evidence:rescore": "vite-node scripts/offline-rescore.mjs",
+    "schema:types": "npm run schema:lesson && npm run schema:stream && npm run schema:annotation && npm run schema:scene && npm run schema:plan && npm run schema:continuation && npm run schema:phase6",
     "schema:lesson": "json2ts -i ../shared/schema/lesson.schema.json -o src/board/lesson.generated.ts --bannerComment '/* Generated from shared/schema/lesson.schema.json. Do not edit. */'",
     "schema:stream": "json2ts --cwd ../shared/schema -i ../shared/schema/lesson-stream.schema.json -o src/lessonStream/stream.generated.ts --bannerComment '/* Generated from shared/schema/lesson-stream.schema.json. Do not edit. */'",
     "schema:annotation": "json2ts -i ../shared/schema/annotation.schema.json -o src/annotations/annotation.generated.ts --bannerComment '/* Generated from shared/schema/annotation.schema.json. Do not edit. */'",
+    "schema:scene": "json2ts -i ../shared/schema/resolved-board-scene.schema.json -o src/board/resolvedScene.generated.ts --bannerComment '/* Generated from shared/schema/resolved-board-scene.schema.json. Do not edit. */'",
+    "schema:plan": "json2ts -i ../shared/schema/lesson-plan.schema.json -o src/lessonStream/lessonPlan.generated.ts --bannerComment '/* Generated from shared/schema/lesson-plan.schema.json. Do not edit. */'",
+    "schema:continuation": "json2ts --cwd ../shared/schema -i ../shared/schema/lesson-continuation.schema.json -o src/lessonStream/continuation.generated.ts --bannerComment '/* Generated from shared/schema/lesson-continuation.schema.json. Do not edit. */'",
+    "schema:phase6": "json2ts -i ../shared/schema/phase6-sync-evidence.schema.json -o src/sync/phase6SyncEvidence.generated.ts --bannerComment '/* Generated from shared/schema/phase6-sync-evidence.schema.json. Do not edit. */'",
     "build": "npm run schema:types && tsc -b && vite build",
     "lint": "eslint . --max-warnings 0",
     "test": "npm run schema:types && vitest run",
@@ -23,7 +28,8 @@
     "mathjs": "15.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "roughjs": "4.6.6"
+    "roughjs": "4.6.6",
+    "tldraw": "5.2.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.31.0",

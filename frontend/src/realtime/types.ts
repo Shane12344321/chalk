@@ -96,6 +96,7 @@ export interface RealtimeSnapshot {
   syncMode?: SyncMode;
   activeResponseId?: string;
   responsePending: boolean;
+  responseInFlight: boolean;
   audioPlaybackActive: boolean;
   microphoneEnabled: boolean;
   lastError?: string;
@@ -107,6 +108,7 @@ export interface RealtimeSnapshot {
   tokenBudget: number;
   contextPublications: ContextPublicationMetric[];
   lastAcknowledgedManifestHash?: string;
+  remoteAudioActivity?: import("./remoteAudioActivity").AudioActivityEvidence;
 }
 
 export interface ContextPublicationMetric {
@@ -119,10 +121,15 @@ export interface RealtimeClientCallbacks {
   onSemanticEvent?: (event: RealtimeSemanticEvent) => void;
   onTeachRequested?: (topic: string, studentContext: string) => TeachStartResult;
   onDeixisRequested?: (
-    kind: "point_at" | "circle_el" | "underline" | "flash",
+    kind: "point_at" | "circle_el" | "underline" | "flash" | "trace_path" | "focus_on",
     elementId: string,
   ) => { overlayId: string } | undefined;
   onAnnotateRequested?: (request: string) => { requestId: string } | undefined;
+  onDrawQaAnnotationRequested?: (
+    marks: readonly import("./toolRouter").QaAnnotationMark[],
+  ) =>
+    | { ok: true; requestId: string; marks: number }
+    | { ok: false; reason: "not_in_qa" | "unknown_element" | "invalid_arguments" };
 }
 
 export interface NarrationContext {
@@ -148,7 +155,8 @@ export type RealtimeSemanticEvent =
   | { type: "checkpoint.prompt_failed"; context: NarrationContext }
   | { type: "checkpoint.feedback_activity"; context: NarrationContext }
   | { type: "checkpoint.feedback_generation_done"; context: NarrationContext }
-  | { type: "checkpoint.feedback_playback_stopped"; context: NarrationContext };
+  | { type: "checkpoint.feedback_playback_stopped"; context: NarrationContext }
+  | { type: "checkpoint.feedback_failed"; context: NarrationContext };
 
 export interface TraceExportContext {
   model?: string;

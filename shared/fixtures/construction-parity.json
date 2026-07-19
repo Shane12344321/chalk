@@ -1,0 +1,291 @@
+{
+  "version": 1,
+  "coordinate_contract": "expected coordinates are normalized against the renderer-owned inherited canvas",
+  "setups": {
+    "horizontal_line": [
+      {
+        "id": "s1",
+        "script": "Establish one horizontal segment and its center point.",
+        "ops": [
+          { "op": "diagram", "id": "canvas", "region": "left", "primitives": [{ "kind": "text", "at": [0.5, 0.1], "content": "shared canvas" }] },
+          { "op": "line", "id": "base", "canvas_id": "canvas", "from": [0.2, 0.5], "to": [0.8, 0.5], "stroke": "solid" },
+          { "op": "point", "id": "center", "canvas_id": "canvas", "at": [0.5, 0.5] }
+        ],
+        "checkpoint": null
+      }
+    ],
+    "crossing_lines": [
+      {
+        "id": "s1",
+        "script": "Establish two diagonals on one shared canvas.",
+        "ops": [
+          { "op": "diagram", "id": "canvas", "region": "left", "primitives": [{ "kind": "text", "at": [0.5, 0.1], "content": "crossing lines" }] },
+          { "op": "line", "id": "diagone", "canvas_id": "canvas", "from": [0.2, 0.2], "to": [0.8, 0.8], "stroke": "solid" },
+          { "op": "line", "id": "diagtwo", "canvas_id": "canvas", "from": [0.2, 0.8], "to": [0.8, 0.2], "stroke": "solid" }
+        ],
+        "checkpoint": null
+      }
+    ],
+    "parallel_lines": [
+      {
+        "id": "s1",
+        "script": "Establish two parallel segments on one shared canvas.",
+        "ops": [
+          { "op": "diagram", "id": "canvas", "region": "left", "primitives": [{ "kind": "text", "at": [0.5, 0.1], "content": "parallel lines" }] },
+          { "op": "line", "id": "lineone", "canvas_id": "canvas", "from": [0.2, 0.3], "to": [0.8, 0.3], "stroke": "solid" },
+          { "op": "line", "id": "linetwo", "canvas_id": "canvas", "from": [0.2, 0.7], "to": [0.8, 0.7], "stroke": "solid" }
+        ],
+        "checkpoint": null
+      }
+    ],
+    "overlapping_lines": [
+      {
+        "id": "s1",
+        "script": "Establish two overlapping segments on one shared canvas.",
+        "ops": [
+          { "op": "diagram", "id": "canvas", "region": "left", "primitives": [{ "kind": "text", "at": [0.5, 0.1], "content": "overlapping lines" }] },
+          { "op": "line", "id": "lineone", "canvas_id": "canvas", "from": [0.2, 0.5], "to": [0.8, 0.5], "stroke": "solid" },
+          { "op": "line", "id": "linetwo", "canvas_id": "canvas", "from": [0.4, 0.5], "to": [0.9, 0.5], "stroke": "solid" }
+        ],
+        "checkpoint": null
+      }
+    ],
+    "separate_spaces": [
+      {
+        "id": "s1",
+        "script": "Establish geometry on independent coordinate canvases.",
+        "ops": [
+          { "op": "line", "id": "leftline", "region": "A2", "from": [0.2, 0.2], "to": [0.8, 0.8], "stroke": "solid" },
+          { "op": "line", "id": "rightline", "region": "D2", "from": [0.2, 0.8], "to": [0.8, 0.2], "stroke": "solid" },
+          { "op": "point", "id": "leftpoint", "region": "A1", "at": [0.5, 0.5] },
+          { "op": "point", "id": "rightpoint", "region": "D1", "at": [0.5, 0.5] }
+        ],
+        "checkpoint": null
+      }
+    ],
+    "linear_curve": [
+      {
+        "id": "s1",
+        "script": "Plot one continuous line-shaped curve.",
+        "ops": [
+          { "op": "axes", "id": "axes", "region": "right", "x": { "min": -1, "max": 1, "label": "x" }, "y": { "min": -1, "max": 1, "label": "y" } },
+          { "op": "curve", "id": "curve", "axes_id": "axes", "expr": "x", "domain": [-1, 1] }
+        ],
+        "checkpoint": null
+      }
+    ],
+    "quadratic_curve": [
+      {
+        "id": "s1",
+        "script": "Plot one smooth quadratic curve with an interior vertex.",
+        "ops": [
+          { "op": "axes", "id": "axes", "region": "right", "x": { "min": -1, "max": 1, "label": "x" }, "y": { "min": -1, "max": 1, "label": "y" } },
+          { "op": "curve", "id": "curve", "axes_id": "axes", "expr": "x^2", "domain": [-1, 1] }
+        ],
+        "checkpoint": null
+      }
+    ],
+    "cusp_curve": [
+      {
+        "id": "s1",
+        "script": "Plot a visible curve with one sharp corner.",
+        "ops": [
+          { "op": "axes", "id": "axes", "region": "right", "x": { "min": -1, "max": 1, "label": "x" }, "y": { "min": -1, "max": 1, "label": "y" } },
+          { "op": "curve", "id": "curve", "axes_id": "axes", "expr": "abs(x)", "domain": [-1, 1] }
+        ],
+        "checkpoint": null
+      }
+    ],
+    "ambiguous_curves": [
+      {
+        "id": "s1",
+        "script": "Plot a parabola and a horizontal curve with two crossings.",
+        "ops": [
+          { "op": "axes", "id": "axes", "region": "right", "x": { "min": -1, "max": 1, "label": "x" }, "y": { "min": 0, "max": 1, "label": "y" } },
+          { "op": "curve", "id": "parabola", "axes_id": "axes", "expr": "x^2", "domain": [-1, 1] },
+          { "op": "curve", "id": "level", "axes_id": "axes", "expr": "0.25", "domain": [-1, 1] }
+        ],
+        "checkpoint": null
+      }
+    ],
+    "split_curve": [
+      {
+        "id": "s1",
+        "script": "Plot a curve with two visible disconnected branches.",
+        "ops": [
+          { "op": "axes", "id": "axes", "region": "right", "x": { "min": -2, "max": 2, "label": "x" }, "y": { "min": -1, "max": 1, "label": "y" } },
+          { "op": "curve", "id": "split", "axes_id": "axes", "expr": "2*sin(4*x)", "domain": [-2, 2] }
+        ],
+        "checkpoint": null
+      }
+    ],
+    "edge_and_tiny": [
+      {
+        "id": "s1",
+        "script": "Establish an edge point and a nearly degenerate segment.",
+        "ops": [
+          { "op": "diagram", "id": "canvas", "region": "left", "primitives": [{ "kind": "text", "at": [0.5, 0.1], "content": "boundary cases" }] },
+          { "op": "point", "id": "edgepoint", "canvas_id": "canvas", "at": [0.5, 0] },
+          { "op": "line", "id": "tinyline", "canvas_id": "canvas", "from": [0.5, 0.5], "to": [0.50000000001, 0.5], "stroke": "solid" }
+        ],
+        "checkpoint": null
+      }
+    ]
+  },
+  "cases": [
+    {
+      "id": "optics_perpendicular_success",
+      "family": "optics",
+      "setup": "horizontal_line",
+      "candidate": { "id": "s2", "script": "Construct the exact normal through the center point.", "ops": [{ "op": "line", "id": "normal", "construct": { "kind": "perpendicular_through", "line": "base", "point": { "kind": "point", "element_id": "center" }, "length": 0.4 }, "stroke": "dashed" }], "checkpoint": null },
+      "expected": { "backend": "accept", "browser": "line", "normalized_line": [[0.5, 0.3], [0.5, 0.7]] }
+    },
+    {
+      "id": "geometry_intersection_success",
+      "family": "euclidean_geometry",
+      "setup": "crossing_lines",
+      "candidate": { "id": "s2", "script": "Mark the one exact bounded intersection.", "ops": [{ "op": "point", "id": "crossing", "construct": { "kind": "intersection_of", "a": "diagone", "b": "diagtwo" } }], "checkpoint": null },
+      "expected": { "backend": "accept", "browser": "point", "normalized_point": [0.5, 0.5] }
+    },
+    {
+      "id": "mechanics_midpoint_success",
+      "family": "mechanics",
+      "setup": "horizontal_line",
+      "candidate": { "id": "s2", "script": "Mark the exact midpoint of the segment endpoints.", "ops": [{ "op": "point", "id": "midpoint", "construct": { "kind": "midpoint_of", "a": { "kind": "endpoint", "element_id": "base", "endpoint": "start" }, "b": { "kind": "endpoint", "element_id": "base", "endpoint": "end" } } }], "checkpoint": null },
+      "expected": { "backend": "accept", "browser": "point", "normalized_point": [0.5, 0.5] }
+    },
+    {
+      "id": "graph_along_curve_success",
+      "family": "calculus",
+      "setup": "linear_curve",
+      "candidate": { "id": "s2", "script": "Mark the arc-length midpoint of the visible curve.", "ops": [{ "op": "point", "id": "oncurve", "construct": { "kind": "along", "element_id": "curve", "t": 0.5 } }], "checkpoint": null },
+      "expected": { "backend": "accept", "browser": "point", "normalized_point": [0.5, 0.5] }
+    },
+    {
+      "id": "line_along_boundary_success",
+      "family": "vectors",
+      "setup": "horizontal_line",
+      "candidate": { "id": "s2", "script": "Mark the exact endpoint at the floating boundary.", "ops": [{ "op": "point", "id": "lineend", "construct": { "kind": "along", "element_id": "base", "t": 1 } }], "checkpoint": null },
+      "expected": { "backend": "accept", "browser": "point", "normalized_point": [0.8, 0.5] }
+    },
+    {
+      "id": "offset_success",
+      "family": "free_body_diagram",
+      "setup": "horizontal_line",
+      "candidate": { "id": "s2", "script": "Place an exact offset point above the segment.", "ops": [{ "op": "point", "id": "callout", "construct": { "kind": "offset_from", "element_id": "base", "side": "above", "gap": 0.1 } }], "checkpoint": null },
+      "expected": { "backend": "accept", "browser": "point", "normalized_point": [0.5, 0.4] }
+    },
+    {
+      "id": "calculus_tangent_success",
+      "family": "calculus",
+      "setup": "quadratic_curve",
+      "candidate": { "id": "s2", "script": "Construct the renderer-owned local tangent at the vertex.", "ops": [{ "op": "line", "id": "tangent", "construct": { "kind": "tangent_at", "curve": "curve", "x": 0, "length": 0.3 }, "stroke": "solid" }], "checkpoint": null },
+      "expected": { "backend": "accept", "browser": "line", "normalized_line": [[0.41407767, 0.5], [0.58592233, 0.5]] }
+    },
+    {
+      "id": "calculus_tangent_endpoint_rejected",
+      "family": "calculus",
+      "setup": "quadratic_curve",
+      "candidate": { "id": "s2", "script": "A one-sided endpoint does not have a supported local tangent.", "ops": [{ "op": "line", "id": "badend", "construct": { "kind": "tangent_at", "curve": "curve", "x": 1, "length": 0.3 }, "stroke": "solid" }], "checkpoint": null },
+      "expected": { "backend": "accept", "browser": "drop_resolve", "code": "unsupported_geometry" }
+    },
+    {
+      "id": "calculus_tangent_outside_visible_curve_rejected",
+      "family": "calculus",
+      "setup": "quadratic_curve",
+      "candidate": { "id": "s2", "script": "A tangent point outside the visible curve is rejected.", "ops": [{ "op": "line", "id": "badoutside", "construct": { "kind": "tangent_at", "curve": "curve", "x": 2, "length": 0.3 }, "stroke": "solid" }], "checkpoint": null },
+      "expected": { "backend": "accept", "browser": "drop_resolve", "code": "off_board" }
+    },
+    {
+      "id": "calculus_tangent_cusp_rejected",
+      "family": "calculus",
+      "setup": "cusp_curve",
+      "candidate": { "id": "s2", "script": "A sharp corner does not have one unambiguous tangent.", "ops": [{ "op": "line", "id": "badcusp", "construct": { "kind": "tangent_at", "curve": "curve", "x": 0, "length": 0.3 }, "stroke": "solid" }], "checkpoint": null },
+      "expected": { "backend": "accept", "browser": "drop_resolve", "code": "ambiguous_geometry" }
+    },
+    {
+      "id": "tangent_noncurve_rejected",
+      "family": "contract",
+      "setup": "horizontal_line",
+      "candidate": { "id": "s2", "script": "Only an accepted curve can define a tangent.", "ops": [{ "op": "line", "id": "wrongtangent", "construct": { "kind": "tangent_at", "curve": "base", "x": 0, "length": 0.3 }, "stroke": "solid" }], "checkpoint": null },
+      "expected": { "backend": "reject", "browser": "drop_decode", "code": "unknown_reference" }
+    },
+    {
+      "id": "parallel_intersection_rejected",
+      "family": "analytic_geometry",
+      "setup": "parallel_lines",
+      "candidate": { "id": "s2", "script": "A parallel crossing must be rejected safely.", "ops": [{ "op": "point", "id": "badcross", "construct": { "kind": "intersection_of", "a": "lineone", "b": "linetwo" } }], "checkpoint": null },
+      "expected": { "backend": "accept", "browser": "drop_resolve", "code": "parallel_geometry" }
+    },
+    {
+      "id": "overlap_intersection_rejected",
+      "family": "analytic_geometry",
+      "setup": "overlapping_lines",
+      "candidate": { "id": "s2", "script": "An overlapping intersection is not one unique point.", "ops": [{ "op": "point", "id": "badcross", "construct": { "kind": "intersection_of", "a": "lineone", "b": "linetwo" } }], "checkpoint": null },
+      "expected": { "backend": "accept", "browser": "drop_resolve", "code": "ambiguous_geometry" }
+    },
+    {
+      "id": "curve_intersection_ambiguous_rejected",
+      "family": "calculus",
+      "setup": "ambiguous_curves",
+      "candidate": { "id": "s2", "script": "Two bounded crossings are intentionally ambiguous.", "ops": [{ "op": "point", "id": "twocross", "construct": { "kind": "intersection_of", "a": "parabola", "b": "level" } }], "checkpoint": null },
+      "expected": { "backend": "accept", "browser": "drop_resolve", "code": "ambiguous_geometry" }
+    },
+    {
+      "id": "split_curve_along_rejected",
+      "family": "calculus",
+      "setup": "split_curve",
+      "candidate": { "id": "s2", "script": "A disconnected path has no single along parameter.", "ops": [{ "op": "point", "id": "ambiguous", "construct": { "kind": "along", "element_id": "split", "t": 0.5 } }], "checkpoint": null },
+      "expected": { "backend": "accept", "browser": "drop_resolve", "code": "ambiguous_geometry" }
+    },
+    {
+      "id": "coordinate_space_rejected",
+      "family": "mixed_diagram",
+      "setup": "separate_spaces",
+      "candidate": { "id": "s2", "script": "Independent canvases cannot define one exact crossing.", "ops": [{ "op": "point", "id": "wrongspace", "construct": { "kind": "intersection_of", "a": "leftline", "b": "rightline" } }], "checkpoint": null },
+      "expected": { "backend": "accept", "browser": "drop_resolve", "code": "coordinate_space_mismatch" }
+    },
+    {
+      "id": "midpoint_space_rejected",
+      "family": "mixed_diagram",
+      "setup": "separate_spaces",
+      "candidate": { "id": "s2", "script": "Independent point canvases cannot define one midpoint.", "ops": [{ "op": "point", "id": "wrongmid", "construct": { "kind": "midpoint_of", "a": { "kind": "point", "element_id": "leftpoint" }, "b": { "kind": "point", "element_id": "rightpoint" } } }], "checkpoint": null },
+      "expected": { "backend": "accept", "browser": "drop_resolve", "code": "coordinate_space_mismatch" }
+    },
+    {
+      "id": "offset_off_board_rejected",
+      "family": "boundary",
+      "setup": "edge_and_tiny",
+      "candidate": { "id": "s2", "script": "An offset outside the inherited canvas is rejected.", "ops": [{ "op": "point", "id": "offboard", "construct": { "kind": "offset_from", "element_id": "edgepoint", "side": "above", "gap": 0.25 } }], "checkpoint": null },
+      "expected": { "backend": "accept", "browser": "drop_resolve", "code": "off_board" }
+    },
+    {
+      "id": "degenerate_perpendicular_rejected",
+      "family": "boundary",
+      "setup": "edge_and_tiny",
+      "candidate": { "id": "s2", "script": "A nearly zero direction cannot define a perpendicular.", "ops": [{ "op": "line", "id": "badnormal", "construct": { "kind": "perpendicular_through", "line": "tinyline", "point": { "kind": "point", "element_id": "edgepoint" }, "length": 0.2 }, "stroke": "solid" }], "checkpoint": null },
+      "expected": { "backend": "accept", "browser": "drop_resolve", "code": "degenerate_geometry" }
+    },
+    {
+      "id": "forward_reference_rejected",
+      "family": "contract",
+      "setup": null,
+      "candidate": { "id": "s1", "script": "Future geometry cannot enter accepted construction state.", "ops": [{ "op": "diagram", "id": "canvas", "region": "left", "primitives": [{ "kind": "text", "at": [0.5, 0.1], "content": "forward reference" }] }, { "op": "point", "id": "futurepoint", "construct": { "kind": "along", "element_id": "futureline", "t": 0.5 } }, { "op": "line", "id": "futureline", "canvas_id": "canvas", "from": [0.2, 0.5], "to": [0.8, 0.5], "stroke": "solid" }], "checkpoint": null },
+      "expected": { "backend": "reject", "browser": "drop_decode", "code": "unknown_reference" }
+    },
+    {
+      "id": "self_cycle_rejected",
+      "family": "contract",
+      "setup": null,
+      "candidate": { "id": "s1", "script": "Self reference cannot create a geometry cycle.", "ops": [{ "op": "text", "id": "safe", "region": "A1", "content": "cycle rejected" }, { "op": "point", "id": "selfpoint", "construct": { "kind": "along", "element_id": "selfpoint", "t": 0.5 } }], "checkpoint": null },
+      "expected": { "backend": "reject", "browser": "drop_decode", "code": "unknown_reference" }
+    },
+    {
+      "id": "out_of_range_t_rejected",
+      "family": "contract",
+      "setup": "horizontal_line",
+      "candidate": { "id": "s2", "script": "An out of range parameter is never coerced.", "ops": [{ "op": "point", "id": "badparam", "construct": { "kind": "along", "element_id": "base", "t": 1.0000001 } }], "checkpoint": null },
+      "expected": { "backend": "reject", "browser": "drop_decode", "code": "invalid_op" }
+    }
+  ]
+}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping, Set
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,7 @@ def validate_annotation(
     request_id: str,
     manifest_version: int,
     visible_element_ids: set[str],
+    allowed_sides: Mapping[str, Set[str]] | None = None,
 ) -> dict[str, Any]:
     issues = _schema_issues(value)
     if issues:
@@ -57,6 +59,13 @@ def validate_annotation(
         annotation_ids.add(op["id"])
         if op["target_id"] not in visible_element_ids:
             semantic_issues.append(f"op {index} target is not visible")
+        if (
+            "side" in op
+            and allowed_sides is not None
+            and op["target_id"] in allowed_sides
+            and op["side"] not in allowed_sides[op["target_id"]]
+        ):
+            semantic_issues.append(f"op {index} side is not in the renderer whitespace allowlist")
         if op["op"] == "equation" and FORBIDDEN_LATEX_COMMAND.search(op["latex"]):
             semantic_issues.append(f"op {index} equation contains a forbidden command")
 

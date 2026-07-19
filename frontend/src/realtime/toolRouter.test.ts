@@ -61,7 +61,7 @@ describe("routeToolCall", () => {
     ).toEqual({ ok: false, reason: "lesson_busy" });
   });
 
-  it.each(["point_at", "circle_el", "underline", "flash"] as const)(
+  it.each(["point_at", "circle_el", "underline", "flash", "trace_path", "focus_on"] as const)(
     "routes %s to the committed-element handler",
     (name) => {
       const deixis = vi.fn().mockReturnValue({ overlayId: "overlay-1" });
@@ -117,5 +117,64 @@ describe("routeToolCall", () => {
       request_id: "annotation-request",
     });
     expect(annotate).toHaveBeenCalledWith("Show why the peak occurs at 45 degrees");
+  });
+
+  it("routes a bounded generic Q&A mark batch", () => {
+    const drawQaAnnotation = vi.fn().mockReturnValue({ ok: true, requestId: "qa-request", marks: 2 });
+    expect(routeToolCall({
+      callId: "call_qa_draw",
+      name: "draw_qa_annotation",
+      argumentsJson: JSON.stringify({ marks: [
+        { kind: "circle", target_id: "ray1" },
+        { kind: "text", target_id: "ray1", side: "above", content: "smaller angle" },
+      ] }),
+    }, { drawQaAnnotation })).toEqual({
+      ok: true,
+      status: "qa_annotation_shown",
+      request_id: "qa-request",
+      marks: 2,
+    });
+    expect(drawQaAnnotation).toHaveBeenCalledWith([
+      { kind: "circle", target_id: "ray1" },
+      { kind: "text", target_id: "ray1", side: "above", content: "smaller angle" },
+    ]);
+  });
+
+  it.each([
+    { marks: [] },
+    { marks: [{ kind: "circle", target_id: "Bad ID" }] },
+    { marks: [{ kind: "arrow", target_id: "ray1", side: "diagonal" }] },
+    { marks: [{ kind: "text", target_id: "ray1", side: "above", content: "" }] },
+    { marks: [
+      { kind: "circle", target_id: "ray1" },
+      { kind: "underline", target_id: "ray1" },
+      { kind: "arrow", target_id: "ray1", side: "right" },
+    ] },
+  ])("rejects invalid Q&A drawing arguments: %j", (argumentsValue) => {
+    expect(routeToolCall({
+      callId: "call_qa_draw",
+      name: "draw_qa_annotation",
+      argumentsJson: JSON.stringify(argumentsValue),
+    }, { drawQaAnnotation: () => ({ ok: true, requestId: "never", marks: 1 }) })).toEqual({
+      ok: false,
+      reason: "invalid_arguments",
+    });
+  });
+
+  it("soft-fails Q&A drawing when the current application state refuses it", () => {
+    const call = {
+      callId: "call_qa_draw",
+      name: "draw_qa_annotation",
+      argumentsJson: '{"marks":[{"kind":"circle","target_id":"ray1"}]}',
+    };
+    expect(routeToolCall(call)).toEqual({ ok: false, reason: "handler_unavailable" });
+    expect(routeToolCall(call, { drawQaAnnotation: () => ({ ok: false, reason: "not_in_qa" }) })).toEqual({
+      ok: false,
+      reason: "not_in_qa",
+    });
+    expect(routeToolCall(call, { drawQaAnnotation: () => ({ ok: false, reason: "unknown_element" }) })).toEqual({
+      ok: false,
+      reason: "unknown_element",
+    });
   });
 });

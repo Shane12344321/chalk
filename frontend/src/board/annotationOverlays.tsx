@@ -76,7 +76,7 @@ function AnnotationMark({
             key={`${op.id}-${index}`}
             d={path.d}
             fill="none"
-            stroke="#88d9aa"
+            stroke="#3a6fd8"
             strokeLinecap="round"
             strokeLinejoin="round"
             strokeWidth="5"
@@ -101,7 +101,7 @@ function AnnotationMark({
             d={path.d}
             fill="none"
             markerEnd="url(#annotation-arrowhead)"
-            stroke="#88d9aa"
+            stroke="#3a6fd8"
             strokeLinecap="round"
             strokeWidth="5"
           />

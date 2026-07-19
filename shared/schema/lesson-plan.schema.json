@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://chalk.local/schema/lesson-plan.schema.json",
+  "title": "LessonPlan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "visual_structure", "progression", "checkpoint_step"],
+  "properties": {
+    "kind": { "const": "lesson_plan" },
+    "visual_structure": { "type": "string", "minLength": 4, "maxLength": 180 },
+    "composition_archetype": {
+      "enum": [
+        "single_large_figure",
+        "derivation_plus_diagram",
+        "worked_example_column",
+        "comparison_pair",
+        "graph_with_summary"
+      ]
+    },
+    "progression": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 5,
+      "items": { "type": "string", "minLength": 3, "maxLength": 100 }
+    },
+    "checkpoint_step": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1, "maximum": 5 },
+        { "type": "null" }
+      ]
+    }
+  }
+}

@@ -18,12 +18,14 @@ CLAMP_TOLERANCE = 0.05
 MAX_RECORDED_CORRECTIONS = 64
 _STRING_FIELDS = {
     "op",
+    "kind",
     "id",
     "script",
     "content",
     "latex",
     "expr",
     "label",
+    "meaning",
     "axes_id",
     "canvas_id",
     "region",
@@ -32,6 +34,11 @@ _STRING_FIELDS = {
     "el",
     "question",
     "expected_gist",
+    "element_id",
+    "endpoint",
+    "line",
+    "a",
+    "b",
 }
 
 
@@ -79,6 +86,13 @@ def sanitize_step(value: Any) -> SanitizationResult:
                     anchor["gap"] = _clamp_near_unit_interval(
                         anchor["gap"], "clamped_anchor_gap", recorder
                     )
+            construction = op.get("construct")
+            if isinstance(construction, dict):
+                _trim_mapping_strings(construction, recorder)
+                for reference_name in ("point", "a", "b"):
+                    reference = construction.get(reference_name)
+                    if isinstance(reference, dict):
+                        _trim_mapping_strings(reference, recorder)
             for axis_name in ("x", "y"):
                 axis = op.get(axis_name)
                 if isinstance(axis, dict):
@@ -88,6 +102,13 @@ def sanitize_step(value: Any) -> SanitizationResult:
                 op["expr"] = expression.replace("**", "^")
                 recorder.add("normalized_power_operator")
             _sanitize_normalized_points(op, recorder)
+            primitives = op.get("primitives")
+            if isinstance(primitives, list):
+                for primitive in primitives:
+                    if not isinstance(primitive, dict):
+                        continue
+                    _trim_mapping_strings(primitive, recorder)
+                    _sanitize_normalized_points(primitive, recorder)
 
     return SanitizationResult(sanitized, tuple(recorder.codes), recorder.count)
 
@@ -108,6 +129,11 @@ def _sanitize_normalized_points(op: dict[str, Any], recorder: _Recorder) -> None
         point = op.get(key)
         if isinstance(point, list):
             _sanitize_point(point, recorder)
+    points = op.get("points")
+    if isinstance(points, list):
+        for point in points:
+            if isinstance(point, list):
+                _sanitize_point(point, recorder)
     strokes = op.get("strokes")
     if not isinstance(strokes, list):
         return

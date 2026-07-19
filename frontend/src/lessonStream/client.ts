@@ -8,9 +8,16 @@ import {
 import { isLessonStreamEnvelope, lessonStreamSchemaErrors } from "./schema";
 import type {
   Error as LessonStreamErrorEnvelope,
+  InkDelta as LessonStreamInkDeltaEnvelope,
   LessonStreamEnvelope,
+  LessonStep,
   UpstreamError as LessonStreamUpstreamError,
 } from "./stream.generated";
+import type { LessonPlan } from "./lessonPlan.generated";
+import {
+  recoveryEvidenceFromDecode,
+  type RecoveryEvidence,
+} from "../board/failureRecovery";
 
 type ServerErrorCode = LessonStreamErrorEnvelope["code"];
 type UpstreamReason = NonNullable<LessonStreamUpstreamError["upstream_reason"]>;
@@ -25,6 +32,7 @@ export interface LessonStreamRequest {
   topic: string;
   studentContext?: string;
   boardState?: string;
+  generationMode?: "one_shot" | "resolved_stepwise";
 }
 
 export interface LessonStreamProgress {
@@ -36,10 +44,17 @@ export interface LessonStreamProgress {
   browserDroppedSteps: number;
   sanitizedSteps: number;
   sanitizedFields: number;
+  plan?: LessonPlan;
+  continuationAvailable?: boolean;
+  continuationReceipt?: string;
   boardModel?: string;
   boardReasoningEffort?: string;
   boardPromptSha256?: string;
   repairPromptSha256?: string;
+  continuationPromptSha256?: string;
+  configurationSha256?: string;
+  recoveryEvidence: RecoveryEvidence[];
+  receiptPrefix: Array<LessonStep | NormalizedStep>;
 }
 
 export interface LessonStreamResult extends LessonStreamProgress {
@@ -62,6 +77,8 @@ export interface StreamLessonOptions {
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
   onProgress?: (progress: LessonStreamProgress) => void;
+  /** Experimental: ignored unless the caller has registered the accepted op header. */
+  onInkDelta?: (delta: LessonStreamInkDeltaEnvelope) => void;
 }
 
 export class LessonStreamClient {
@@ -79,7 +96,8 @@ export class LessonStreamClient {
   ): Promise<LessonStreamResult> {
     this.cancel();
     const controller = new AbortController();
-    this.active = { requestId: request.requestId, controller };
+    const active = { requestId: request.requestId, controller };
+    this.active = active;
     return streamLesson({
       apiBaseUrl: this.apiBaseUrl,
       request: { ...request, clientId: this.clientId },
@@ -88,8 +106,18 @@ export class LessonStreamClient {
       onProgress: (progress) => {
         if (this.active?.requestId === progress.requestId) onProgress?.(progress);
       },
+    }).then((result) => {
+      if (this.active !== active || controller.signal.aborted) {
+        throw new DOMException("Lesson generation was superseded.", "AbortError");
+      }
+      return result;
+    }).catch((error: unknown) => {
+      if (this.active !== active || controller.signal.aborted) {
+        throw new DOMException("Lesson generation was superseded.", "AbortError");
+      }
+      throw error;
     }).finally(() => {
-      if (this.active?.requestId === request.requestId) this.active = undefined;
+      if (this.active === active) this.active = undefined;
     });
   }
 
@@ -129,6 +157,7 @@ export async function streamLesson(options: StreamLessonOptions): Promise<Lesson
       topic: options.request.topic,
       student_context: options.request.studentContext ?? "",
       board_state: options.request.boardState ?? "",
+      generation_mode: options.request.generationMode ?? "one_shot",
     }),
     signal: options.signal,
     cache: "no-store",
@@ -147,6 +176,7 @@ export async function streamLesson(options: StreamLessonOptions): Promise<Lesson
     options.request.requestId,
     options.onProgress,
     responseMetadata(response.headers),
+    options.onInkDelta,
   );
   const parser = new NdjsonParser();
   const reader = response.body.getReader();
@@ -239,12 +269,15 @@ class LessonStreamAssembler {
   private browserDroppedSteps = 0;
   private sanitizedSteps = 0;
   private sanitizedFields = 0;
+  private plan?: LessonPlan;
   private readonly decodeContext: DecodeContext = createDecodeContext();
   private terminal?: Extract<LessonStreamEnvelope, { type: "lesson.done" }>;
   private serverErrorCode?: ServerErrorCode;
   private serverErrorReason?: UpstreamReason;
   private serverErrorOrigin?: FailureOrigin;
   private serverRepairAttempts = 0;
+  private readonly recoveryEvidence = new Map<string, RecoveryEvidence>();
+  private readonly receiptPrefix: LessonStep[] = [];
 
   constructor(
     private readonly expectedRequestId: string,
@@ -254,7 +287,10 @@ class LessonStreamAssembler {
       boardReasoningEffort?: string;
       boardPromptSha256?: string;
       repairPromptSha256?: string;
+      continuationPromptSha256?: string;
+      configurationSha256?: string;
     } = {},
+    private readonly onInkDelta?: (delta: LessonStreamInkDeltaEnvelope) => void,
   ) {}
 
   accept(envelope: LessonStreamEnvelope): void {
@@ -272,6 +308,18 @@ class LessonStreamAssembler {
     }
     if (!this.title) {
       throw new LessonStreamError("Lesson stream omitted its start envelope.", "invalid_sequence");
+    }
+    if (envelope.type === "lesson.plan") {
+      if (this.plan || this.steps.length > 0) {
+        throw new LessonStreamError("Lesson plan arrived after drawing steps.", "invalid_sequence");
+      }
+      this.plan = envelope.plan;
+      this.emit(false);
+      return;
+    }
+    if (envelope.type === "lesson.ink_delta") {
+      this.onInkDelta?.(envelope);
+      return;
     }
     if (envelope.type === "lesson.warning") {
       this.warnings += 1;
@@ -307,8 +355,16 @@ class LessonStreamAssembler {
       // A step the browser rejects costs that step, never the accepted prefix.
       // The server remains the repair authority; the browser only drops.
       this.serverStepEnvelopes += 1;
+      this.receiptPrefix.push(envelope.step);
       const decoded = decodeStep(envelope.step, this.decodeContext);
       this.warnings += decoded.warnings.length;
+      for (const evidence of recoveryEvidenceFromDecode(
+        this.expectedRequestId,
+        envelope.step,
+        decoded.warnings,
+      )) {
+        this.recoveryEvidence.set(evidence.findingId, evidence);
+      }
       if (decoded.step) {
         this.steps.push(decoded.step);
       } else {
@@ -333,8 +389,17 @@ class LessonStreamAssembler {
           "invalid_sequence",
         );
       }
+      if (
+        envelope.continuation_available === true &&
+        typeof envelope.continuation_receipt !== "string"
+      ) {
+        throw new LessonStreamError(
+          "Continuable lesson completion omitted its authenticated receipt.",
+          "invalid_sequence",
+        );
+      }
       this.terminal = envelope;
-      this.emit(true);
+      this.emit(!envelope.continuation_available);
     }
   }
 
@@ -349,15 +414,24 @@ class LessonStreamAssembler {
       requestId: this.expectedRequestId,
       title: this.title,
       steps: this.steps,
-      complete: true,
+      complete: !this.terminal?.continuation_available,
       warnings: this.warnings,
       browserDroppedSteps: this.browserDroppedSteps,
       sanitizedSteps: this.sanitizedSteps,
       sanitizedFields: this.sanitizedFields,
-      lesson: { schemaVersion: "1.1", title: this.title, steps: this.steps },
+      lesson: { schemaVersion: "1.4", title: this.title, steps: this.steps },
       repairs: this.terminal?.repairs ?? this.serverRepairAttempts,
       droppedSteps: this.terminal?.dropped_steps ?? 0,
       partial: this.serverErrorCode !== undefined,
+      recoveryEvidence: [...this.recoveryEvidence.values()],
+      receiptPrefix: [...this.receiptPrefix],
+      ...(this.plan ? { plan: this.plan } : {}),
+      ...(this.terminal?.continuation_available
+        ? {
+          continuationAvailable: true,
+          continuationReceipt: this.terminal.continuation_receipt,
+        }
+        : {}),
       ...this.metadata,
       ...(this.serverErrorCode ? { errorCode: this.serverErrorCode } : {}),
       ...(this.serverErrorReason ? { upstreamReason: this.serverErrorReason } : {}),
@@ -376,6 +450,15 @@ class LessonStreamAssembler {
       browserDroppedSteps: this.browserDroppedSteps,
       sanitizedSteps: this.sanitizedSteps,
       sanitizedFields: this.sanitizedFields,
+      recoveryEvidence: [...this.recoveryEvidence.values()],
+      receiptPrefix: [...this.receiptPrefix],
+      ...(this.plan ? { plan: this.plan } : {}),
+      ...(this.terminal?.continuation_available
+        ? {
+          continuationAvailable: true,
+          continuationReceipt: this.terminal.continuation_receipt,
+        }
+        : {}),
       ...this.metadata,
     });
   }
@@ -386,6 +469,8 @@ function responseMetadata(headers: Headers): {
   boardReasoningEffort?: string;
   boardPromptSha256?: string;
   repairPromptSha256?: string;
+  continuationPromptSha256?: string;
+  configurationSha256?: string;
 } {
   const boardModel = boundedHeader(headers.get("x-chalk-board-model"), 40);
   const boardReasoningEffort = boundedHeader(
@@ -394,11 +479,17 @@ function responseMetadata(headers: Headers): {
   );
   const boardPromptSha256 = sha256Header(headers.get("x-chalk-board-prompt-sha256"));
   const repairPromptSha256 = sha256Header(headers.get("x-chalk-repair-prompt-sha256"));
+  const continuationPromptSha256 = sha256Header(
+    headers.get("x-chalk-continuation-prompt-sha256"),
+  );
+  const configurationSha256 = sha256Header(headers.get("x-chalk-configuration-sha256"));
   return {
     ...(boardModel ? { boardModel } : {}),
     ...(boardReasoningEffort ? { boardReasoningEffort } : {}),
     ...(boardPromptSha256 ? { boardPromptSha256 } : {}),
     ...(repairPromptSha256 ? { repairPromptSha256 } : {}),
+    ...(continuationPromptSha256 ? { continuationPromptSha256 } : {}),
+    ...(configurationSha256 ? { configurationSha256 } : {}),
   };
 }
 

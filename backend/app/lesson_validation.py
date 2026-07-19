@@ -21,6 +21,7 @@ from app.lesson_sanitizer import SanitizationResult, sanitize_step
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LESSON_SCHEMA_PATH = PROJECT_ROOT / "shared/schema/lesson.schema.json"
 STREAM_SCHEMA_PATH = PROJECT_ROOT / "shared/schema/lesson-stream.schema.json"
+PLAN_SCHEMA_PATH = PROJECT_ROOT / "shared/schema/lesson-plan.schema.json"
 
 ALLOWED_NAMES = {"x", "pi", "e"}
 ALLOWED_FUNCTIONS = {"sin", "cos", "tan", "exp", "log", "sqrt", "abs"}
@@ -28,7 +29,7 @@ ALLOWED_BINARY_OPERATORS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow)
 ALLOWED_UNARY_OPERATORS = (ast.UAdd, ast.USub)
 MAX_EXPRESSION_NODES = 64
 MAX_NUMERIC_LITERAL = 1_000_000
-DIAGRAM_OP_TYPES = {"line", "arrow", "point", "angle_arc"}
+DIAGRAM_OP_TYPES = {"diagram", "line", "arrow", "point", "angle_arc"}
 
 # Mirrors EXPRESSION_CHARACTERS in frontend/src/board/expression.ts so every
 # emitted expression is parseable by the locked-down browser mathjs instance.
@@ -94,10 +95,12 @@ def step_validator() -> Draft7Validator:
 def envelope_validator() -> Draft7Validator:
     lesson = lesson_schema()
     stream = stream_schema()
+    plan = _load_schema(PLAN_SCHEMA_PATH)
     registry = Registry().with_resources(
         [
             (lesson["$id"], Resource.from_contents(lesson)),
             (stream["$id"], Resource.from_contents(stream)),
+            (plan["$id"], Resource.from_contents(plan)),
         ]
     )
     validator = Draft7Validator(stream, registry=registry)
@@ -165,10 +168,41 @@ def validate_step_with_sanitization(value: Any, state: LessonValidationState) ->
                     f"op {index} canvas reference is not an accepted diagram element"
                 )
 
-        if op_type in {"line", "arrow"} and op["from"] == op["to"]:
+        if op_type in {"line", "arrow"} and "construct" not in op and op["from"] == op["to"]:
             semantic_issues.append(f"op {index} line endpoints must differ")
+        if "construct" in op:
+            semantic_issues.extend(
+                _construction_reference_issues(index, op["construct"], visible_types)
+            )
         if op_type == "angle_arc" and abs(op["end_deg"] - op["start_deg"]) < 1:
             semantic_issues.append(f"op {index} angle arc must span at least one degree")
+        if op_type == "diagram":
+            for primitive_index, primitive in enumerate(op["primitives"]):
+                kind = primitive["kind"]
+                if kind in {"line", "smooth"}:
+                    points = primitive["points"]
+                    if all(point == points[0] for point in points[1:]):
+                        semantic_issues.append(
+                            f"op {index} diagram primitive {primitive_index} path has no length"
+                        )
+                    if primitive.get("arrow") and points[-1] == points[-2]:
+                        semantic_issues.append(
+                            f"op {index} diagram primitive {primitive_index} "
+                            "arrow has no terminal direction"
+                        )
+                elif kind == "rect":
+                    if (
+                        primitive["from"][0] == primitive["to"][0]
+                        or primitive["from"][1] == primitive["to"][1]
+                    ):
+                        semantic_issues.append(
+                            f"op {index} diagram primitive {primitive_index} rectangle has no area"
+                        )
+                elif kind == "arc" and abs(primitive["end_deg"] - primitive["start_deg"]) < 1:
+                    semantic_issues.append(
+                        f"op {index} diagram primitive {primitive_index} "
+                        "arc must span at least one degree"
+                    )
 
         if op_type == "axes":
             if op["x"]["min"] >= op["x"]["max"] or op["y"]["min"] >= op["y"]["max"]:
@@ -213,6 +247,33 @@ def validate_step_with_sanitization(value: Any, state: LessonValidationState) ->
 
         pending_types[op_id] = op_type
 
+    op_order = {op["id"]: index for index, op in enumerate(normalized["ops"])}
+    movable_ids = {
+        op["id"]
+        for op in normalized["ops"]
+        if op["op"] != "curve" and "canvas_id" not in op and "construct" not in op
+    }
+    for relation_index, relation in enumerate(normalized.get("layout", [])):
+        moving_ids = [relation["id"]] if relation["kind"] == "place" else relation["ids"]
+        if any(
+            element_id not in pending_types or element_id not in movable_ids
+            for element_id in moving_ids
+        ):
+            semantic_issues.append(
+                f"layout {relation_index} may move only independent operations in the current step"
+            )
+            continue
+        if relation["kind"] == "place":
+            reference_id = relation["relative_to"]
+            moving_index = op_order[relation["id"]]
+            reference_index = op_order.get(reference_id)
+            if reference_id not in visible_types and (
+                reference_index is None or reference_index >= moving_index
+            ):
+                semantic_issues.append(
+                    f"layout {relation_index} place target is not already accepted"
+                )
+
     if semantic_issues:
         raise StepValidationError(semantic_issues)
 
@@ -223,6 +284,65 @@ def validate_step_with_sanitization(value: Any, state: LessonValidationState) ->
     if normalized["checkpoint"] is not None:
         state.checkpoint_accepted = True
     return ValidatedStep(step=normalized, sanitization=sanitization)
+
+
+def _construction_reference_issues(
+    index: int,
+    relation: dict[str, Any],
+    accepted_before_step: dict[str, str],
+) -> list[str]:
+    """Validate only stable prior-step construction references.
+
+    Exact intersection, curve sampling, coordinate-space and board-boundary
+    decisions remain browser renderer truth. The backend intentionally checks
+    the closed relation vocabulary and type inventory without claiming browser
+    geometry that it cannot observe.
+    """
+
+    def accepted_as(element_id: str, allowed: set[str]) -> bool:
+        return accepted_before_step.get(element_id) in allowed
+
+    def point_reference_issue(reference: dict[str, Any]) -> str | None:
+        element_id = reference["element_id"]
+        allowed = {"point"} if reference["kind"] == "point" else {"line", "arrow"}
+        if accepted_as(element_id, allowed):
+            return None
+        return f"op {index} construction point reference is not accepted prior-step geometry"
+
+    kind = relation["kind"]
+    if kind == "tangent_at":
+        if accepted_as(relation["curve"], {"curve"}):
+            return []
+        return [f"op {index} tangent curve is not accepted prior-step geometry"]
+    if kind == "perpendicular_through":
+        issues = []
+        if not accepted_as(relation["line"], {"line", "arrow"}):
+            issues.append(f"op {index} perpendicular line is not accepted prior-step geometry")
+        point_issue = point_reference_issue(relation["point"])
+        if point_issue:
+            issues.append(point_issue)
+        return issues
+    if kind == "along":
+        if accepted_as(relation["element_id"], {"line", "arrow", "curve"}):
+            return []
+        return [f"op {index} along target is not accepted prior-step geometry"]
+    if kind == "midpoint_of":
+        return [
+            issue
+            for reference in (relation["a"], relation["b"])
+            if (issue := point_reference_issue(reference)) is not None
+        ]
+    if kind == "intersection_of":
+        if relation["a"] == relation["b"]:
+            return [f"op {index} intersection inputs must be distinct"]
+        return [
+            f"op {index} intersection input is not accepted prior-step geometry"
+            for element_id in (relation["a"], relation["b"])
+            if not accepted_as(element_id, {"line", "arrow", "curve"})
+        ]
+    if accepted_as(relation["element_id"], {"point", "line", "arrow", "curve"}):
+        return []
+    return [f"op {index} offset target is not accepted prior-step geometry"]
 
 
 def validate_envelope(value: Any) -> None:

@@ -3,7 +3,7 @@ import derivativeLesson from "../../../demo/cached_lessons/derivative-slope.less
 import projectileLesson from "../../../demo/cached_lessons/projectile-range.lesson.json";
 import unitCircleLesson from "../../../demo/cached_lessons/unit-circle-sine.lesson.json";
 import { decodeLesson } from "./decode";
-import { layoutSteps } from "./layout";
+import { layoutHardFindingVector, layoutSteps } from "./layout";
 
 const goldenFixtures = import.meta.glob("../../../tests/golden/*.lesson.json", {
   eager: true,
@@ -33,6 +33,35 @@ describe("layout is prefix-stable while steps stream in", () => {
       }
     });
   }
+
+  for (const [name, source] of corpus) {
+    it(`never worsens the preferred hard vector in ${name}`, () => {
+      const lesson = decodeLesson(source).lesson!;
+      const preferred = layoutSteps(lesson.steps, { candidatePlacement: "preferred-only" });
+      const resolved = layoutSteps(lesson.steps);
+      const preferredHard = layoutHardFindingVector(preferred, lesson.steps);
+      const resolvedHard = layoutHardFindingVector(resolved, lesson.steps);
+      resolvedHard.forEach((value, index) => {
+        expect(value).toBeLessThanOrEqual(preferredHard[index]);
+      });
+    });
+  }
+
+  it("keeps all three byte-pinned cached layouts unchanged without a composition plan", () => {
+    const fingerprints = [projectileLesson, derivativeLesson, unitCircleLesson].map((source) => {
+      const lesson = decodeLesson(source).lesson!;
+      return JSON.stringify(layoutSteps(lesson.steps).map(({ op, box, canvasBox }) => ({
+        id: op.id,
+        box,
+        ...(canvasBox ? { canvasBox } : {}),
+      })));
+    });
+    expect(fingerprints).toEqual([
+      '[{"id":"title","box":{"x":68,"y":66,"width":310,"height":64}},{"id":"cannon","box":{"x":68,"y":342,"width":318,"height":190}},{"id":"rangeaxes","box":{"x":832,"y":66,"width":700,"height":430}},{"id":"rangecurve","box":{"x":832,"y":66,"width":700,"height":430}},{"id":"formula","box":{"x":450,"y":66,"width":318,"height":92}},{"id":"doubleangle","box":{"x":454,"y":165.36,"width":310,"height":64}},{"id":"answer","box":{"x":68,"y":618,"width":310,"height":64}}]',
+      '[{"id":"title","box":{"x":68,"y":66,"width":310,"height":64}},{"id":"axes1","box":{"x":832,"y":66,"width":700,"height":430}},{"id":"curve1","box":{"x":832,"y":66,"width":700,"height":430}},{"id":"eq1","box":{"x":450,"y":342,"width":310,"height":64}}]',
+      '[{"id":"title","box":{"x":68,"y":66,"width":310,"height":64}},{"id":"circle","box":{"x":68,"y":342,"width":318,"height":190}},{"id":"axes1","box":{"x":832,"y":66,"width":700,"height":430}},{"id":"curve1","box":{"x":832,"y":66,"width":700,"height":430}},{"id":"eq1","box":{"x":68,"y":618,"width":310,"height":64}}]',
+    ]);
+  });
 
   it("never moves committed ink when a later step crowds an occupied region", () => {
     const steps = [0, 1, 2, 3].map((index) => ({

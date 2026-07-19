@@ -289,6 +289,32 @@ original sketch-only vocabulary could not express direction, normals, or angles.
 The deterministic implementation does not qualify prompt v3 live. A fresh owner-approved
 smoke remains part of the existing live gate.
 
+## Phase 8 — bounded composite diagrams and renderer-owned curves
+
+Implemented after reviewing Penecho's intent-to-geometry separation, without
+copying its AGPL implementation or adding its canvas/runtime dependencies.
+
+- One `diagram` op carries up to sixteen semantic primitives on a shared canvas,
+  relieving the four-op step budget for coherent physics and geometry figures.
+- The model may request line, through-point smooth, rectangle, ellipse, arc,
+  point, and positioned-text primitives with closed style, arrow, fill, label,
+  alignment, and size fields. This is the reusable layout path for aligned
+  arithmetic, derivations, tables, and annotated figures; no topic-specific
+  arithmetic operation is introduced. It cannot
+  provide SVG paths, CSS, markup, or rough.js options.
+- The browser derives smooth cubic paths, stable rough strokes, arrowhead
+  tangents, exact cubic/arc extrema, geometry bounds, and progressive primitive
+  reveal. Backend and browser both reject degenerate geometry.
+- Existing standalone schema-1.1 marks remain available for additions across
+  narration steps, and a composite diagram can serve as their `canvas_id`.
+- Incidental primitive labels use deterministic collision candidates against both
+  other labels and exact renderer-owned ink bounds, then clamp to their canvas;
+  deliberately positioned writing remains fixed. Fully
+  revealed primitive groups publish stable renderer-owned manifest IDs,
+  semantic direction/position descriptions, and exact bounds for voice Q&A.
+- Cached schema-1.0 lessons remain byte-identical. Prompt-v3 live qualification
+  remains a separate owner-approved gate.
+
 ## Phase 7 — Drawing intelligence techniques borrowed from tldraw's agent architecture
 
 Reviewed 2026-07-17 against the tldraw AI module and agent template
@@ -338,6 +364,7 @@ integration requires a new plan and evidence that vision is materially better.
 - [x] Phase 6 deterministic schema-1.1 implementation passes shared-canvas validation, layout, geometry, animation, and prompt-contract tests; cached lessons remain unchanged. Live prompt qualification is still pending.
 - [x] Phase 7 deterministic prompt generation, sanitizer parity/evidence, and structured annotation bounds are implemented without changing cached lessons or spending API budget.
 - [x] Deterministic visual lints report primitive-label overlap, diagram-canvas escape, and minimum-font text overflow in diagnostics without moving committed ink.
+- [x] Composite diagrams validate on both sides, render through-point curves and exact bounds deterministically, and reveal primitive-by-primitive without arbitrary SVG.
 - [x] Prompt v3 selects concept-shaped visual structures and applies a word-removal test; its new expanded hash must be used for all future v3 evidence.
 - [ ] Owner-approved annotation screenshot A/B smoke completes exactly two calls and receives a retained human placement verdict.
 

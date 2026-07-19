@@ -1,0 +1,230 @@
+{
+  "cases": [
+    {
+      "name": "valid committed and buffered scene",
+      "valid": true,
+      "value": {
+        "schema_version": "1.0",
+        "request_id": "783c6081-75a4-4ed2-8be7-4e0f32680a2b",
+        "prefix_version": 2,
+        "elements": [
+          {"id":"title","kind":"text","bounds":[0.03,0.05,0.2,0.08],"summary":"lesson title","state":"committed"},
+          {"id":"ray1","kind":"arrow","bounds":[0.5,0.3,0.3,0.2],"summary":"incident ray","state":"buffered"}
+        ],
+        "findings": []
+      }
+    },
+    {
+      "name": "duplicate element IDs",
+      "valid": false,
+      "value": {
+        "schema_version": "1.0",
+        "request_id": "783c6081-75a4-4ed2-8be7-4e0f32680a2b",
+        "prefix_version": 1,
+        "elements": [
+          {"id":"title","kind":"text","bounds":[0.03,0.05,0.2,0.08],"summary":"first","state":"committed"},
+          {"id":"title","kind":"text","bounds":[0.3,0.05,0.2,0.08],"summary":"duplicate","state":"buffered"}
+        ],
+        "findings": []
+      }
+    },
+    {
+      "name": "out of bounds coordinate",
+      "valid": false,
+      "value": {
+        "schema_version": "1.0",
+        "request_id": "783c6081-75a4-4ed2-8be7-4e0f32680a2b",
+        "prefix_version": 1,
+        "elements": [
+          {"id":"title","kind":"text","bounds":[0.03,0.05,1.2,0.08],"summary":"invalid width","state":"committed"}
+        ],
+        "findings": []
+      }
+    },
+    {
+      "name": "finding references unknown element",
+      "valid": false,
+      "value": {
+        "schema_version": "1.0",
+        "request_id": "783c6081-75a4-4ed2-8be7-4e0f32680a2b",
+        "prefix_version": 1,
+        "elements": [
+          {"id":"title","kind":"text","bounds":[0.03,0.05,0.2,0.08],"summary":"valid title","state":"committed"}
+        ],
+        "findings": [
+          {"code":"label_overlap","evidence":"measured","element_ids":["missing"]}
+        ]
+      }
+    },
+    {
+      "name": "valid contextual sparse-zone finding without fake element IDs",
+      "valid": true,
+      "value": {
+        "schema_version": "1.0",
+        "request_id": "783c6081-75a4-4ed2-8be7-4e0f32680a2b",
+        "prefix_version": 1,
+        "elements": [
+          {
+            "id": "title",
+            "kind": "text",
+            "bounds": [0.03, 0.05, 0.2, 0.08],
+            "summary": "valid title",
+            "state": "committed"
+          }
+        ],
+        "findings": [
+          {
+            "code": "region_sparse",
+            "evidence": "semantic",
+            "element_ids": [],
+            "zone": "right"
+          }
+        ]
+      }
+    },
+    {
+      "name": "non-sparse finding cannot omit affected elements",
+      "valid": false,
+      "value": {
+        "schema_version": "1.0",
+        "request_id": "783c6081-75a4-4ed2-8be7-4e0f32680a2b",
+        "prefix_version": 1,
+        "elements": [
+          {
+            "id": "title",
+            "kind": "text",
+            "bounds": [0.03, 0.05, 0.2, 0.08],
+            "summary": "valid title",
+            "state": "committed"
+          }
+        ],
+        "findings": [
+          {
+            "code": "reading_order_conflict",
+            "evidence": "semantic",
+            "element_ids": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "valid precommit measurement fallback finding",
+      "valid": true,
+      "value": {
+        "schema_version": "1.0",
+        "request_id": "783c6081-75a4-4ed2-8be7-4e0f32680a2b",
+        "prefix_version": 1,
+        "elements": [
+          {
+            "id": "title",
+            "kind": "text",
+            "bounds": [0.03, 0.05, 0.2, 0.08],
+            "summary": "estimated title placement",
+            "state": "committed"
+          }
+        ],
+        "findings": [
+          {
+            "code": "measurement_unavailable",
+            "evidence": "measured",
+            "element_ids": ["title"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "valid closed renderer recovery finding",
+      "valid": true,
+      "value": {
+        "schema_version": "1.0",
+        "request_id": "783c6081-75a4-4ed2-8be7-4e0f32680a2b",
+        "prefix_version": 1,
+        "elements": [
+          {"id":"axes1","kind":"axes","bounds":[0.4,0.1,0.5,0.7],"summary":"accepted axes","state":"committed"}
+        ],
+        "findings": [],
+        "recovery_findings": [
+          {
+            "finding_id": "rf_1234abcd",
+            "code": "browser_invalid_expression",
+            "intent": "curve",
+            "status": "pending",
+            "affected_element_ids": ["curvebad"],
+            "affected_op_indexes": [0],
+            "source_step_id": "s2",
+            "neighborhood": {"nearby_element_ids":["axes1"],"zone":"right"}
+          }
+        ]
+      }
+    },
+    {
+      "name": "recovery finding rejects raw renderer detail",
+      "valid": false,
+      "value": {
+        "schema_version": "1.0",
+        "request_id": "783c6081-75a4-4ed2-8be7-4e0f32680a2b",
+        "prefix_version": 1,
+        "elements": [],
+        "findings": [],
+        "recovery_findings": [
+          {
+            "finding_id": "rf_1234abcd",
+            "code": "renderer_geometry_failed",
+            "intent": "diagram",
+            "status": "pending",
+            "affected_element_ids": ["badfig"],
+            "affected_op_indexes": [0],
+            "neighborhood": {"nearby_element_ids":[]},
+            "detail": "<svg onload=alert(1)>raw exception"
+          }
+        ]
+      }
+    },
+    {
+      "name": "recovery neighborhood rejects unknown visible ID",
+      "valid": false,
+      "value": {
+        "schema_version": "1.0",
+        "request_id": "783c6081-75a4-4ed2-8be7-4e0f32680a2b",
+        "prefix_version": 1,
+        "elements": [],
+        "findings": [],
+        "recovery_findings": [
+          {
+            "finding_id": "rf_1234abcd",
+            "code": "browser_unknown_reference",
+            "intent": "arrow",
+            "status": "pending",
+            "affected_element_ids": ["badarrow"],
+            "affected_op_indexes": [0],
+            "neighborhood": {"nearby_element_ids":["phantom"]}
+          }
+        ]
+      }
+    },
+    {
+      "name": "failed recovery ID cannot also be a visible element",
+      "valid": false,
+      "value": {
+        "schema_version": "1.0",
+        "request_id": "783c6081-75a4-4ed2-8be7-4e0f32680a2b",
+        "prefix_version": 1,
+        "elements": [
+          {"id":"badfig","kind":"diagram","bounds":[0.1,0.1,0.4,0.4],"summary":"visible figure","state":"committed"}
+        ],
+        "findings": [],
+        "recovery_findings": [
+          {
+            "finding_id": "rf_1234abcd",
+            "code": "renderer_geometry_failed",
+            "intent": "diagram",
+            "status": "pending",
+            "affected_element_ids": ["badfig"],
+            "affected_op_indexes": [0],
+            "neighborhood": {"nearby_element_ids":[]}
+          }
+        ]
+      }
+    }
+  ]
+}

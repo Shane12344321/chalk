@@ -1,4 +1,4 @@
-import type { LessonOp } from "./lesson.generated";
+import type { DiagramPrimitive, LessonOp } from "./lesson.generated";
 
 const MIN_WEIGHT = 0.5;
 const MAX_WEIGHT = 4;
@@ -26,7 +26,36 @@ export function opWeight(op: LessonOp): number {
       return 0.6;
     case "angle_arc":
       return 1;
+    case "diagram":
+      return clampWeight(
+        0.6 + op.primitives.reduce((sum, primitive) => sum + diagramPrimitiveWeight(primitive), 0),
+      );
   }
+}
+
+function diagramPrimitiveWeight(primitive: DiagramPrimitive): number {
+  switch (primitive.kind) {
+    case "line":
+    case "smooth":
+      return 0.35 + normalizedPointLength(primitive.points) * 0.7 + (primitive.arrow ? 0.2 : 0);
+    case "rect":
+    case "ellipse":
+      return 0.7;
+    case "arc":
+      return 0.5 + Math.min(1, Math.abs(primitive.end_deg - primitive.start_deg) / 360);
+    case "point":
+      return 0.25;
+    case "text":
+      return 0.3 + primitive.content.length / 24;
+  }
+}
+
+function normalizedPointLength(points: readonly (readonly number[])[]): number {
+  let length = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    length += Math.hypot(points[index][0] - points[index - 1][0], points[index][1] - points[index - 1][1]);
+  }
+  return length;
 }
 
 export function opProgress(

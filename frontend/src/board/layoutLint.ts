@@ -4,17 +4,100 @@ import { fitBoardText } from "./textLayout";
 
 export type LayoutLintCode =
   | "label_overlap"
+  | "label_ink_overlap"
   | "label_out_of_bounds"
-  | "text_overflow";
+  | "text_overflow"
+  | "region_crowded"
+  | "board_imbalanced"
+  | "region_sparse"
+  | "reading_order_conflict"
+  | "measurement_unavailable";
+
+export type LayoutLintZone =
+  | "A1" | "A2" | "A3"
+  | "B1" | "B2" | "B3"
+  | "C1" | "C2" | "C3"
+  | "D1" | "D2" | "D3"
+  | "left" | "right" | "full";
 
 export interface LayoutLintIssue {
   code: LayoutLintCode;
   elementIds: string[];
+  zone?: LayoutLintZone;
 }
 
-const LABEL_FONT_SIZE = 24;
-const LABEL_CHARACTER_WIDTH = LABEL_FONT_SIZE * 0.6;
-const LABEL_HEIGHT = LABEL_FONT_SIZE * 1.2;
+export type LayoutLintEvidence = "estimated" | "measured" | "semantic";
+
+export function layoutLintEvidence(code: LayoutLintCode): LayoutLintEvidence {
+  switch (code) {
+    case "label_overlap":
+    case "label_ink_overlap":
+    case "label_out_of_bounds":
+    case "text_overflow":
+      return "estimated";
+    case "region_crowded":
+    case "board_imbalanced":
+    case "region_sparse":
+    case "reading_order_conflict":
+      return "semantic";
+    case "measurement_unavailable":
+      return "measured";
+  }
+}
+
+export function layoutLintKey(issue: LayoutLintIssue): string {
+  return `${issue.code}:${issue.zone ?? ""}:${[...new Set(issue.elementIds)].sort().join(",")}`;
+}
+
+export function groupLayoutLintIssues(
+  issues: readonly LayoutLintIssue[],
+): LayoutLintIssue[] {
+  const grouped: LayoutLintIssue[] = [];
+  for (const groupKey of [...new Set(issues.map((issue) => `${issue.code}:${issue.zone ?? ""}`))]) {
+    const matching = issues.filter(
+      (issue) => `${issue.code}:${issue.zone ?? ""}` === groupKey,
+    );
+    const code = matching[0].code;
+    const zone = matching[0].zone;
+    const components: string[][] = [];
+    for (const issue of matching) {
+      const ids = [...new Set(issue.elementIds)];
+      if (ids.length === 0) {
+        if (!components.some((component) => component.length === 0)) components.push([]);
+        continue;
+      }
+      const touching = components.filter((component) =>
+        component.some((id) => ids.includes(id)),
+      );
+      const merged = [...new Set([...ids, ...touching.flat()])].sort();
+      for (const component of touching) components.splice(components.indexOf(component), 1);
+      components.push(merged);
+    }
+    grouped.push(...components.map((elementIds) => ({
+      code,
+      elementIds,
+      ...(zone ? { zone } : {}),
+    })));
+  }
+  return grouped.sort((left, right) => layoutLintKey(left).localeCompare(layoutLintKey(right)));
+}
+
+export class SurfacedLayoutFindings {
+  private readonly keys = new Set<string>();
+
+  unsurfaced(issues: readonly LayoutLintIssue[]): LayoutLintIssue[] {
+    return groupLayoutLintIssues(issues).filter((issue) => !this.keys.has(layoutLintKey(issue)));
+  }
+
+  markSurfaced(issues: readonly LayoutLintIssue[]): void {
+    for (const issue of groupLayoutLintIssues(issues)) this.keys.add(layoutLintKey(issue));
+  }
+
+  clear(): void {
+    this.keys.clear();
+  }
+}
+
 const MATERIAL_OVERLAP_RATIO = 0.15;
 const BOUNDARY_TOLERANCE = 4;
 
@@ -25,8 +108,10 @@ export function lintBoardGeometry(
   const labels = geometries.flatMap((geometry) =>
     geometry.labels.map((label) => ({
       elementId: geometry.id,
+      autoPlace: label.autoPlace ?? false,
       box: labelBox(label),
       boundary: geometry.canvasBox ?? boardBoundary(),
+      inkBounds: geometry.inkBounds ?? [],
     })),
   );
 
@@ -34,6 +119,12 @@ export function lintBoardGeometry(
     const label = labels[left];
     if (!containsWithTolerance(label.boundary, label.box)) {
       issues.push({ code: "label_out_of_bounds", elementIds: [label.elementId] });
+    }
+    if (
+      label.autoPlace &&
+      label.inkBounds.some((inkBox) => overlapRatio(label.box, inkBox) > MATERIAL_OVERLAP_RATIO)
+    ) {
+      issues.push({ code: "label_ink_overlap", elementIds: [label.elementId] });
     }
     for (let right = left + 1; right < labels.length; right += 1) {
       const other = labels[right];
@@ -56,7 +147,9 @@ export function lintBoardGeometry(
 }
 
 function labelBox(label: BoardLabel): LayoutBox {
-  const width = Math.max(LABEL_CHARACTER_WIDTH, label.text.length * LABEL_CHARACTER_WIDTH);
+  const fontSize = label.fontSize ?? 31;
+  const characterWidth = fontSize * 0.58;
+  const width = Math.max(fontSize * 0.65, label.text.length * characterWidth);
   const x = label.anchor === "middle"
     ? label.x - width / 2
     : label.anchor === "end"
@@ -64,9 +157,9 @@ function labelBox(label: BoardLabel): LayoutBox {
       : label.x;
   return {
     x,
-    y: label.y - LABEL_FONT_SIZE,
+    y: label.y - fontSize,
     width,
-    height: LABEL_HEIGHT,
+    height: fontSize * 1.25,
   };
 }
 

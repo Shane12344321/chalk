@@ -3,7 +3,12 @@ import projectileLesson from "../../../demo/cached_lessons/projectile-range.less
 import { decodeLesson } from "./decode";
 import { BoardGeometryStore, stableSeed } from "./geometry";
 import { layoutSteps } from "./layout";
-import { physicsDiagramLesson } from "./physicsTestFixture";
+import { lintBoardGeometry } from "./layoutLint";
+import {
+  alignedConstructionLesson,
+  compositeDiagramLesson,
+  physicsDiagramLesson,
+} from "./physicsTestFixture";
 
 const lesson = decodeLesson(projectileLesson).lesson!;
 const laidOut = layoutSteps(lesson.steps);
@@ -50,4 +55,48 @@ describe("seeded rough geometry", () => {
     expect(theta.paths.length).toBeGreaterThan(0);
     expect(theta.labels[0].text).toBe("theta");
   });
+
+  it("renders a composite diagram as sequential smooth, bounded ink groups", () => {
+    const composite = decodeLesson(compositeDiagramLesson()).lesson!;
+    const result = new BoardGeometryStore().build(layoutSteps(composite.steps));
+    expect(result.warnings).toEqual([]);
+    expect(result.geometries).toHaveLength(1);
+    const geometry = result.geometries[0];
+    expect(geometry.kind).toBe("diagram");
+    expect(geometry.labels.map(({ text }) => text)).toEqual(["support", "cord", "mass", "theta", "mg"]);
+    expect(new Set(geometry.paths.map(({ revealGroup }) => revealGroup))).toEqual(new Set([0, 1, 2, 3, 4]));
+    expect(geometry.paths.some(({ d }) => d.includes("C"))).toBe(true);
+    expect(geometry.box.width).toBeLessThan(1600);
+    expect(geometry.box.height).toBeLessThan(900);
+    expect(
+      lintBoardGeometry([geometry]).filter(
+        ({ code }) => code === "label_overlap" || code === "label_ink_overlap",
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps positioned writing and rules in one reusable aligned construction", () => {
+    const aligned = decodeLesson(alignedConstructionLesson()).lesson!;
+    const result = new BoardGeometryStore().build(layoutSteps(aligned.steps));
+    expect(result.warnings).toEqual([]);
+    const geometry = result.geometries[0];
+    expect(geometry.kind).toBe("diagram");
+    expect(geometry.labels.map(({ text }) => text)).toEqual([
+      "2x + 3 = 11", "2x = 8", "x = 4",
+    ]);
+    expect(geometry.labels.map(({ anchor }) => anchor)).toEqual([
+      "middle", "middle", "middle",
+    ]);
+    expect(geometry.labels.map(({ revealGroup }) => revealGroup)).toEqual([0, 1, 3]);
+    expect(new Set(geometry.paths.map(({ revealGroup }) => revealGroup))).toEqual(
+      new Set([0, 1, 2, 3]),
+    );
+    expect(geometry.manifestParts?.map(({ summary }) => summary)).toEqual([
+      "writing \"2x + 3 = 11\" at upper center",
+      "writing \"2x = 8\" at center",
+      "solid line from center to center",
+      "writing \"x = 4\" at lower center",
+    ]);
+  });
+
 });

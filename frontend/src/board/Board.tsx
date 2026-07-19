@@ -1,20 +1,22 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import "katex/dist/katex.min.css";
-import { opProgress } from "./animation";
 import type { NormalizedLesson } from "./decode";
-import { BoardGeometryStore, type BoardGeometry, type BoardPath } from "./geometry";
-import { BOARD_HEIGHT, BOARD_WIDTH, layoutSteps } from "./layout";
+import { type BoardGeometry, type BoardPath } from "./geometry";
+import { BOARD_HEIGHT, BOARD_WIDTH } from "./layout";
 import {
-  buildVisibleBoardSnapshot,
   type VisibleBoardState,
 } from "./manifest";
 import { OverlayLayer, type DeixisOverlay } from "./overlays";
 import { AnnotationOverlayLayer } from "./annotationOverlays";
 import type { AnnotationOp } from "../annotations";
 import { fitBoardText } from "./textLayout";
-import { lintBoardGeometry } from "./layoutLint";
+import { type LayoutLintIssue } from "./layoutLint";
+import { revealGroupProgress } from "./reveal";
+import { RoughSvgBoardRenderer, type BoardRenderContext } from "./renderer";
+import { measureRenderedBoard } from "./measuredLayout";
+import type { PrecommitMeasurementCache } from "./precommitMeasurement";
 
-interface BoardProps {
+export interface BoardProps {
   lesson: NormalizedLesson;
   currentStepIndex: number;
   currentStepProgress: number;
@@ -26,6 +28,9 @@ interface BoardProps {
   measurementId?: string;
   onFirstVisibleInk?: (measurementId: string, observedAtMs: number) => void;
   showDiagnostics?: boolean;
+  onMeasuredLayoutFindings?: (findings: readonly LayoutLintIssue[]) => void;
+  measurementCache?: PrecommitMeasurementCache;
+  renderContext?: BoardRenderContext;
 }
 
 export function Board({
@@ -40,31 +45,22 @@ export function Board({
   measurementId,
   onFirstVisibleInk,
   showDiagnostics = false,
+  onMeasuredLayoutFindings,
+  measurementCache,
+  renderContext,
 }: BoardProps) {
-  const store = useRef<BoardGeometryStore>();
-  if (!store.current) store.current = new BoardGeometryStore();
-  const geometryStore = store.current;
-  const laidOut = useMemo(() => layoutSteps(lesson.steps), [lesson]);
-  const build = useMemo(() => geometryStore.build(laidOut), [geometryStore, laidOut]);
-  const layoutIssues = useMemo(
-    () => lintBoardGeometry(build.geometries),
-    [build.geometries],
+  const svgRef = useRef<SVGSVGElement>(null);
+  const rendererRef = useRef<RoughSvgBoardRenderer>();
+  if (!rendererRef.current) rendererRef.current = new RoughSvgBoardRenderer(measurementCache);
+  const renderer = rendererRef.current;
+  const prepared = useMemo(
+    () => renderer.prepareLesson(lesson, renderContext),
+    [lesson, renderContext, renderer],
   );
+  const { build, layoutIssues } = prepared;
   const visibleSnapshot = useMemo(
-    () =>
-      buildVisibleBoardSnapshot(
-        lesson.title,
-        build.geometries.map((geometry) => ({
-          geometry,
-          progress: geometryProgress(
-            geometry,
-            lesson,
-            currentStepIndex,
-            currentStepProgress,
-          ),
-        })),
-      ),
-    [build.geometries, currentStepIndex, currentStepProgress, lesson],
+    () => renderer.visibleSnapshot(prepared, currentStepIndex, currentStepProgress),
+    [currentStepIndex, currentStepProgress, prepared, renderer],
   );
   const visibleVersionRef = useRef(0);
   const visibleFingerprintRef = useRef<string>();
@@ -75,12 +71,21 @@ export function Board({
     onManifestChange?.(visibleSnapshot.manifest);
     onVisibleStateChange?.({ ...visibleSnapshot, version: visibleVersionRef.current });
   }, [onManifestChange, onVisibleStateChange, visibleSnapshot]);
+  useLayoutEffect(() => {
+    if (!onMeasuredLayoutFindings || !svgRef.current) return;
+    onMeasuredLayoutFindings(measureRenderedBoard(svgRef.current, build.geometries));
+  }, [build.geometries, onMeasuredLayoutFindings]);
   const measuredRef = useRef<string>();
   useEffect(() => {
     if (!measurementId || measuredRef.current === measurementId) return;
     const hasVisibleInk = build.geometries.some(
       (geometry) =>
-        geometryProgress(geometry, lesson, currentStepIndex, currentStepProgress) > 0,
+        renderer.geometryProgress(
+          prepared,
+          geometry,
+          currentStepIndex,
+          currentStepProgress,
+        ) > 0,
     );
     if (!hasVisibleInk) return;
     measuredRef.current = measurementId;
@@ -92,6 +97,8 @@ export function Board({
     lesson,
     measurementId,
     onFirstVisibleInk,
+    prepared,
+    renderer,
   ]);
 
   return (
@@ -104,6 +111,7 @@ export function Board({
         <span>{phase.toLowerCase()} · step {Math.min(currentStepIndex + 1, lesson.steps.length)}/{lesson.steps.length}</span>
       </div>
       <svg
+        ref={svgRef}
         className="chalkboard"
         viewBox={`0 0 ${BOARD_WIDTH} ${BOARD_HEIGHT}`}
         role="img"
@@ -121,17 +129,26 @@ export function Board({
             refX="7"
             refY="4"
           >
-            <path d="M0,0 L8,4 L0,8 Z" fill="#88d9aa" />
+            <path d="M0,0 L8,4 L0,8 Z" fill="#3a6fd8" />
           </marker>
         </defs>
-        <rect width={BOARD_WIDTH} height={BOARD_HEIGHT} rx="36" fill="#102b22" />
+        <rect width={BOARD_WIDTH} height={BOARD_HEIGHT} rx="36" fill="transparent" />
         <path className="board-ghost-line" d="M48 300 H1552 M48 576 H1552" />
         {build.geometries.map((geometry) => {
-          const progress = geometryProgress(geometry, lesson, currentStepIndex, currentStepProgress);
-          return <Geometry key={geometry.id} geometry={geometry} progress={progress} />;
+          const progress = renderer.geometryProgress(
+            prepared,
+            geometry,
+            currentStepIndex,
+            currentStepProgress,
+          );
+          return <BoardGeometryLayer key={geometry.id} geometry={geometry} progress={progress} />;
         })}
         <AnnotationOverlayLayer ops={annotations} elements={visibleSnapshot.elements} />
-        <OverlayLayer overlays={overlays} elements={visibleSnapshot.elements} />
+        <OverlayLayer
+          overlays={overlays}
+          elements={visibleSnapshot.elements}
+          geometries={build.geometries}
+        />
       </svg>
       {build.warnings.length > 0 || (showDiagnostics && layoutIssues.length > 0) ? (
         <p
@@ -155,7 +172,7 @@ export function Board({
 }
 
 function layoutIssueSummary(
-  issues: ReturnType<typeof lintBoardGeometry>,
+  issues: readonly LayoutLintIssue[],
 ): string {
   const counts = new Map<string, number>();
   for (const issue of issues) counts.set(issue.code, (counts.get(issue.code) ?? 0) + 1);
@@ -167,12 +184,12 @@ function layoutIssueSummary(
 const AXIS_LABEL_REVEAL_PROGRESS = 0.85;
 const DIAGRAM_LABEL_REVEAL_PROGRESS = 0.72;
 
-function Geometry({ geometry, progress }: { geometry: BoardGeometry; progress: number }) {
+export function BoardGeometryLayer({ geometry, progress }: { geometry: BoardGeometry; progress: number }) {
   if (progress <= 0) return null;
   const clipId = `reveal-${geometry.id}`;
   const fittedText = geometry.text ? fitBoardText(geometry.text, geometry.box) : undefined;
   // A hand writes labels after drawing the axes, not during the strokes.
-  const isDiagram = ["line", "arrow", "point", "angle_arc"].includes(geometry.kind);
+  const isDiagram = ["diagram", "line", "arrow", "point", "angle_arc"].includes(geometry.kind);
   const labelsVisible = geometry.kind === "axes"
     ? progress >= AXIS_LABEL_REVEAL_PROGRESS
     : !isDiagram || progress >= DIAGRAM_LABEL_REVEAL_PROGRESS;
@@ -187,9 +204,10 @@ function Geometry({ geometry, progress }: { geometry: BoardGeometry; progress: n
         />
       </clipPath>
       {geometry.paths.map((path, index) => {
-        const revealProgress = pathRevealProgress(geometry, path, progress);
+    const revealProgress = pathRevealProgress(geometry, path, progress);
         return (
         <path
+          data-board-mark="ink"
           key={`${geometry.id}-path-${index}`}
           d={path.d}
           fill={path.fill}
@@ -204,20 +222,26 @@ function Geometry({ geometry, progress }: { geometry: BoardGeometry; progress: n
         />
         );
       })}
-      {labelsVisible
-        ? geometry.labels.map((label, index) => (
+      {geometry.labels.map((label, index) => {
+        const visible = label.revealGroup === undefined
+          ? labelsVisible
+          : revealGroupProgress(geometry.paths, label.revealGroup, progress) >= 0.55;
+        return visible ? (
             <text
+              data-auto-place={label.autoPlace ? "true" : "false"}
+              data-board-mark="label"
               key={`${geometry.id}-label-${index}`}
               className="board-axis-label"
               clipPath={isDiagram ? undefined : `url(#${clipId})`}
+              style={label.fontSize ? { fontSize: `${label.fontSize}px` } : undefined}
               textAnchor={label.anchor ?? "start"}
               x={label.x}
               y={label.y}
             >
               {label.text}
             </text>
-          ))
-        : null}
+          ) : null;
+      })}
       {fittedText ? (
         <text
           className="board-hand-text"
@@ -266,22 +290,7 @@ function pathRevealProgress(
   progress: number,
 ): number {
   if (path.revealGroup === undefined) return easeInOut(clampPathProgress(progress));
-  const revealGroup = path.revealGroup;
-  const groups = new Map<number, number>();
-  for (const candidate of geometry.paths) {
-    if (candidate.revealGroup === undefined) continue;
-    groups.set(
-      candidate.revealGroup,
-      Math.max(groups.get(candidate.revealGroup) ?? 0, candidate.revealWeight ?? 1),
-    );
-  }
-  const ordered = [...groups.entries()].sort(([left], [right]) => left - right);
-  const total = ordered.reduce((sum, [, weight]) => sum + weight, 0);
-  const before = ordered
-    .filter(([group]) => group < revealGroup)
-    .reduce((sum, [, weight]) => sum + weight, 0);
-  const own = groups.get(revealGroup) ?? 1;
-  return easeInOut(clampPathProgress((progress * total - before) / own));
+  return revealGroupProgress(geometry.paths, path.revealGroup, progress);
 }
 
 function clampPathProgress(value: number): number {
@@ -292,16 +301,4 @@ function clampPathProgress(value: number): number {
 // does; endpoints stay exact so freeze/commit semantics are unchanged.
 function easeInOut(value: number): number {
   return value < 0.5 ? 4 * value * value * value : 1 - (-2 * value + 2) ** 3 / 2;
-}
-
-function geometryProgress(
-  geometry: BoardGeometry,
-  lesson: NormalizedLesson,
-  currentStepIndex: number,
-  currentStepProgress: number,
-): number {
-  if (geometry.stepIndex < currentStepIndex) return 1;
-  if (geometry.stepIndex > currentStepIndex) return 0;
-  const step = lesson.steps[geometry.stepIndex];
-  return step ? opProgress(step.ops, geometry.opIndex, currentStepProgress) : 0;
 }

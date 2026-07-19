@@ -1,10 +1,17 @@
 import { sampleVisibleCurveSegments } from "./expression";
 import { renderSafeLatex } from "./latex";
-import type { Checkpoint, LessonOp } from "./lesson.generated";
+import type {
+  Checkpoint,
+  GeometryPointReference,
+  LayoutRelation,
+  LessonOp,
+} from "./lesson.generated";
 import {
   ELEMENT_ID_PATTERN,
   LESSON_SCRIPT_MAX_LENGTH,
   isLessonOp,
+  isLayoutRelation,
+  layoutRelationSchemaErrors,
   lessonOpSchemaErrors,
 } from "./schema";
 import { sanitizeStep } from "./sanitize";
@@ -13,11 +20,12 @@ export interface NormalizedStep {
   id: string;
   script: string;
   ops: LessonOp[];
+  layout?: LayoutRelation[];
   checkpoint: Checkpoint | null;
 }
 
 export interface NormalizedLesson {
-  schemaVersion: "1.0" | "1.1";
+  schemaVersion: "1.0" | "1.1" | "1.2" | "1.3" | "1.4";
   title: string;
   steps: NormalizedStep[];
 }
@@ -95,6 +103,8 @@ export function decodeStep(rawStep: unknown, context: DecodeContext): DecodeStep
   }
 
   const ops: LessonOp[] = [];
+  const acceptedBeforeStepTypes = new Map(context.acceptedIds);
+  const acceptedBeforeStep = new Set(context.acceptedIds.keys());
   for (const rawOp of rawStep.ops) {
     if (!isLessonOp(rawOp)) {
       warnings.push(
@@ -107,7 +117,7 @@ export function decodeStep(rawStep: unknown, context: DecodeContext): DecodeStep
       );
       continue;
     }
-    const issue = validateSemanticOp(rawOp, context.acceptedIds);
+    const issue = validateSemanticOp(rawOp, context.acceptedIds, acceptedBeforeStepTypes);
     if (issue) {
       warnings.push(warning(issue.code, issue.detail, stepId, rawOp.id));
       continue;
@@ -120,12 +130,20 @@ export function decodeStep(rawStep: unknown, context: DecodeContext): DecodeStep
     warnings.push(warning("invalid_step", "No valid operations remain in this step.", stepId));
     return { warnings };
   }
+  const layout = decodeLayoutRelations(
+    rawStep.layout,
+    ops,
+    acceptedBeforeStep,
+    warnings,
+    stepId,
+  );
   context.acceptedStepIds.add(stepId);
   return {
     step: {
       id: stepId,
       script: rawStep.script,
       ops,
+      ...(layout.length > 0 ? { layout } : {}),
       checkpoint: rawStep.checkpoint,
     },
     warnings,
@@ -136,7 +154,7 @@ export function decodeLesson(value: unknown): DecodeResult {
   const warnings: LessonWarning[] = [];
   if (
     !isRecord(value) ||
-    !["1.0", "1.1"].includes(String(value.schema_version))
+    !["1.0", "1.1", "1.2", "1.3", "1.4"].includes(String(value.schema_version))
   ) {
     return { warnings: [warning("invalid_lesson", "Unsupported or missing schema version.")] };
   }
@@ -165,7 +183,7 @@ export function decodeLesson(value: unknown): DecodeResult {
   }
   return {
     lesson: {
-      schemaVersion: value.schema_version as "1.0" | "1.1",
+      schemaVersion: value.schema_version as "1.0" | "1.1" | "1.2" | "1.3" | "1.4",
       title: value.title,
       steps,
     },
@@ -173,9 +191,67 @@ export function decodeLesson(value: unknown): DecodeResult {
   };
 }
 
+function decodeLayoutRelations(
+  value: unknown,
+  ops: readonly LessonOp[],
+  acceptedBeforeStep: ReadonlySet<string>,
+  warnings: LessonWarning[],
+  stepId: string,
+): LayoutRelation[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length === 0 || value.length > 8) {
+    warnings.push(warning("invalid_step", "Layout relation budget is invalid.", stepId));
+    return [];
+  }
+  const opOrder = new Map(ops.map((op, index) => [op.id, index]));
+  const movableIds = new Set(
+    ops
+      .filter((op) => op.op !== "curve" && !("canvas_id" in op) && !("construct" in op))
+      .map((op) => op.id),
+  );
+  const relations: LayoutRelation[] = [];
+  for (const candidate of value) {
+    if (!isLayoutRelation(candidate)) {
+      warnings.push(warning(
+        "invalid_step",
+        layoutRelationSchemaErrors().join("; ") || "Layout relation is invalid.",
+        stepId,
+      ));
+      continue;
+    }
+    const ids = candidate.kind === "place" ? [candidate.id] : candidate.ids;
+    if (ids.some((id) => !opOrder.has(id) || !movableIds.has(id))) {
+      warnings.push(warning(
+        "unknown_reference",
+        "Layout relations may move only independent operations accepted in the current step.",
+        stepId,
+      ));
+      continue;
+    }
+    if (candidate.kind === "place") {
+      const movingIndex = opOrder.get(candidate.id)!;
+      const referenceIndex = opOrder.get(candidate.relative_to);
+      if (
+        !acceptedBeforeStep.has(candidate.relative_to) &&
+        (referenceIndex === undefined || referenceIndex >= movingIndex)
+      ) {
+        warnings.push(warning(
+          "unknown_reference",
+          "A place relation must target an earlier accepted element.",
+          stepId,
+        ));
+        continue;
+      }
+    }
+    relations.push(candidate);
+  }
+  return relations;
+}
+
 function validateSemanticOp(
   op: LessonOp,
   acceptedIds: ReadonlyMap<string, LessonOp>,
+  acceptedBeforeStep: ReadonlyMap<string, LessonOp>,
 ): { code: LessonWarning["code"]; detail: string } | undefined {
   if (acceptedIds.has(op.id)) {
     return { code: "duplicate_id", detail: `Element ID ${op.id} is already accepted.` };
@@ -192,11 +268,47 @@ function validateSemanticOp(
       };
     }
   }
-  if ((op.op === "line" || op.op === "arrow") && pointsEqual(op.from, op.to)) {
+  if (
+    (op.op === "line" || op.op === "arrow") &&
+    "from" in op &&
+    pointsEqual(op.from, op.to)
+  ) {
     return { code: "invalid_op", detail: "Line endpoints must differ." };
+  }
+  if ("construct" in op) {
+    const constructionIssue = validateConstructionReferences(op, acceptedBeforeStep);
+    if (constructionIssue) return constructionIssue;
   }
   if (op.op === "angle_arc" && Math.abs(op.end_deg - op.start_deg) < 1) {
     return { code: "invalid_op", detail: "Angle arc must span at least one degree." };
+  }
+  if (op.op === "diagram") {
+    for (const [index, primitive] of op.primitives.entries()) {
+      if (primitive.kind === "line" || primitive.kind === "smooth") {
+        if (primitive.points.slice(1).every((point) => pointsEqual(point, primitive.points[0]))) {
+          return { code: "invalid_op", detail: `Diagram primitive ${index} path has no length.` };
+        }
+        if (
+          primitive.arrow &&
+          pointsEqual(
+            primitive.points[primitive.points.length - 1],
+            primitive.points[primitive.points.length - 2],
+          )
+        ) {
+          return { code: "invalid_op", detail: `Diagram primitive ${index} arrow has no terminal direction.` };
+        }
+      } else if (
+        primitive.kind === "rect" &&
+        (primitive.from[0] === primitive.to[0] || primitive.from[1] === primitive.to[1])
+      ) {
+        return { code: "invalid_op", detail: `Diagram primitive ${index} rectangle has no area.` };
+      } else if (
+        primitive.kind === "arc" &&
+        Math.abs(primitive.end_deg - primitive.start_deg) < 1
+      ) {
+        return { code: "invalid_op", detail: `Diagram primitive ${index} arc must span at least one degree.` };
+      }
+    }
   }
   if (op.op === "axes" && (op.x.min >= op.x.max || op.y.min >= op.y.max)) {
     return { code: "invalid_axes", detail: "Axis minima must be lower than maxima." };
@@ -228,8 +340,96 @@ function validateSemanticOp(
   return undefined;
 }
 
+function validateConstructionReferences(
+  op: Extract<LessonOp, { construct: unknown }>,
+  acceptedBeforeStep: ReadonlyMap<string, LessonOp>,
+): { code: LessonWarning["code"]; detail: string } | undefined {
+  const relation = op.construct;
+  if (relation.kind === "tangent_at") {
+    if (!hasAcceptedType(acceptedBeforeStep, relation.curve, ["curve"])) {
+      return {
+        code: "unknown_reference",
+        detail: "tangent_at curve must be accepted in a prior step.",
+      };
+    }
+    return undefined;
+  }
+  if (relation.kind === "perpendicular_through") {
+    if (!hasAcceptedType(acceptedBeforeStep, relation.line, ["line", "arrow"])) {
+      return {
+        code: "unknown_reference",
+        detail: "perpendicular_through line must be accepted in a prior step.",
+      };
+    }
+    return pointReferenceIssue(relation.point, acceptedBeforeStep);
+  }
+  if (relation.kind === "along") {
+    if (!hasAcceptedType(acceptedBeforeStep, relation.element_id, ["line", "arrow", "curve"])) {
+      return {
+        code: "unknown_reference",
+        detail: "along target must be an accepted line or curve from a prior step.",
+      };
+    }
+    return undefined;
+  }
+  if (relation.kind === "midpoint_of") {
+    return pointReferenceIssue(relation.a, acceptedBeforeStep) ??
+      pointReferenceIssue(relation.b, acceptedBeforeStep);
+  }
+  if (relation.kind === "intersection_of") {
+    if (relation.a === relation.b) {
+      return { code: "invalid_op", detail: "intersection_of requires distinct elements." };
+    }
+    for (const id of [relation.a, relation.b]) {
+      if (!hasAcceptedType(acceptedBeforeStep, id, ["line", "arrow", "curve"])) {
+        return {
+          code: "unknown_reference",
+          detail: "intersection_of inputs must be accepted lines or curves from prior steps.",
+        };
+      }
+    }
+    return undefined;
+  }
+  if (!hasAcceptedType(
+    acceptedBeforeStep,
+    relation.element_id,
+    ["point", "line", "arrow", "curve"],
+  )) {
+    return {
+      code: "unknown_reference",
+      detail: "offset_from target must be accepted geometry from a prior step.",
+    };
+  }
+  return undefined;
+}
+
+function pointReferenceIssue(
+  reference: GeometryPointReference,
+  acceptedBeforeStep: ReadonlyMap<string, LessonOp>,
+): { code: LessonWarning["code"]; detail: string } | undefined {
+  const expected: readonly LessonOp["op"][] = reference.kind === "point"
+    ? ["point"]
+    : ["line", "arrow"];
+  if (!hasAcceptedType(acceptedBeforeStep, reference.element_id, expected)) {
+    return {
+      code: "unknown_reference",
+      detail: `${reference.kind} reference must target accepted prior-step geometry.`,
+    };
+  }
+  return undefined;
+}
+
+function hasAcceptedType(
+  accepted: ReadonlyMap<string, LessonOp>,
+  id: string,
+  allowed: readonly LessonOp["op"][],
+): boolean {
+  const referenced = accepted.get(id);
+  return referenced !== undefined && allowed.includes(referenced.op);
+}
+
 function isDiagramOp(op: LessonOp): boolean {
-  return ["line", "arrow", "point", "angle_arc"].includes(op.op);
+  return ["diagram", "line", "arrow", "point", "angle_arc"].includes(op.op);
 }
 
 function pointsEqual(left: readonly number[], right: readonly number[]): boolean {

@@ -65,6 +65,21 @@ export class ResponseCoordinator {
     return true;
   }
 
+  failAutomatic(
+    purpose: ResponsePurpose,
+    context: NarrationContext,
+  ): CoordinatedResponse | undefined {
+    if (
+      !this.pendingAutomatic ||
+      !sameRegistration(this.pendingAutomatic, { purpose, context })
+    ) {
+      return undefined;
+    }
+    const failed = this.pendingAutomatic;
+    this.pendingAutomatic = undefined;
+    return failed;
+  }
+
   bindCreated(
     responseId: string,
     metadata?: Readonly<Record<string, string>>,

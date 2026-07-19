@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "title", "steps"],
   "properties": {
-    "schema_version": { "enum": ["1.0", "1.1"] },
+    "schema_version": { "enum": ["1.0", "1.1", "1.2", "1.3", "1.4"] },
     "title": { "type": "string", "minLength": 1, "maxLength": 80 },
     "steps": {
       "type": "array",
@@ -40,6 +40,74 @@
         "gap": { "type": "number", "minimum": 0, "maximum": 1 }
       }
     },
+    "layoutPlace": {
+      "title": "LayoutPlace",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "relative_to", "side", "align", "gap"],
+      "properties": {
+        "kind": { "const": "place" },
+        "id": { "$ref": "#/$defs/elementId" },
+        "relative_to": { "$ref": "#/$defs/elementId" },
+        "side": { "enum": ["above", "below", "left", "right"] },
+        "align": { "enum": ["start", "center", "end"] },
+        "gap": { "type": "number", "minimum": 0, "maximum": 0.25 }
+      }
+    },
+    "layoutAlign": {
+      "title": "LayoutAlign",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ids", "axis", "alignment"],
+      "properties": {
+        "kind": { "const": "align" },
+        "ids": {
+          "type": "array", "minItems": 2, "maxItems": 8, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/elementId" }
+        },
+        "axis": { "enum": ["horizontal", "vertical"] },
+        "alignment": { "enum": ["start", "center", "end"] }
+      }
+    },
+    "layoutStack": {
+      "title": "LayoutStack",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ids", "direction", "align", "gap"],
+      "properties": {
+        "kind": { "const": "stack" },
+        "ids": {
+          "type": "array", "minItems": 2, "maxItems": 8, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/elementId" }
+        },
+        "direction": { "enum": ["horizontal", "vertical"] },
+        "align": { "enum": ["start", "center", "end"] },
+        "gap": { "type": "number", "minimum": 0, "maximum": 0.25 }
+      }
+    },
+    "layoutDistribute": {
+      "title": "LayoutDistribute",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ids", "direction"],
+      "properties": {
+        "kind": { "const": "distribute" },
+        "ids": {
+          "type": "array", "minItems": 3, "maxItems": 8, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/elementId" }
+        },
+        "direction": { "enum": ["horizontal", "vertical"] }
+      }
+    },
+    "layoutRelation": {
+      "title": "LayoutRelation",
+      "oneOf": [
+        { "$ref": "#/$defs/layoutPlace" },
+        { "$ref": "#/$defs/layoutAlign" },
+        { "$ref": "#/$defs/layoutStack" },
+        { "$ref": "#/$defs/layoutDistribute" }
+      ]
+    },
     "axisSpec": {
       "title": "AxisSpec",
       "type": "object",
@@ -61,6 +129,115 @@
       "additionalItems": false,
       "minItems": 2,
       "maxItems": 2
+    },
+    "geometryPointReference": {
+      "title": "GeometryPointReference",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "element_id"],
+          "properties": {
+            "kind": { "const": "point" },
+            "element_id": { "$ref": "#/$defs/elementId" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "element_id", "endpoint"],
+          "properties": {
+            "kind": { "const": "endpoint" },
+            "element_id": { "$ref": "#/$defs/elementId" },
+            "endpoint": { "enum": ["start", "end"] }
+          }
+        }
+      ]
+    },
+    "alongConstruction": {
+      "title": "AlongConstruction",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "element_id", "t"],
+      "properties": {
+        "kind": { "const": "along" },
+        "element_id": { "$ref": "#/$defs/elementId" },
+        "t": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "midpointConstruction": {
+      "title": "MidpointConstruction",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "a", "b"],
+      "properties": {
+        "kind": { "const": "midpoint_of" },
+        "a": { "$ref": "#/$defs/geometryPointReference" },
+        "b": { "$ref": "#/$defs/geometryPointReference" }
+      }
+    },
+    "intersectionConstruction": {
+      "title": "IntersectionConstruction",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "a", "b"],
+      "properties": {
+        "kind": { "const": "intersection_of" },
+        "a": { "$ref": "#/$defs/elementId" },
+        "b": { "$ref": "#/$defs/elementId" }
+      }
+    },
+    "offsetConstruction": {
+      "title": "OffsetConstruction",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "element_id", "side", "gap"],
+      "properties": {
+        "kind": { "const": "offset_from" },
+        "element_id": { "$ref": "#/$defs/elementId" },
+        "side": { "enum": ["above", "below", "left", "right"] },
+        "gap": { "type": "number", "minimum": 0, "maximum": 0.25 }
+      }
+    },
+    "pointConstruction": {
+      "title": "PointConstruction",
+      "oneOf": [
+        { "$ref": "#/$defs/alongConstruction" },
+        { "$ref": "#/$defs/midpointConstruction" },
+        { "$ref": "#/$defs/intersectionConstruction" },
+        { "$ref": "#/$defs/offsetConstruction" }
+      ]
+    },
+    "perpendicularConstruction": {
+      "title": "PerpendicularConstruction",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "line", "point", "length"],
+      "properties": {
+        "kind": { "const": "perpendicular_through" },
+        "line": { "$ref": "#/$defs/elementId" },
+        "point": { "$ref": "#/$defs/geometryPointReference" },
+        "length": { "type": "number", "minimum": 0.02, "maximum": 1 }
+      }
+    },
+    "tangentConstruction": {
+      "title": "TangentConstruction",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "curve", "x", "length"],
+      "properties": {
+        "kind": { "const": "tangent_at" },
+        "curve": { "$ref": "#/$defs/elementId" },
+        "x": { "type": "number", "minimum": -1000000, "maximum": 1000000 },
+        "length": { "type": "number", "minimum": 0.02, "maximum": 1 }
+      }
+    },
+    "lineConstruction": {
+      "title": "LineConstruction",
+      "oneOf": [
+        { "$ref": "#/$defs/perpendicularConstruction" },
+        { "$ref": "#/$defs/tangentConstruction" }
+      ]
     },
     "textRegionOp": {
       "title": "TextRegionOp",
@@ -133,6 +310,7 @@
         "op": { "const": "sketch" },
         "id": { "$ref": "#/$defs/elementId" },
         "region": { "$ref": "#/$defs/region" },
+        "meaning": { "type": "string", "minLength": 3, "maxLength": 120 },
         "strokes": {
           "type": "array",
           "minItems": 1,
@@ -185,12 +363,176 @@
       "type": "string",
       "enum": ["solid", "dashed"]
     },
+    "diagramLinePrimitive": {
+      "title": "DiagramLinePrimitive",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "points", "stroke"],
+      "properties": {
+        "kind": { "const": "line" },
+        "points": {
+          "type": "array", "minItems": 2, "maxItems": 12,
+          "items": { "$ref": "#/$defs/normalizedPoint" }
+        },
+        "stroke": { "$ref": "#/$defs/strokeStyle" },
+        "arrow": { "type": "boolean" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "meaning": { "type": "string", "minLength": 3, "maxLength": 120 }
+      }
+    },
+    "diagramSmoothPrimitive": {
+      "title": "DiagramSmoothPrimitive",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "points", "stroke"],
+      "properties": {
+        "kind": { "const": "smooth" },
+        "points": {
+          "type": "array", "minItems": 3, "maxItems": 12,
+          "items": { "$ref": "#/$defs/normalizedPoint" }
+        },
+        "stroke": { "$ref": "#/$defs/strokeStyle" },
+        "arrow": { "type": "boolean" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "meaning": { "type": "string", "minLength": 3, "maxLength": 120 }
+      }
+    },
+    "diagramRectPrimitive": {
+      "title": "DiagramRectPrimitive",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "from", "to", "stroke"],
+      "properties": {
+        "kind": { "const": "rect" },
+        "from": { "$ref": "#/$defs/normalizedPoint" },
+        "to": { "$ref": "#/$defs/normalizedPoint" },
+        "stroke": { "$ref": "#/$defs/strokeStyle" },
+        "fill": { "type": "boolean" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "meaning": { "type": "string", "minLength": 3, "maxLength": 120 }
+      }
+    },
+    "diagramEllipsePrimitive": {
+      "title": "DiagramEllipsePrimitive",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "center", "radius", "stroke"],
+      "properties": {
+        "kind": { "const": "ellipse" },
+        "center": { "$ref": "#/$defs/normalizedPoint" },
+        "radius": {
+          "type": "array",
+          "items": [
+            { "type": "number", "minimum": 0.02, "maximum": 0.5 },
+            { "type": "number", "minimum": 0.02, "maximum": 0.5 }
+          ],
+          "additionalItems": false, "minItems": 2, "maxItems": 2
+        },
+        "stroke": { "$ref": "#/$defs/strokeStyle" },
+        "fill": { "type": "boolean" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "meaning": { "type": "string", "minLength": 3, "maxLength": 120 }
+      }
+    },
+    "diagramArcPrimitive": {
+      "title": "DiagramArcPrimitive",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "center", "radius", "start_deg", "end_deg", "stroke"],
+      "properties": {
+        "kind": { "const": "arc" },
+        "center": { "$ref": "#/$defs/normalizedPoint" },
+        "radius": {
+          "type": "array",
+          "items": [
+            { "type": "number", "minimum": 0.02, "maximum": 0.5 },
+            { "type": "number", "minimum": 0.02, "maximum": 0.5 }
+          ],
+          "additionalItems": false, "minItems": 2, "maxItems": 2
+        },
+        "start_deg": { "type": "number", "minimum": -360, "maximum": 360 },
+        "end_deg": { "type": "number", "minimum": -360, "maximum": 360 },
+        "stroke": { "$ref": "#/$defs/strokeStyle" },
+        "arrow": { "type": "boolean" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "meaning": { "type": "string", "minLength": 3, "maxLength": 120 }
+      }
+    },
+    "diagramTextPrimitive": {
+      "title": "DiagramTextPrimitive",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "at", "content"],
+      "properties": {
+        "kind": { "const": "text" },
+        "at": { "$ref": "#/$defs/normalizedPoint" },
+        "content": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "align": { "type": "string", "enum": ["left", "center", "right"] },
+        "size": { "type": "string", "enum": ["small", "normal", "large"] },
+        "meaning": { "type": "string", "minLength": 3, "maxLength": 120 }
+      }
+    },
+    "diagramPointPrimitive": {
+      "title": "DiagramPointPrimitive",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "at"],
+      "properties": {
+        "kind": { "const": "point" },
+        "at": { "$ref": "#/$defs/normalizedPoint" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "meaning": { "type": "string", "minLength": 3, "maxLength": 120 }
+      }
+    },
+    "diagramPrimitive": {
+      "title": "DiagramPrimitive",
+      "oneOf": [
+        { "$ref": "#/$defs/diagramLinePrimitive" },
+        { "$ref": "#/$defs/diagramSmoothPrimitive" },
+        { "$ref": "#/$defs/diagramRectPrimitive" },
+        { "$ref": "#/$defs/diagramEllipsePrimitive" },
+        { "$ref": "#/$defs/diagramArcPrimitive" },
+        { "$ref": "#/$defs/diagramTextPrimitive" },
+        { "$ref": "#/$defs/diagramPointPrimitive" }
+      ]
+    },
+    "diagramOp": {
+      "title": "DiagramOp",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "region", "primitives"],
+      "properties": {
+        "op": { "const": "diagram" },
+        "id": { "$ref": "#/$defs/elementId" },
+        "region": { "$ref": "#/$defs/region" },
+        "primitives": {
+          "type": "array", "minItems": 1, "maxItems": 16,
+          "items": { "$ref": "#/$defs/diagramPrimitive" }
+        },
+        "tension": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
     "lineOp": {
       "title": "LineOp",
       "oneOf": [
         { "$ref": "#/$defs/lineRegionOp" },
-        { "$ref": "#/$defs/lineCanvasOp" }
+        { "$ref": "#/$defs/lineCanvasOp" },
+        { "$ref": "#/$defs/lineConstructionOp" }
       ]
+    },
+    "lineConstructionOp": {
+      "title": "LineConstructionOp",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "construct", "stroke"],
+      "properties": {
+        "op": { "const": "line" },
+        "id": { "$ref": "#/$defs/elementId" },
+        "construct": { "$ref": "#/$defs/lineConstruction" },
+        "stroke": { "$ref": "#/$defs/strokeStyle" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "meaning": { "type": "string", "minLength": 3, "maxLength": 120 }
+      }
     },
     "lineRegionOp": {
       "title": "LineRegionOp",
@@ -201,7 +543,8 @@
         "op": { "const": "line" }, "id": { "$ref": "#/$defs/elementId" },
         "region": { "$ref": "#/$defs/region" },
         "from": { "$ref": "#/$defs/normalizedPoint" }, "to": { "$ref": "#/$defs/normalizedPoint" },
-        "stroke": { "$ref": "#/$defs/strokeStyle" }, "label": { "type": "string", "minLength": 1, "maxLength": 32 }
+        "stroke": { "$ref": "#/$defs/strokeStyle" }, "label": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "meaning": { "type": "string", "minLength": 3, "maxLength": 120 }
       }
     },
     "lineCanvasOp": {
@@ -213,7 +556,8 @@
         "op": { "const": "line" }, "id": { "$ref": "#/$defs/elementId" },
         "canvas_id": { "$ref": "#/$defs/elementId" },
         "from": { "$ref": "#/$defs/normalizedPoint" }, "to": { "$ref": "#/$defs/normalizedPoint" },
-        "stroke": { "$ref": "#/$defs/strokeStyle" }, "label": { "type": "string", "minLength": 1, "maxLength": 32 }
+        "stroke": { "$ref": "#/$defs/strokeStyle" }, "label": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "meaning": { "type": "string", "minLength": 3, "maxLength": 120 }
       }
     },
     "arrowOp": {
@@ -251,8 +595,21 @@
       "title": "PointOp",
       "oneOf": [
         { "$ref": "#/$defs/pointRegionOp" },
-        { "$ref": "#/$defs/pointCanvasOp" }
+        { "$ref": "#/$defs/pointCanvasOp" },
+        { "$ref": "#/$defs/pointConstructionOp" }
       ]
+    },
+    "pointConstructionOp": {
+      "title": "PointConstructionOp",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id", "construct"],
+      "properties": {
+        "op": { "const": "point" },
+        "id": { "$ref": "#/$defs/elementId" },
+        "construct": { "$ref": "#/$defs/pointConstruction" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 32 }
+      }
     },
     "pointRegionOp": {
       "title": "PointRegionOp",
@@ -319,6 +676,7 @@
         { "$ref": "#/$defs/sketchOp" },
         { "$ref": "#/$defs/axesOp" },
         { "$ref": "#/$defs/curveOp" },
+        { "$ref": "#/$defs/diagramOp" },
         { "$ref": "#/$defs/lineOp" },
         { "$ref": "#/$defs/arrowOp" },
         { "$ref": "#/$defs/pointOp" },
@@ -348,6 +706,12 @@
           "minItems": 1,
           "maxItems": 4,
           "items": { "$ref": "#/$defs/op" }
+        },
+        "layout": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/layoutRelation" }
         },
         "checkpoint": {
           "oneOf": [

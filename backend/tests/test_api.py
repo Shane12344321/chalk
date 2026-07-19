@@ -78,8 +78,34 @@ def test_health_reports_configuration_without_secret_values() -> None:
             "model": "gpt-5.6-luna",
             "reasoning_effort": "none",
         },
+        "renderer": {
+            "tldraw_license_configured": False,
+        },
     }
     assert API_KEY not in response.text
+
+
+def test_renderer_runtime_config_is_no_store_and_omitted_when_unconfigured() -> None:
+    app = create_app(settings())
+    with TestClient(app) as client:
+        response = client.get("/runtime-config/renderer")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {}
+
+
+def test_renderer_runtime_config_projects_configured_key_without_health_leak() -> None:
+    license_key = "tldraw-license-test-sentinel"
+    app = create_app(settings(tldraw_license_key=SecretStr(license_key)))
+    with TestClient(app) as client:
+        health = client.get("/health")
+        response = client.get("/runtime-config/renderer")
+
+    assert health.json()["renderer"]["tldraw_license_configured"] is True
+    assert license_key not in health.text
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {"tldraw_license_key": license_key}
 
 
 def test_untrusted_host_is_rejected_before_a_paid_lesson_call() -> None:

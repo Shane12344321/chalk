@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.annotation_validation import AnnotationValidationError, validate_annotation
+from app.annotation_whitespace import annotation_open_sides
 from app.config import Settings, get_settings
 from app.dependencies import get_openai_http_client
 from app.lessons import OPENAI_RESPONSES_URL, _extract_output_text, _http_upstream_reason
@@ -35,6 +36,7 @@ ElementKind = Literal[
     "sketch",
     "axes",
     "curve",
+    "diagram",
     "line",
     "arrow",
     "point",
@@ -120,6 +122,12 @@ async def create_annotation(
     origin: Literal["generation", "repair"] = "generation"
     visible_elements = [element.model_dump() for element in payload.visible_elements]
     visible_element_ids = {element.id for element in payload.visible_elements}
+    open_sides = (
+        annotation_open_sides(visible_elements)
+        if settings.annotation_whitespace == "bounded"
+        else None
+    )
+    whitespace_context = {"annotation_open_sides": open_sides} if open_sides is not None else {}
     semaphore: asyncio.Semaphore = request.app.state.annotation_generation_semaphore
     try:
         async with asyncio.timeout(settings.annotation_generation_timeout_seconds):
@@ -137,6 +145,7 @@ async def create_annotation(
                         "question": payload.question,
                         "visible_board": payload.board_manifest,
                         "visible_elements": visible_elements,
+                        **whitespace_context,
                     },
                     origin="generation",
                 )
@@ -148,6 +157,11 @@ async def create_annotation(
                             request_id=payload.request_id,
                             manifest_version=payload.manifest_version,
                             visible_element_ids=visible_element_ids,
+                            allowed_sides=(
+                                {target_id: set(sides) for target_id, sides in open_sides.items()}
+                                if open_sides is not None
+                                else None
+                            ),
                         )
                         return JSONResponse(
                             content=accepted,
@@ -157,6 +171,7 @@ async def create_annotation(
                                 "X-Chalk-Annotation-Repairs": str(repair_attempts),
                                 "X-Chalk-Board-Model": settings.board_model,
                                 "X-Chalk-Annotation-Prompt-SHA256": _prompt_sha256("annotation.md"),
+                                "X-Chalk-Annotation-Whitespace": settings.annotation_whitespace,
                             },
                         )
                     except json.JSONDecodeError:
@@ -180,6 +195,7 @@ async def create_annotation(
                             "request_id": payload.request_id,
                             "manifest_version": payload.manifest_version,
                             "visible_elements": visible_elements,
+                            **whitespace_context,
                         },
                         origin="repair",
                     )

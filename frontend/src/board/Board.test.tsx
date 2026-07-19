@@ -21,6 +21,19 @@ describe("Board", () => {
     expect(fitted.lines.length * fitted.lineHeight).toBeLessThanOrEqual(64);
   });
 
+  it("breaks an unspaced model token instead of clipping it at the board edge", () => {
+    const fitted = fitBoardText("averylongunbrokenmathematicalidentifier", {
+      x: 0,
+      y: 0,
+      width: 180,
+      height: 180,
+    });
+
+    expect(fitted.lines.length).toBeGreaterThan(1);
+    expect(fitted.lines.join("")).toBe("averylongunbrokenmathematicalidentifier");
+    expect(fitted.lines.every((line) => line.length * fitted.fontSize * 0.58 <= 180)).toBe(true);
+  });
+
   it("retains a visibly partial sketch and stable path after rerender", () => {
     const view = render(
       <Board lesson={lesson} currentStepIndex={0} currentStepProgress={0.5} phase="FROZEN" />,

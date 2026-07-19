@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { BoardGeometry } from "./geometry";
-import { lintBoardGeometry } from "./layoutLint";
+import {
+  groupLayoutLintIssues,
+  layoutLintEvidence,
+  layoutLintKey,
+  lintBoardGeometry,
+  SurfacedLayoutFindings,
+} from "./layoutLint";
 
 describe("deterministic board geometry lints", () => {
   it("reports colliding primitive labels with closed evidence", () => {
@@ -32,6 +38,46 @@ describe("deterministic board geometry lints", () => {
       code: "text_overflow",
       elementIds: ["text1"],
     });
+  });
+
+  it("reports an automatically placed label that covers diagram ink", () => {
+    const item = geometry("diagram1", [
+      { text: "force", x: 300, y: 315, anchor: "middle", autoPlace: true },
+    ]);
+    item.kind = "diagram";
+    item.inkBounds = [{ x: 180, y: 295, width: 240, height: 20 }];
+    expect(lintBoardGeometry([item])).toContainEqual({
+      code: "label_ink_overlap",
+      elementIds: ["diagram1"],
+    });
+  });
+
+  it("classifies current approximate geometry findings honestly", () => {
+    expect(layoutLintEvidence("label_overlap")).toBe("estimated");
+    expect(layoutLintEvidence("text_overflow")).toBe("estimated");
+  });
+
+  it("groups a transitive collision into one stable finding", () => {
+    const grouped = groupLayoutLintIssues([
+      { code: "label_overlap", elementIds: ["b", "a"] },
+      { code: "label_overlap", elementIds: ["b", "c"] },
+      { code: "text_overflow", elementIds: ["z"] },
+    ]);
+    expect(grouped).toContainEqual({
+      code: "label_overlap",
+      elementIds: ["a", "b", "c"],
+    });
+    expect(layoutLintKey(grouped[0])).toMatch(/^[a-z_]+:/u);
+  });
+
+  it("surfaces an exact finding only once until reset", () => {
+    const lifecycle = new SurfacedLayoutFindings();
+    const issues = [{ code: "label_overlap" as const, elementIds: ["ray", "normal"] }];
+    expect(lifecycle.unsurfaced(issues)).toHaveLength(1);
+    lifecycle.markSurfaced(issues);
+    expect(lifecycle.unsurfaced(issues)).toEqual([]);
+    lifecycle.clear();
+    expect(lifecycle.unsurfaced(issues)).toHaveLength(1);
   });
 });
 

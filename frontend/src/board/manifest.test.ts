@@ -3,6 +3,8 @@ import projectileLesson from "../../../demo/cached_lessons/projectile-range.less
 import { decodeLesson } from "./decode";
 import { BoardGeometryStore } from "./geometry";
 import { layoutSteps } from "./layout";
+import { compositeDiagramLesson } from "./physicsTestFixture";
+import { revealGroupProgress } from "./reveal";
 import {
   BOARD_MANIFEST_MAX_CHARS,
   buildBoardManifest,
@@ -70,5 +72,34 @@ describe("visible board manifest", () => {
       expect(element.bounds.every((value) => String(value).split(".")[1]?.length <= 3 || Number.isInteger(value))).toBe(true);
     }
     expect(snapshot.manifest).not.toContain("bounds");
+  });
+
+  it("publishes completed diagram subparts without exposing future or partial ink", () => {
+    const composite = decodeLesson(compositeDiagramLesson()).lesson!;
+    const compositeGeometry = new BoardGeometryStore().build(
+      layoutSteps(composite.steps),
+    ).geometries[0];
+    const afterFirstGroup = Array.from({ length: 1_001 }, (_, index) => index / 1_000)
+      .find((progress) =>
+        revealGroupProgress(compositeGeometry.paths, 0, progress) >= 0.999 &&
+        revealGroupProgress(compositeGeometry.paths, 1, progress) < 0.999,
+      );
+    expect(afterFirstGroup).toBeDefined();
+    const partial = buildVisibleBoardSnapshot(composite.title, [
+      { geometry: compositeGeometry, progress: afterFirstGroup! },
+    ]);
+    expect(partial.manifest).toContain("support");
+    expect(partial.manifest).not.toContain("mass");
+    expect(partial.elements).toHaveLength(1);
+    expect(partial.elements[0].id).toMatch(/^[a-z][a-z0-9_-]{0,15}$/);
+
+    const complete = buildVisibleBoardSnapshot(composite.title, [
+      { geometry: compositeGeometry, progress: 1 },
+    ]);
+    expect(complete.manifest).toContain("support");
+    expect(complete.manifest).toContain("cord");
+    expect(complete.manifest).toContain("mass");
+    expect(complete.manifest).toContain("lower-right");
+    expect(complete.elements).toHaveLength(5);
   });
 });

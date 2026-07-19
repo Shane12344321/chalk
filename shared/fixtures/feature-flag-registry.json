@@ -1,0 +1,75 @@
+{
+  "schema": "chalk.feature-flag-registry.v1",
+  "flags": [
+    {
+      "name": "VITE_BOARD_RENDERER",
+      "classification": "experimental",
+      "default": "rough-svg",
+      "experimental_value": "tldraw",
+      "review_by": "drawing-phase-4-gate"
+    },
+    {
+      "name": "SYNC_MODE",
+      "classification": "experimental",
+      "default": "fixed",
+      "experimental_value": "paced",
+      "review_by": "drawing-phase-6-gate"
+    },
+    {
+      "name": "VITE_PARTIAL_INK",
+      "classification": "experimental-reserved",
+      "default": "off",
+      "experimental_value": "pen-prefix",
+      "review_by": "drawing-phase-6-gate"
+    },
+    {
+      "name": "VITE_QA_DIRECT_DRAW",
+      "classification": "experimental",
+      "default": "off",
+      "experimental_value": "on",
+      "review_by": "drawing-phase-7-overlay-gate"
+    },
+    {
+      "name": "VITE_LESSON_GENERATION",
+      "classification": "experimental",
+      "default": "one-shot",
+      "experimental_value": "resolved-stepwise",
+      "review_by": "drawing-phase-4-live-gate"
+    },
+    {
+      "name": "VITE_ATTENTION_CHOREOGRAPHY",
+      "classification": "experimental",
+      "default": "off",
+      "experimental_value": "on",
+      "review_by": "drawing-phase-5-gate"
+    },
+    {
+      "name": "VITE_REMOTE_AUDIO_ACTIVITY",
+      "classification": "experimental",
+      "default": "off",
+      "experimental_value": "on",
+      "review_by": "drawing-phase-6-gate"
+    },
+    {
+      "name": "ANNOTATION_WHITESPACE",
+      "classification": "experimental",
+      "default": "off",
+      "experimental_value": "bounded",
+      "review_by": "drawing-phase-7-overlay-gate"
+    },
+    {
+      "name": "VITE_CHALK_MODE",
+      "classification": "operational",
+      "default": "demo",
+      "experimental_value": null,
+      "review_by": null
+    }
+  ],
+  "protocol_surfaces": [
+    {
+      "name": "lesson.ink_delta",
+      "activation_flag": "VITE_PARTIAL_INK",
+      "default": "no-producer"
+    }
+  ]
+}

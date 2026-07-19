@@ -86,6 +86,52 @@ describe("Realtime protocol builders", () => {
     expect(event.session.instructions).toContain("Diagnostics mode is active");
   });
 
+  it("adds direct Q&A drawing only behind its runtime flag", () => {
+    const event = createSessionUpdate(
+      "gpt-realtime-2.1-mini",
+      "marin",
+      "demo",
+      undefined,
+      undefined,
+      true,
+    );
+    expect(event.session.tools.map((tool) => tool.name)).toContain("draw_qa_annotation");
+    expect(event.session.instructions).toContain("at most two small target-relative");
+  });
+
+  it("adds temporary trace and focus tools only behind the choreography flag", () => {
+    const enabled = createSessionUpdate(
+      "gpt-realtime-2.1-mini",
+      "marin",
+      "demo",
+      undefined,
+      undefined,
+      false,
+      true,
+    );
+    expect(enabled.session.tools.map((tool) => tool.name)).toEqual([
+      "teach",
+      "point_at",
+      "circle_el",
+      "underline",
+      "flash",
+      "trace_path",
+      "focus_on",
+      "annotate",
+    ]);
+    expect(enabled.session.instructions).toContain("add no permanent ink");
+
+    const contextUpdate = createTutorContextUpdate(
+      "demo",
+      "Lesson: optics. Visible board: ray1.",
+      undefined,
+      false,
+      true,
+    );
+    expect(contextUpdate.session.tools.map((tool) => tool.name)).toContain("trace_path");
+    expect(contextUpdate.session.tools.map((tool) => tool.name)).toContain("focus_on");
+  });
+
   it("builds a bounded phase update from base prompt plus visible context", () => {
     const event = createTutorContextUpdate(
       "demo",

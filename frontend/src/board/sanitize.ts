@@ -15,12 +15,14 @@ export const MAX_RECORDED_SANITIZER_CORRECTIONS = 64;
 
 const STRING_FIELDS = new Set([
   "op",
+  "kind",
   "id",
   "script",
   "content",
   "latex",
   "expr",
   "label",
+  "meaning",
   "axes_id",
   "canvas_id",
   "region",
@@ -29,6 +31,11 @@ const STRING_FIELDS = new Set([
   "el",
   "question",
   "expected_gist",
+  "element_id",
+  "endpoint",
+  "line",
+  "a",
+  "b",
 ]);
 
 class Recorder {
@@ -61,6 +68,14 @@ export function sanitizeStep(value: unknown): SanitizationResult {
           op.anchor.gap = clampNearUnitInterval(op.anchor.gap, "clamped_anchor_gap", recorder);
         }
       }
+      if (isRecord(op.construct)) {
+        trimMappingStrings(op.construct, recorder);
+        for (const referenceName of ["point", "a", "b"] as const) {
+          if (isRecord(op.construct[referenceName])) {
+            trimMappingStrings(op.construct[referenceName], recorder);
+          }
+        }
+      }
       for (const axisName of ["x", "y"] as const) {
         if (isRecord(op[axisName])) trimMappingStrings(op[axisName], recorder);
       }
@@ -69,6 +84,13 @@ export function sanitizeStep(value: unknown): SanitizationResult {
         recorder.add("normalized_power_operator");
       }
       sanitizeNormalizedPoints(op, recorder);
+      if (Array.isArray(op.primitives)) {
+        for (const primitive of op.primitives) {
+          if (!isRecord(primitive)) continue;
+          trimMappingStrings(primitive, recorder);
+          sanitizeNormalizedPoints(primitive, recorder);
+        }
+      }
     }
   }
 
@@ -93,6 +115,11 @@ function trimMappingStrings(value: Record<string, unknown>, recorder: Recorder):
 function sanitizeNormalizedPoints(op: Record<string, unknown>, recorder: Recorder): void {
   for (const key of ["from", "to", "at", "center"] as const) {
     if (Array.isArray(op[key])) sanitizePoint(op[key], recorder);
+  }
+  if (Array.isArray(op.points)) {
+    for (const point of op.points) {
+      if (Array.isArray(point)) sanitizePoint(point, recorder);
+    }
   }
   if (!Array.isArray(op.strokes)) return;
   for (const stroke of op.strokes) {

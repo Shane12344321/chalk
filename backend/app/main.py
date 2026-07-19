@@ -8,10 +8,12 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.annotations import router as annotation_router
 from app.config import Settings, get_settings
+from app.continuation_contract import ContinuationReplayGuard
 from app.lessons import router as lesson_router
 from app.middleware import (
     ANNOTATION_BODY_MAX_BYTES,
     LESSON_BODY_MAX_BYTES,
+    LESSON_CONTINUATION_BODY_MAX_BYTES,
     SESSION_BODY_MAX_BYTES,
     SessionBodyLimitMiddleware,
 )
@@ -35,6 +37,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.annotation_generation_semaphore = asyncio.Semaphore(
         resolved_settings.annotation_max_concurrent
     )
+    application.state.continuation_replay_guard = ContinuationReplayGuard()
     application.dependency_overrides[get_settings] = lambda: application.state.settings
     application.add_middleware(
         TrustedHostMiddleware,
@@ -45,6 +48,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         path_limits={
             "/session": SESSION_BODY_MAX_BYTES,
             "/lesson": LESSON_BODY_MAX_BYTES,
+            "/lesson/continue": LESSON_CONTINUATION_BODY_MAX_BYTES,
             "/annotate": ANNOTATION_BODY_MAX_BYTES,
         },
     )
@@ -59,8 +63,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "X-Chalk-Board-Reasoning-Effort",
             "X-Chalk-Board-Prompt-SHA256",
             "X-Chalk-Repair-Prompt-SHA256",
+            "X-Chalk-Continuation-Prompt-SHA256",
+            "X-Chalk-Configuration-SHA256",
             "X-Chalk-Annotation-Repairs",
             "X-Chalk-Annotation-Prompt-SHA256",
+            "X-Chalk-Annotation-Whitespace",
         ],
     )
     application.include_router(router)

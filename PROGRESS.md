@@ -2,6 +2,252 @@
 
 This file is an append-oriented evidence log. Record only checks that were actually run. Current official-documentation expectations are not evidence of live API behavior.
 
+## 2026-07-19 — Generic renderer-sampled tangents added after the roadmap pass
+
+- Added schema **1.4** `tangent_at`: a line construction may target an already accepted
+  curve at a data-space `x` with a bounded display length. It is intentionally not an
+  analytic derivative claim. The browser uses the same finite 121-sample path it draws,
+  accepts only one interior, smooth visible segment, and derives the tangent in the
+  renderer's plot coordinates. Endpoints, off-board requests, discontinuities, and
+  cusp-like local direction changes are closed isolated failures, leaving unrelated
+  ink intact.
+- The construction is generic for graph interpretation, calculus, and motion rather
+  than specialized for a lesson topic. It keeps the prior-step source rule, schema
+  budgets, browser/server reference parity, renderer-owned coordinates, and append-only
+  layout behavior. A prefix-stability test specifically proves a later step cannot
+  reposition an accepted tangent. Shared parity fixtures pin success, endpoint,
+  off-board, cusp, and non-curve-source outcomes. The resolver policy revision is now
+  `resolver-density-constructions-tangent-v3`, preventing this result from being mixed
+  with earlier drawing evidence.
+- Prompt v3, repair, and continuation instructions now describe the conservative
+  qualification rule. Current prompt identities are board v3
+  `8473ba97087119fd4d494366c6babf908a8b9086bce0c9859791770ddc1fd2f8`, repair
+  `fd2101e6f12abce65ced2a40769f1da24c1cb19e80126762c8e7e847765eb174`, and
+  continuation `d11fb1e75dc1a827888c9eb53d96aaf719f97516eb5bfc5542f895a5282ff9eb`.
+  This is a new comparable configuration; no prior live evidence is treated as prompt-v3
+  evidence.
+- Verification: frontend **503 tests in 57 files**; backend **344 tests**; focused
+  construction/parity tests (**36 frontend**, **33 backend**); frontend ESLint,
+  generated-schema TypeScript, production Vite build, backend Ruff lint/format and
+  compileall, offline fixture/retained-NDJSON rescore, and `git diff --check` all pass.
+  The rescore preserves existing `region_crowded` findings rather than hiding them.
+  No credentialed, voice, browser-model, annotation, image, or vision call was made.
+- This deterministic extension does not promote a runtime experiment. One-shot remains
+  the demo default, and resolved-stepwise, choreography, direct annotation overlays,
+  widgets, and any model-tier or vision comparison remain gated by their separately
+  owner-approved live evidence.
+
+## 2026-07-18 — Drawing-intelligence deterministic phase boundary re-verified
+
+- Completed the consolidated no-network gate after integrating the Phase 0–4 resolver
+  work, Phase 5 attention rail, Phase 6A/6B evidence harness, and Phase 7 annotation
+  whitespace fallback. The frontend suite passes **497 tests in 57 files** and the
+  backend suite passes **339 tests**. Frontend ESLint, generated-schema TypeScript,
+  the production Vite build, backend Ruff lint/format, Python compileall, and
+  `git diff --check` pass. A targeted receipt test also proves that a continuation
+  following a browser-filtered server step rotates its authenticated receipt over the
+  browser-accepted projection plus the new accepted step, never the rejected raw op.
+- The offline browser-owned rescore command replays all three cached lessons, all ten
+  golden fixtures, and all ten retained validated NDJSON streams through the production
+  decoder/resolver/renderer/lints without network access. It reports no fixture crash
+  or drop and preserves closed `region_crowded` findings on the retained difficult
+  streams rather than masking them as a successful rescore.
+- Phase 0 is complete as deterministic evidence infrastructure: schema-1.1 records
+  pin renderer, schema, resolver, prompt, and applicable live identities; can retain a
+  redacted aborted attempt with its pre-dispatch spend; and reject mixed configurations.
+  The one-shot/resolved-stepwise, vision-calibration, and model-tier comparisons remain
+  separately owner-approved paid activities.
+- Phases 1–4 are complete as deterministic resolver behavior: occupancy/candidate
+  scoring and reading order, measured text/equation placement with safe fallback,
+  five universal constructions, and append-only recovery/composition truth. Their
+  human-quality and resolved-stepwise buffer/latency promotion gate remains unrun, so
+  `VITE_LESSON_GENERATION=one-shot` remains the demo baseline.
+- Phases 5–7 have only their safe deterministic portions: choreography remains off
+  pending three cached human loops; the remote-audio and sentence-response paths are
+  injected evaluation harnesses with no dispatcher or product pacing effect; and
+  annotation whitespace remains off pending its direct-overlay live gate. Phase 6C
+  beats and permanent Q&A micro-steps are correctly absent.
+- Phase 8 projectile and Phase 9 board-agent work have not started because their
+  explicit broader-M4/resolved-stepwise prerequisites are not yet evidenced. This is a
+  deliberate roadmap gate, not a missing implementation disguised as completion.
+- A diff-only secret-pattern scan found no key, bearer, or client-secret value. No
+  credentialed, voice, microphone, browser-model, annotation-model, image, or vision
+  call was made in this boundary.
+
+## 2026-07-18 — Renderer-failure recovery closes the resolved-step loop
+
+- Added a bounded browser recovery ledger for decoder drops and renderer geometry
+  failures. It sends only closed failure codes, semantic op intent, source step/op
+  indexes, unavailable element IDs, and a resolved zone/visible-neighbor set. Raw
+  warning detail, exception text, SVG/HTML, screenshots, student content, and
+  renderer records have no recovery-contract field and are rejected by schema.
+- Preserved receipt authority across browser filtering by carrying the exact
+  server-issued `receipt_prefix` alongside the browser-accepted prefix. FastAPI
+  verifies the receipt against the former and accepts the latter only as an
+  immutable ordered projection with exact recovery coverage for every omitted op
+  or step. Inserted, rewritten, reordered, or unevidenced history fails before
+  model dispatch. The same rule now covers later continuation responses: the
+  browser retains each exact signed server step even when it accepts only sibling
+  ops—or no op—and emits closed evidence for the filtered intent. The conservative
+  duplicate-prefix request bound is therefore 320 KiB rather than the earlier
+  incomplete 192 KiB estimate.
+- A pending finding gets one bounded re-expression attempt with fresh IDs.
+  Recovered and abandoned findings remain append-only tombstones, so later steps
+  cannot resurrect a failed ID or create a dangling structured reference. A
+  renderer/transport/validation failure settles recovery as the closed
+  `recovery_abandoned` terminal and completes the already accepted lesson prefix;
+  cancellation and supersession guards reject late results before state mutation
+  or cached fallback.
+- Resolved scenes now reserve the 30-element budget for every accepted root before
+  optional composite subparts, keep root lint evidence, and discard lint IDs that
+  are not actually present. This prevents rich diagrams from silently evicting
+  their own accepted roots from continuation truth.
+- Deterministic verification passed: 51 focused frontend recovery, scene, stream,
+  continuation, stale/cancel, size, and redaction tests and 129 focused backend
+  continuation/recovery/resolved-scene/API tests; the full suites pass with 473
+  frontend and 311 backend tests. Full ESLint and Ruff lint/format, generated-schema
+  TypeScript, the production Vite build, and `git diff --check` also pass. The
+  expanded continuation prompt hash is
+  `d85254f72da31ead61e941f31ad6159c6a3528b2f38f5bd6a78056484a4f6d95`.
+  No credentialed, voice, board-model, continuation-model, annotation, image, or
+  vision request was made. Human quality/latency promotion of resolved-stepwise
+  generation remains a separate owner-approved live gate.
+
+## 2026-07-18 — Resolved-step continuation contract authenticated and pinned
+
+- Replaced the continuation endpoint's handwritten browser/backend agreement with
+  `lesson-continuation.schema.json` plus generated TypeScript. Requests, accepted
+  one-step responses, and clean terminals now share closed fields, reasons, repair
+  totals, and board/repair/continuation/configuration identities. A continuable
+  `lesson.done` must pair its flag with an authenticated receipt.
+- The opening stream now signs an opaque HMAC receipt over request/client identity,
+  the canonical accepted prefix and persistent plan, prefix version, cumulative
+  repair use, and configuration identity. Every accepted continuation consumes that
+  capability and returns a rotated receipt over the enlarged prefix. Prefix/plan
+  tampering, repair-count downgrade, prompt/configuration drift, exact same-process
+  replay, missing ordinary scene roots, and phantom ordinary scene IDs all fail
+  before a model request. The process ledger stores only bounded receipt digests;
+  HMAC state binding remains restart-verifiable, while exact replay memory resets on
+  restart. Rotating the server-only API key invalidates outstanding receipts.
+- Preserved the existing aggregate four-repair ceiling by initializing every
+  continuation repair budget from the signed cumulative count and counting before
+  dispatch. A repair transport timeout therefore returns the incremented total rather
+  than erasing spend. The opening policy is now explicit: one or two validated steps,
+  targeting two, with a one-step prefix still issuing a valid continuation receipt.
+- Browser requests and responses validate the shared schema before use, rotate the
+  receipt only after a decoded accepted step, reject stale/cancelled work, and end the
+  accepted prefix cleanly on a closed terminal or unavailable continuation. The
+  honest 3–5-step prefix plus bounded scene/plan remains below the explicit 320 KiB
+  continuation request cap, including a second exact authenticated prefix for
+  browser-filtered recovery. Composite virtual IDs remain a documented temporary
+  reconciliation exception until the scene schema can carry explicit root identity.
+- Focused deterministic verification passed: 125 backend tests across lessons,
+  resolved scenes, API bounds, and prompt contracts; 24 frontend stream/continuation
+  tests; focused ESLint; focused Ruff lint/format; generated-schema TypeScript build;
+  production Vite build; and `git diff --check`. No credentialed, voice, lesson-model,
+  continuation-model, annotation, image, or vision call was made.
+- Current identities: board v3
+  `a0ea53cec1c4443b6325b0d973186b3db1b8eddc4380aa6789eb23740157cb64`;
+  repair `24658b3aaf17d6bd18a5de4e044c5da384b3dfc56123f9f0044f6ad839d9f34d`;
+  continuation `94da5792d10f7e4c938244d936a053f8490694695e0decb04e640af2853d63a8`;
+  combined configuration
+  `a111e2c133a79c7d8b43182b11ffe771cac8b0687fd25495953650d81706a3dc`.
+
+## 2026-07-18 — Drawing-intelligence Phase 0 evidence foundation
+
+- Added `drawing-experiment-record.schema.json`, a 64 KiB, 20-topic maximum record
+  for one homogeneous configuration. It binds model/reasoning, board and repair
+  prompt hashes, schema version, all drawing experiment flags, predeclared
+  request/model-call ceilings, decision thresholds, closed per-topic outcomes,
+  renderer findings, numeric human ratings, and a promote/park/remove decision.
+- Added a strict offline backend verifier that recomputes the canonical configuration
+  SHA-256, topic/rating identity and order, aggregate metrics, timing consistency,
+  ceilings, and decision completeness. File loading rejects duplicate JSON keys;
+  the schema exposes no raw model, student, image, Base64, exception, or renderer-state
+  payload field.
+- Added `ExperimentBudgetGuard`; experiment runners claim requests and model calls
+  before dispatch, so failed transports remain counted and a ceiling is enforced
+  before network activity rather than merely audited afterward.
+- Pinned the optional vision-proxy check to one offline, tie-aware Spearman calculation:
+  5–20 retained topics, threshold 0.70, and at least three distinct human score levels.
+  The current retained M3 binary `layout_pass` judgments are explicitly rejected as
+  insufficient ordinal ratings. No image was read and no API call was made.
+- Added a machine-readable flag registry and a normative lifecycle table covering
+  tldraw, paced sync, partial ink plus `lesson.ink_delta`, direct Q&A drawing, and
+  resolved-stepwise generation. Each has current fallback, concrete promote/park/remove
+  conditions, and a review milestone. `VITE_CHALK_MODE=demo|diagnostics` is classified
+  as operational rather than an experiment, and registry tests pin `.env.example`
+  defaults and documentation parity.
+- Focused verification passed: 12 new experiment tests; 20 combined experiment,
+  retained M3 evidence, annotation-vision refusal/shape, and resolved-scene tests.
+  Focused Ruff lint and formatting pass for the new implementation and tests. A
+  whole-backend Ruff run was attempted and stopped on a concurrently added unrelated
+  `backend/app/continuation_contract.py:244` E501; this Phase-0 slice did not edit that
+  file and does not claim a whole-backend lint pass.
+- Remaining Phase-0 interface gap: the verified record is ready to receive offline
+  `topic_results`, but the producer that replays retained NDJSON and golden/cached
+  fixtures through the production browser resolver/lints is not implemented in this
+  backend slice because renderer geometry and font measurement must not be duplicated
+  in Python and those frontend files are under concurrent Phase 1 work. Live one-shot
+  comparisons and any ordinal human rescoring/vision calibration remain separately
+  owner-approved gates.
+
+## 2026-07-18 — Resolved-state drawing feedback loop implemented behind rollback
+
+- Added shared, independently validated `lesson-plan` and `resolved-board-scene` contracts. The plan contains one visual structure, 3–5 progression beats, and an optional checkpoint position. The renderer scene contains at most 30 unique IDs with normalized actual bounds, concise semantic summaries, committed/buffered state, and at most 12 closed lint findings; it carries no raw SVG/tldraw records or student utterance.
+- Added opt-in `resolved_stepwise` opening generation: the model must emit the plan first and then exactly two opening steps. The browser can begin the existing narration/ink path from that buffer while future steps are replenished. The qualified one-shot stream and all cached lessons remain unchanged under the default `VITE_LESSON_GENERATION=one-shot` rollback.
+- Added stateless `POST /lesson/continue`. Each request replays the complete accepted prefix through the production validator to reconstruct IDs, axes, checkpoints, and budgets; verifies request/prefix identity against the resolved scene; carries cumulative repair use under the existing four-call lesson ceiling; and requests exactly one next step. Every response is either one sanitized/validated step or a closed clean-terminal reason. Missing, invalid, stale, timed-out, or unavailable continuation therefore finishes the accepted prefix instead of displaying a spinner or stalling narration.
+- FastAPI remains the only board-model client. The browser owns only timing, accepted-prefix state, and deterministic renderer truth. Continuations use independent `store:false` Responses requests and do not require server-side lesson storage or upstream conversation persistence.
+- Added optional authored `meaning` only for diagram primitives and bare sketch/line operations whose deterministic summary would otherwise be generic. Existing descriptive labels remain sufficient; meaning is not mandatory boilerplate. Renderer manifest summaries preserve it for subsequent drawing steps and voice grounding.
+- Deterministic evidence: focused resolved-scene parity, opening-buffer, prefix-replay, one-step continuation, invalid-prefix, cancellation/terminal, and browser validation tests pass. The full gate passes 330 frontend tests across 39 files and 236 backend tests. No credentialed, voice, board-model, continuation-model, annotation, image, or vision request was made.
+- Prompt identities after schema expansion: board v3 `22e8fad59b1ec436ffc2228e6fdc60ff308fb2bd3bbcf133567e7e76116fd503`; repair `24658b3aaf17d6bd18a5de4e044c5da384b3dfc56123f9f0044f6ad839d9f34d`; continuation `85eb9cae57d8499ef081c6b5cd2126edb231e055c2ad0aedc1a61231e850f5e1`.
+- Remaining gate: run a separately approved small live comparison of one-shot versus resolved-stepwise on the same difficult topic, measuring first-visible-ink, continuation completion before buffer exhaustion, total calls/repairs, layout findings, narrative coherence, and human drawing quality. Until it passes, one-shot remains the default.
+
+## 2026-07-18 — tldraw technique adaptation, safely gated
+
+- Added a renderer-neutral `BoardRenderer` boundary around CHALK's existing layout, geometry, reveal, manifest, and lint truth, plus exact reversible `BoardPatch` transactions. The rough.js/SVG board remains the default and cached lesson files remain untouched.
+- Added schema-1.2 generic `place`, `align`, `stack`, and `distribute` relations. Only roots introduced in the current step move; axes curves, shared-canvas children, and anchored dependants follow their root, while committed prior-step ink remains immutable. Backend and browser reject unsafe/unknown/forward relations without sacrificing otherwise valid ops.
+- Classified deterministic lints by estimated/measured/semantic evidence, added actual SVG `getBBox()` overlap/bounds measurement, stable connected finding groups, and a one-attempt `VisualRepairGate`. No visual-repair endpoint or model call is enabled; estimated findings cannot authorize spend.
+- Pinned `tldraw` 5.2.5 behind the exact `VITE_BOARD_RENDERER=tldraw` flag and a lazy import. Locked custom shapes reuse CHALK's already validated geometry and reveal scheduler, preserving mid-stroke progress rather than giving the editor control of animation. The licence remains backend-only and is projected only from a no-store localhost endpoint. A browser comparison exposed that locked shapes initially rejected progress updates; transactions now use `ignoreShapeLock`, and both default and experimental boards rendered seven expected cached-projectile elements after the correction.
+- Added board-only tldraw capture that exports only fully committed CHALK shapes over the 1600×900 crop, excluding app chrome, controls, the orb, and provisional ink. Added a structured-authoritative question builder that accepts only bounded PNG/JPEG/WebP data URLs under the exact experiment mode and emits image-free diagnostics. It is not connected to Realtime or the product request path; the existing owner-gated two-call annotation vision smoke was not run.
+- Reserved a bounded `lesson.ink_delta` envelope and added an append-only request-local provisional store. It requires a separately accepted op header and enforces monotonic per-stroke sequence, finite normalized points, total budgets, stale rejection, immutable prefixes, and cancellation/discard cleanup. The backend emits no delta and the default renderer consumes none; a future producer requires a measured latency win.
+- Deterministic evidence: 323 frontend tests across 37 files and 231 backend tests passed. Frontend ESLint, TypeScript, Ruff lint/format, the production build, Python compileall, and `git diff --check` passed. The default application chunk is 1,081.57 kB (323.27 kB gzip); the lazy tldraw experiment adds a 1,676.75 kB (505.44 kB gzip) JavaScript chunk and 77.53 kB (14.38 kB gzip) CSS, which is too material to accept without the documented visual/performance comparison. `npm audit --omit=dev` could not reach the registry in the restricted environment, so no fresh audit result is claimed. No credentialed, microphone, lesson-model, annotation, screenshot-vision, or other paid call was made.
+- Current expanded prompt hashes: board v3 `d08d567be2edb1d9ac50acba3192f0211bb3e9f2cd78544daba914ac0507420e`; repair `22c74a5debd1c3b982f8d01826f4cdae18080edd7a0f6fadfaaf52460e6940fd`.
+- Remaining evidence gates: blind retained visual comparison for both renderers; exact freeze/resume and frame-time rehearsal on the tldraw flag; native binding/typography value assessment; separately approved two-call structured-versus-image smoke; and a separately designed partial-ink producer/latency experiment. Until those pass, tldraw, vision grounding, one-pass repair, and partial ink are experiments—not demo defaults.
+
+## 2026-07-18 — Generic spatial drawing and question grounding
+
+- Rejected and removed the topic-specific long-division renderer before it entered the completed path. There is no `long_division` schema operation, validator, helper, prompt rule, generated type, or retained fixture.
+- Extended the reusable composite `diagram` canvas with bounded positioned text, closed alignment/size choices, and deterministic reveal timing. The same structure supports aligned arithmetic, derivations, tables, geometry, mechanics, and annotated diagrams without adding a renderer per topic.
+- Added deterministic collision candidates against both other labels and exact renderer-owned ink bounds, plus canvas clamping, for incidental primitive labels while preserving deliberately authored text coordinates. Smooth curves, shapes, arrows, labels, and writing now accumulate within one coherent local coordinate system.
+- Made completed composite subparts independently groundable through stable renderer-owned IDs, exact bounds, and semantic direction/position summaries. Future and partially revealed groups remain absent. Detected student speech queues a fresh renderer-state `session.update` before the tutor answers.
+- Deterministic evidence: 295 frontend tests across 28 files and 227 backend tests passed; focused drawing/manifest/Realtime checks passed; frontend ESLint, TypeScript, Vite production build, Ruff lint/format, and `git diff --check` passed. Cached lessons were not edited. No credentialed, microphone, image, or vision call was made.
+- Read-only localhost smoke after the backend restart: the app reloaded with the cached board SVG present, the voice loop disconnected, and no permission prompt or external request initiated.
+- Expanded prompt hashes: board v3 `c810a19d14e558841eb28dc6dfa6b4cf6bb16793b48ab810da5478b378294e69`; repair `051174aaddd4bab028939ed7246a8401b5c9c188edaf265f0f2f3e5d1df31ec3`. A fresh live generated-topic run and voice-question rehearsal remain required before claiming model-level quality or end-to-end grounding.
+
+## 2026-07-18 — Blank-board framing-response race fixed
+
+- Traced the intermittent “one sentence, then no drawing” failure to a split busy definition: the UI treated stopped playback as idle while the response coordinator still retained the framing response until `response.done`. The first lesson narration was rejected during that hidden settlement interval, and its retry effect had no later dependency transition to wake it.
+- Added public `responseInFlight`, derived from the coordinator's pending plus bound-response inventory, and made lesson auto-start, narration scheduling, and lesson controls use that authoritative busy boundary alongside uncoordinated active/playback IDs.
+- Added a regression that sends `output_audio_buffer.stopped` before `response.done`, proves narration remains blocked during settlement, then proves it becomes requestable immediately after the coordinator releases the response.
+- Deterministic verification: 290 frontend tests across 28 files, ESLint, TypeScript, and the Vite production build passed. No microphone session or credentialed API call was used; one live end-to-end rehearsal remains appropriate before recording.
+
+## 2026-07-18 — Liquid-glass board-first workspace overhaul
+
+- Replaced the nested prototype-card composition with a restrained application header, one lesson command bar, an unwrapped near-full-width board workspace, and simplified lesson actions. The desktop shell now scales to 1680px while retaining responsive breakpoints.
+- Introduced a cohesive liquid-glass visual system with atmospheric color fields, translucent refraction layers, one-pixel specular highlights, glass-aware control states, a precision board bezel, and restrained depth shadows. The board itself remains opaque and high-contrast so the visual treatment never competes with instructional ink.
+- Replaced the separate Connect microphone and Speak controls with one accessible orb inside a compact, glass-backed voice dock fixed at the bottom center. Its action is state-aware: connect while offline, start listening while connected, and stop listening while active. Space-to-speak and the explicit Disconnect escape hatch remain available.
+- Added clear hover, keyboard-focus, speaking, and listening treatments without changing the Realtime state machine, drawing engine, or microphone safety boundaries.
+- Verification: frontend ESLint and production build passed; a read-only local browser check at 1280x720 measured a 1230x692 board, 58px orb, and 238x78 centered voice dock. No microphone permission or live API call was initiated.
+
+## 2026-07-18 — Composite drawing intelligence implemented
+
+- Added one bounded `diagram` operation with up to sixteen semantic line, through-point smooth, rectangle, ellipse, arc, and point primitives on a shared normalized y-down canvas. Existing standalone physics marks and all three cached schema-1.0 lesson files remain unchanged.
+- Kept geometry renderer-owned: the browser derives cubic paths, exact cubic/arc extrema, stable rough.js ink, arrowhead tangents, conservative visible bounds, content-weighted animation, and primitive-by-primitive reveal. Arbitrary SVG, CSS, markup, and rough.js options remain outside the wire contract.
+- Added matching backend/browser semantic rejection for zero-length paths, terminal arrows without direction, zero-area rectangles, and sub-degree arcs. The shared sanitizer parity fixture now covers nested composite labels and placement points. Prompt v3 and repair guidance prefer one coherent diagram when the concept needs several related marks; the schema-generated contract remains bounded at 3,233 characters.
+- Deterministic evidence: 289 frontend tests across 28 files and 227 backend tests passed; frontend ESLint, TypeScript, Vite production build, Ruff lint/format, Python compileall, and `git diff --check` passed. The root `make test` frontend half passed, while its backend `uv` launcher could not access the sandboxed home cache; the same locked backend suite passed directly through `backend/.venv`.
+- Expanded prompt hashes: board v3 `b936b57dd44f7c74b95406b27638455534eefae523d26d2e24769c5ccfb9128f`; repair `200fe1cc30c964e6ff8cb94f111f365b9fa90b975e9296d0d86778e0ce36dcaf`. No credentialed or vision call was made. Prompt-v3 live qualification and the separately owner-gated screenshot A/B remain pending.
+
 ## 2026-07-15 — M1 scaffold and Realtime vertical slice
 
 Status: **complete**. M1 passed deterministic checks, live voice, dummy-tool continuation, layered cost controls, metadata-only privacy auditing, and five consecutive playback-backed interruptions with a separate positive owner perception report.
@@ -536,3 +782,266 @@ ESLint, TypeScript, and the Vite production build. The existing Vite chunk-size 
 remains non-blocking. No credentialed request was made. A connected cached/live lesson
 rehearsal remains necessary to confirm the audible filler-to-narration handoff in the
 selected browser; deterministic tests do not claim that perceptual evidence.
+
+## 2026-07-18 — Generic direct Q&A drawing implemented behind a flag
+
+The Realtime tutor can now request one or two small, target-relative visual marks
+during an interrupted-question answer when `VITE_QA_DIRECT_DRAW=on`. The closed
+tool vocabulary is circle, underline, arrow, short text, and equation; it contains
+no topic keywords, absolute coordinates, erase, axes, or lesson mutation. The
+browser accepts calls only in `QA`, resolves targets against the current committed
+renderer snapshot, assigns annotation IDs, stamps the current manifest version,
+and validates the completed program through the existing annotation schema before
+placing it on the disposable overlay layer. Unknown/future targets and invalid or
+oversized batches fail softly. The existing board-model `annotate` tool remains the
+fallback, and the default `off` value preserves the dependable demo path.
+
+Verification covers tool-schema exposure under the flag, strict argument
+decoding, Q&A phase and visible-target gates, current-version stamping, schema
+validation, tool-output continuation, and refusal of oversized/unsafe batches.
+The full frontend gate passes 342 tests across 40 files, ESLint, TypeScript, and
+the Vite production build; the existing bundle-size warning remains non-blocking.
+No credentialed API call was made. Remaining evidence is a live mini-model Q&A
+rehearsal measuring target validity, placement quality, response/tool ordering,
+and interruption behavior before considering the flag for the recording path.
+
+## 2026-07-18 — Checkpoint-feedback deadlock closed
+
+A connected run stopped at `checkpoint_feedback · step 3/4` after the spoken
+feedback cut off. The reducer was waiting for feedback settlement, but the
+Realtime failure dispatcher emitted terminal events only for lesson narration
+and checkpoint prompts. A failed or timed-out feedback response was released
+internally without telling the lesson state machine, leaving it stuck forever.
+
+Checkpoint feedback now has a correlated failure event that completes the
+checkpoint and advances to the next step. Cancelled/incomplete feedback fails
+immediately; a created response that never settles fails through the existing
+twenty-second lifecycle watchdog; and an automatic response that never produces
+`response.created` now has an eight-second creation watchdog. Successful feedback
+still requires generation completion, playback stop, and the drain guard. Focused
+Realtime, coordinator, reducer, and sync verification passes 76 tests; TypeScript
+and ESLint pass. No credentialed API call was made. A live checkpoint rehearsal
+is still needed to verify audible behavior, but none of the three missing-terminal
+paths can retain `CHECKPOINT_FEEDBACK` indefinitely.
+
+## 2026-07-18 — Closed composition-archetype contract implemented
+
+The persistent resolved-stepwise lesson plan now accepts one optional closed
+`composition_archetype`: `single_large_figure`, `derivation_plus_diagram`,
+`worked_example_column`, `comparison_pair`, or `graph_with_summary`. Omitting the
+field remains valid, so retained plans and cached lessons do not need migration.
+The shared schema rejects custom archetypes, arrays, object-shaped compositions,
+extra zone fields, and arbitrary rectangles or bounds.
+
+Board prompt v3 and the resolved continuation prompt now expand a deterministic
+lesson-plan contract generated from the shared schema. The contract tells the board
+model that the archetype is a semantic selection only; browser-owned code maps it to
+existing regions. Repair does not receive irrelevant plan instructions, and pinned
+board v1/v2 hashes remain unchanged. The fully expanded board-v3 prompt hash is now
+`a0ea53cec1c4443b6325b0d973186b3db1b8eddc4380aa6789eb23740157cb64`; the continuation
+prompt hash is `94da5792d10f7e4c938244d936a053f8490694695e0decb04e640af2853d63a8`.
+
+New browser-owned `compositionPlan.ts` maps every archetype to deterministic semantic
+zone names, existing schema regions, and qualitative occupancy roles. Peer layouts
+declare horizontal balance; primary/supporting layouts do not. The module exposes no
+rectangle, coordinate, bounds, or custom-zone surface and is deliberately not wired
+into the concurrently changing resolver yet, so this slice cannot move committed ink
+or alter cached rendering.
+
+Focused verification passes 79 backend prompt, plan/scene, lesson, continuation-
+receipt, and stream tests plus 37 targeted frontend composition/stream/continuation
+tests. The widened deterministic gate passes all 273 backend and 386 frontend tests,
+Ruff lint/format, ESLint, TypeScript, the Vite production build, generated schema types,
+and diff hygiene. The existing Starlette deprecation and Vite chunk-size warnings remain
+non-blocking. No live, vision, or credentialed call was made. Impact review: the closed name should improve
+lesson-wide spatial continuity and gives density scoring an honest expectation source;
+the main risk is applying final-board occupancy too early in a streamed prefix, so
+integration must remain progression-aware and advisory until its retained gate passes.
+Renderer-failure recovery remains the separate unfinished half of roadmap Phase 4.
+
+## 2026-07-18 — Continuation prompt context bound to authenticated receipts
+
+The resolved-step continuation receipt now binds a canonical SHA-256 of the bounded
+topic and student context in addition to request/client identity, accepted prefix,
+lesson plan, cumulative repairs, and model/prompt configuration. The receipt contains
+no raw student context. Both initial and rotated receipts use the same whitespace
+normalization as the validated lesson request, and verification happens before the
+replay ledger or any model dispatch. This closes a gap where a valid receipt could be
+reused with a different topic or learner context while keeping its prefix and plan.
+
+Receipt decoding now also rejects noncanonical Base64URL aliases. Without that check,
+different final characters whose unused padding bits decode to the same authenticated
+signature bytes could pass HMAC verification while producing distinct receipt-string
+digests in the process replay ledger. A deterministic regression constructs that alias
+and proves rejection before upstream dispatch.
+
+The combined focused backend gate passes 95 lesson, resolved-scene, drawing-experiment,
+and prompt-contract tests, including explicit topic/student-context substitution and
+noncanonical receipt aliases with zero upstream calls. No credentialed or live request
+was made. The broader drawing-roadmap audit remains in progress.
+
+The continuation configuration identity is now also bound to the exact bytes of the
+lesson, lesson-plan, and resolved-scene schemas plus a deliberately maintained
+browser-resolver policy revision. Mutation of any one identity rejects the prior
+receipt before model dispatch; a maintenance test pins the schema-byte hashes and the
+revision rather than asking FastAPI to inspect arbitrary frontend source at runtime.
+Drawing experiment records include the same identities in their fully canonical
+configuration digest and now report `renderer_dropped_ops` separately from
+browser/backend `dropped_steps`, at both topic and aggregate level. The focused gate
+passes 15 receipt/identity/experiment tests plus scoped Ruff lint and format checks.
+No live, paid, vision, microphone, or credentialed request was made.
+
+Drawing experiment schema 1.1 closes two additional evidence gaps. A stopped bounded
+run can now retain an exact completed-topic prefix plus one content-free terminal
+attempt with an allowlisted stop category and explicitly counted requests, model calls,
+and repairs; it cannot promote or carry calibration. Live configurations now pin
+complete Realtime model/voice/base-instruction/tool-contract identity, browser
+engine/version, and annotation prompt/schema hashes whenever their corresponding flag
+or latency metric applies. Partial bundles and null identities on enabled paths fail
+verification. The 35-test experiment gate covers empty-first-attempt aborts, prefix
+ordering, unrepresented call rejection, closed abort rationale, and live identity
+completeness. No live or credentialed request was made.
+
+## 2026-07-18 — Phase 5 transient attention rail implemented behind a flag
+
+`VITE_ATTENTION_CHOREOGRAPHY=on` now routes temporary board emphasis through a
+one-at-a-time browser-owned rail during `QA` and `CHECKPOINT_FEEDBACK`. Every action
+is stamped with the active lesson request, renderer manifest version, visible target,
+and a closed duration; the rail holds at most four actions, removes them automatically,
+and cancels the entire queue on interruption, lesson replacement, manifest change, or
+target disappearance. The new `trace_path` action reuses the target's actual retained
+SVG path (including completed composite parts), while `focus_on` temporarily masks
+unrelated ink. Neither changes permanent geometry or appears in board context.
+
+The flag remains `off`: existing point/circle/underline/flash behavior and the
+rough-SVG demo path are unchanged until three cached Q&A/checkpoint loops find the
+rail explanatory and show no target, tool-order, interruption, or distraction
+regression. The flag registry, homogeneous experiment schema, `.env.example`, and
+lifecycle contract include its promote/park/remove milestone.
+
+Focused verification passes 47 choreography/overlay/protocol/router tests, 12 Phase-0
+experiment-contract tests, scoped ESLint and Ruff, and diff hygiene. TypeScript was
+temporarily blocked by concurrently in-progress Phase 3/4 files and must be rerun at
+their integration boundary; no live, microphone, paid, or credentialed call was made.
+
+## 2026-07-18 — Phase 6A remote-audio activity spike is instrumented, not promoted
+
+The opt-in `VITE_REMOTE_AUDIO_ACTIVITY=on` path now attaches a Web Audio analyser to
+the remote WebRTC stream after the normal audio element is configured. A bounded RMS
+detector requires consecutive active frames to start and a longer silent window to
+stop, reducing chatter around the threshold. It retains only closed activity/silence
+trace transitions, sample count, current activity, and maximum sample cost; it stores
+no waveform, audio bytes, transcript, utterance, word, or sentence position. Failure
+to create Web Audio records one closed unavailable code and leaves playback untouched.
+
+This is measurement-only: it does not gate animation, alter `SYNC_MODE=fixed`, or
+authorize Phase 6C narration beats. The flag registry declares promotion only after
+the separately owner-approved two-voice cached comparison measures latency, false
+pauses, CPU cost, interruption, and three consecutive perceptual preferences.
+
+Focused verification passes 65 Realtime/protocol/activity tests plus scoped ESLint,
+and the 12 Phase-0 flag/evidence tests remain green. No live session, microphone run,
+or paid/credentialed API call was made; Phase 6B comparison and any beat schema remain
+pending evidence rather than being inferred from deterministic tests.
+
+The Phase 6B comparison now also has a content-free deterministic planner and evidence
+collector. It derives either one normalized response or two-to-five complete sentence
+responses from the exact same cached script, pins the exact response-call ceiling,
+refuses to request sentence N+1 until both generation and playback of N settle (or N
+fails), and retains only response counts, total latency, inter-sentence gaps, failure,
+and interruption metadata. Seven focused audio/sentence experiment tests pass. This
+scaffold makes the eventual bounded comparison auditable; it does not dispatch calls,
+select a winner, or authorize beats.
+
+## 2026-07-18 — Phase 7 annotation whitespace resolver implemented behind fallback
+
+`ANNOTATION_WHITESPACE=bounded` now derives two target-relative side choices for every
+committed visible element from the exact normalized bounds already supplied to
+`/annotate`. The deterministic scorer mirrors the renderer's largest current
+text/equation overlay box, includes the target and all neighboring ink in overlap
+cost, penalizes board-edge clamping, and breaks ties in a fixed order. Generation and
+repair receive only the compact ID-to-side allowlist; backend semantic validation
+rejects arrow/text/equation output outside it. No topic keyword, arbitrary coordinate,
+student text, or renderer-internal record is introduced.
+
+The default is deliberately `off`, which omits the new field and preserves the prior
+annotation prompt input and target allowlist. Circle/underline are unaffected, local
+deixis remains available, and the 6 KiB browser request ceiling is unchanged. Promotion
+requires retained placement improvement without increased repairs, drops, latency, or
+stale-target failures at the separately approved Phase-7 gate.
+
+Focused verification passes 35 annotation, whitespace, request-budget, flag-registry,
+and experiment-record tests; scoped Ruff lint/format and diff hygiene pass. No model,
+live, microphone, paid, or credentialed call was made. Permanent Q&A micro-steps remain
+correctly unimplemented until the existing disposable-overlay live gate passes.
+
+## 2026-07-18 — Phase 3 universal constructions resolve from committed geometry
+
+Lesson schema 1.3 adds five closed, topic-independent spatial relationships:
+`along`, `midpoint_of`, `intersection_of`, `perpendicular_through`, and
+`offset_from`. The model names the relationship and prior-step source IDs; it never
+emits the derived point or endpoints. FastAPI validates the schema, types, prior-step
+reference inventory, budgets, and repair contract. The browser then resolves exact
+1600x900 geometry from already laid-out renderer truth, inherits one canonical canvas,
+and rejects unknown, cross-canvas, ambiguous, parallel, disconnected, degenerate, or
+off-canvas results with closed codes. A failed construction omits only that op and
+keeps unrelated ink renderable.
+
+Resolved points and lines use the normal stable rough-path, reveal, label, snapshot,
+manifest, and continuation paths. Their concise summaries preserve relationship
+meaning for voice and continuation grounding only after the geometry succeeds.
+Constructed roots cannot enter layout-movement relations, and a later streamed step
+cannot move their committed prefix. Shared fixtures pin successful and rejected cases,
+floating-point boundaries, browser/backend authority differences, exact normalized
+contact geometry, and reuse across optics, Euclidean geometry, mechanics, calculus,
+vectors, and free-body diagrams. Cached lessons and golden source fixtures remain
+byte-identical.
+
+The expanded board-v3 prompt SHA-256 is
+`dae52fecd9075bc486ffa6179df89112c385a1ffd0d46eb8ad3656b7b0450bcb`;
+repair is `a24199c33d9163805ac719000ed814517716a2f454d05d4bd05be40e5d1f9d91`,
+and resolved continuation is
+`d85254f72da31ead61e941f31ad6159c6a3528b2f38f5bd6a78056484a4f6d95`.
+Pinned board v1/v2 prompts remain unchanged, so no new evidence may be mixed with the
+pre-1.3 v3 hash.
+
+The integrated deterministic gate passes 474 frontend tests across 54 files and 308
+backend tests, plus frontend ESLint, TypeScript, the Vite production build, Ruff
+lint/format, generated schema types, fixture parity, and diff hygiene. The existing
+Vite chunk-size and Starlette TestClient deprecation warnings remain non-blocking. No
+live, vision, microphone, paid, or credentialed request was made. Remaining risks are
+explicit: curve relations use the deterministic 121-sample conceptual polyline rather
+than analytical roots, rough ink may visually wobble around an exact conceptual
+contact, and server-side validation cannot predict browser-only geometric ambiguity.
+The next retained live rubric must prove that the model uses these relations correctly
+and that their extra prior-step accumulation does not create cramped lessons or buffer
+stalls before they are considered qualified for the recording path.
+
+## 2026-07-18 — Phase 6 comparisons now have strict, content-free execution evidence
+
+The earlier Phase 6A analyser and 6B planner could expose activity/count signals but
+could not produce a trustworthy promotion record. A new shared evidence contract pins
+the exact cached step by SHA-256, Realtime model, candidate voice, browser label,
+`fixed` fallback, detector revision, and exact response ceiling. Its semantic verifier
+recomputes activity latency, detector-stop lead, false pauses, sampling cost,
+inter-response gaps, and total latency from monotonic retained timestamps; rejects
+mixed experiments, voices/configurations, stale metrics, overlapping responses,
+post-failure calls, and incomplete promotion records; and requires the relevant human
+preference and interruption result before a promotion can pass.
+
+The 6A recorder accepts the existing analyser callback, buffer lifecycle, and
+human-observed audible windows while dropping RMS values. It claims at most one
+response and fails unsupported before spend. The 6B runner re-hashes its immutable
+in-memory script immediately before dispatch, executes serially with no retry, stops
+on the first failure, and rejects AbortSignal or superseded-run results. It has no
+default dispatcher, network client, credential, media acquisition, or product UI;
+future live execution still requires fresh owner approval and an explicitly injected
+dispatcher. Neither path changes animation or authorizes beats, and `SYNC_MODE=fixed`
+remains authoritative.
+
+Focused verification passes 30 Phase-6 evidence, recorder, runner, legacy planner,
+and analyser tests, TypeScript, scoped ESLint, schema regeneration, and diff hygiene.
+No live, WebRTC, microphone, paid, credentialed, vision, or model call was made. The
+remaining work is the exact owner-approved three-run/two-voice 6A comparison and the
+one-step single-versus-sentence 6B comparison with human ratings; Phase 6C remains
+forbidden unless one of those live gates wins.

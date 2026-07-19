@@ -10,5 +10,9 @@ Common repairs:
 - "unknown latex command": rewrite the equation using standard KaTeX math commands only.
 - "checkpoint budget exceeded": set `checkpoint` to null; the lesson already has its one checkpoint.
 - "unsupported characters" in an expression: use only numbers, `x`, `pi`, `e`, `+ - * / ^`, parentheses, and the allowed one-argument functions.
-- "canvas reference": use a prior `line`, `arrow`, `point`, or `angle_arc` ID, or give the first diagram primitive a broad `region` instead.
+- "canvas reference": use a prior `diagram`, `line`, `arrow`, `point`, or `angle_arc` ID, or give the first diagram element a broad `region` instead.
 - "line endpoints": choose distinct normalized 0..1 points. For an angle arc, make `start_deg` and `end_deg` differ by at least one degree.
+- "diagram primitive": keep every path non-degenerate, give arrowed paths a nonzero final segment, give rectangles nonzero width and height, and make arcs span at least one degree.
+- "spatial construction": keep related shapes and positioned writing in one `diagram`; use normalized `at` coordinates for short text instead of unrelated region placements.
+- "layout": move only independent ops created in this step. `place.relative_to` must be earlier or already accepted; do not move a curve or `canvas_id` child directly. Remove a relation if the same spatial meaning is already expressed by a diagram.
+- "construction": reference only prior-step accepted geometry. Keep every input on one inherited canvas; use a point reference for points and an endpoint reference for line starts/ends. Use `tangent_at` only on one prior accepted visible curve with an interior finite x, never at a corner, endpoint, or discontinuity. Replace parallel, overlapping, disconnected, degenerate, ambiguous, or off-canvas constructions with a valid relation or omit only that op. Never invent derived `at`, `from`, or `to` coordinates on a construction op.

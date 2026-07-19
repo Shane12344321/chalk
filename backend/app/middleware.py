@@ -6,6 +6,13 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 SESSION_BODY_MAX_BYTES = 4 * 1024
 LESSON_BODY_MAX_BYTES = 8 * 1024
+# A signed continuation can replay five bounded accepted steps (opening stream
+# lines are at most 16 KiB; continued responses at most 32 KiB). Browser-side
+# filtering requires a second exact server-issued receipt prefix, which can be
+# the same maximum size, plus the 12 KiB scene, 1 KiB plan, and fixed metadata.
+# Keep the cap above that conservative 277-KiB honest maximum while remaining
+# far below an unbounded upload.
+LESSON_CONTINUATION_BODY_MAX_BYTES = 320 * 1024
 ANNOTATION_BODY_MAX_BYTES = 6 * 1024
 
 

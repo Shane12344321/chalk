@@ -1,22 +1,35 @@
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import rough from "roughjs/bin/rough";
 import { stableSeed } from "./geometry";
+import type { BoardGeometry, BoardPath } from "./geometry";
+import { BOARD_HEIGHT, BOARD_WIDTH } from "./layout";
 import type { VisibleBoardElement } from "./manifest";
 
-export type DeixisKind = "point_at" | "circle_el" | "underline" | "flash";
+export type DeixisKind =
+  | "point_at"
+  | "circle_el"
+  | "underline"
+  | "flash"
+  | "trace_path"
+  | "focus_on";
 
 export interface DeixisOverlay {
   id: string;
   kind: DeixisKind;
   targetId: string;
+  /** Present on Phase-5 rail actions; omitted by the dependable legacy path. */
+  requestId?: string;
+  manifestVersion?: number;
+  durationMs?: number;
 }
 
 interface OverlayLayerProps {
   overlays: readonly DeixisOverlay[];
   elements: readonly VisibleBoardElement[];
+  geometries?: readonly BoardGeometry[];
 }
 
-export function OverlayLayer({ overlays, elements }: OverlayLayerProps) {
+export function OverlayLayer({ overlays, elements, geometries = [] }: OverlayLayerProps) {
   const targets = useMemo(
     () => new Map(elements.map((element) => [element.id, element])),
     [elements],
@@ -25,7 +38,14 @@ export function OverlayLayer({ overlays, elements }: OverlayLayerProps) {
     <g className="board-overlay-layer" aria-label="Temporary board highlights">
       {overlays.map((overlay) => {
         const target = targets.get(overlay.targetId);
-        return target ? <OverlayMark key={overlay.id} overlay={overlay} target={target} /> : null;
+        return target ? (
+          <OverlayMark
+            key={overlay.id}
+            overlay={overlay}
+            target={target}
+            tracePaths={tracePathsForTarget(overlay.targetId, geometries)}
+          />
+        ) : null;
       })}
     </g>
   );
@@ -34,12 +54,75 @@ export function OverlayLayer({ overlays, elements }: OverlayLayerProps) {
 function OverlayMark({
   overlay,
   target,
+  tracePaths,
 }: {
   overlay: DeixisOverlay;
   target: VisibleBoardElement;
+  tracePaths: readonly BoardPath[];
 }) {
   const paths = useMemo(() => overlayPaths(overlay, target), [overlay, target]);
   const { box } = target;
+  const style = overlay.durationMs
+    ? ({ "--attention-duration": `${overlay.durationMs}ms` } as CSSProperties)
+    : undefined;
+  if (overlay.kind === "focus_on") {
+    const maskId = `focus-mask-${overlay.id.replace(/[^a-zA-Z0-9_-]/gu, "")}`;
+    return (
+      <g
+        className="board-overlay board-overlay-focus_on"
+        data-overlay-id={overlay.id}
+        data-overlay-kind={overlay.kind}
+        data-target-id={target.id}
+        style={style}
+      >
+        <defs>
+          <mask id={maskId}>
+            <rect width={BOARD_WIDTH} height={BOARD_HEIGHT} fill="white" />
+            <rect
+              x={box.x - 18}
+              y={box.y - 18}
+              width={box.width + 36}
+              height={box.height + 36}
+              rx="24"
+              fill="black"
+            />
+          </mask>
+        </defs>
+        <rect
+          width={BOARD_WIDTH}
+          height={BOARD_HEIGHT}
+          fill="#ffffff"
+          fillOpacity="0.58"
+          mask={`url(#${maskId})`}
+        />
+      </g>
+    );
+  }
+  if (overlay.kind === "trace_path" && tracePaths.length > 0) {
+    return (
+      <g
+        className="board-overlay board-overlay-trace_path"
+        data-overlay-id={overlay.id}
+        data-overlay-kind={overlay.kind}
+        data-target-id={target.id}
+        style={style}
+      >
+        {tracePaths.map((path, index) => (
+          <path
+            key={`${overlay.id}-trace-${index}`}
+            d={path.d}
+            fill="none"
+            pathLength={1}
+            stroke="#d97a29"
+            strokeDasharray="1"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={Math.max(7, path.strokeWidth + 3)}
+          />
+        ))}
+      </g>
+    );
+  }
   if (overlay.kind === "flash") {
     return (
       <rect
@@ -50,8 +133,9 @@ function OverlayMark({
         fill="none"
         height={box.height + 20}
         rx="18"
-        stroke="#efc76a"
+        stroke="#d97a29"
         strokeWidth="9"
+        style={style}
         width={box.width + 20}
         x={box.x - 10}
         y={box.y - 10}
@@ -64,6 +148,7 @@ function OverlayMark({
       data-overlay-id={overlay.id}
       data-overlay-kind={overlay.kind}
       data-target-id={target.id}
+      style={style}
     >
       {paths.map((path, index) => (
         <path
@@ -77,10 +162,25 @@ function OverlayMark({
         />
       ))}
       {overlay.kind === "point_at" ? (
-        <circle cx={box.x - 18} cy={box.y + box.height / 2} fill="#efc76a" r="9" />
+        <circle cx={box.x - 18} cy={box.y + box.height / 2} fill="#d97a29" r="9" />
       ) : null}
     </g>
   );
+}
+
+function tracePathsForTarget(
+  targetId: string,
+  geometries: readonly BoardGeometry[],
+): readonly BoardPath[] {
+  const root = geometries.find((geometry) => geometry.id === targetId);
+  if (root) return root.paths;
+  for (const geometry of geometries) {
+    const part = geometry.manifestParts?.find((candidate) => candidate.id === targetId);
+    if (part) {
+      return geometry.paths.filter((path) => path.revealGroup === part.revealGroup);
+    }
+  }
+  return [];
 }
 
 interface OverlayPath {
@@ -124,7 +224,7 @@ function overlayPaths(
   return generator.toPaths(drawable).map((path) => ({
     d: path.d,
     fill: path.fill && path.fill !== "none" ? path.fill : "none",
-    stroke: "#efc76a",
+    stroke: "#d97a29",
     strokeWidth: 6,
   }));
 }

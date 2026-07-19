@@ -122,6 +122,21 @@ describe("fixed lesson sync reducer", () => {
     expect(state.phase).toBe("CHECKPOINT_FEEDBACK");
   });
 
+  it("advances cleanly when checkpoint feedback fails", () => {
+    let state = startState("request-1", ["s1"]);
+    state = finishCurrentStep(state);
+    state = send(state, { type: "CHECKPOINT_STUDENT_SPEECH_STARTED" });
+    expect(state.phase).toBe("CHECKPOINT_FEEDBACK");
+
+    state = send(state, { type: "CHECKPOINT_FAILED" });
+
+    expect(state).toMatchObject({
+      phase: "TEACHING",
+      currentStepIndex: 1,
+      completedCheckpointStepIds: ["s1"],
+    });
+  });
+
   it("retries one failed checkpoint prompt without entering listening", () => {
     let state = startState("request-1", ["s1"]);
     state = finishCurrentStep(state);

@@ -1,6 +1,7 @@
 """Deterministic endpoint and parser tests for live lesson generation."""
 
 import asyncio
+import base64
 import hashlib
 import json
 import logging
@@ -13,11 +14,26 @@ from pydantic import SecretStr
 
 import app.lessons as lessons_module
 from app.config import Settings
+from app.continuation_contract import (
+    ContinuationContractError,
+    derive_receipt_key,
+    issue_continuation_receipt,
+    validate_continuation_response,
+    verify_continuation_receipt,
+)
 from app.dependencies import get_openai_http_client
 from app.lesson_validation import LessonValidationState, StepValidationError, validate_step
 from app.lessons import _JsonlBuffer, _SseParser
 from app.main import create_app
-from app.middleware import LESSON_BODY_MAX_BYTES
+from app.middleware import LESSON_BODY_MAX_BYTES, LESSON_CONTINUATION_BODY_MAX_BYTES
+from app.renderer_identity import (
+    PROJECT_ROOT as RENDERER_IDENTITY_PROJECT_ROOT,
+)
+from app.renderer_identity import (
+    RESOLVER_POLICY_REVISION,
+    drawing_contract_identity,
+)
+from app.resolved_scene import MAX_LESSON_PLAN_BYTES, MAX_RESOLVED_SCENE_BYTES
 
 API_KEY = "standard-api-key-test-sentinel"
 CLIENT_ID = "2f2db996-2dcc-4fc8-aa7f-206c7e7a9300"
@@ -69,6 +85,75 @@ def valid_step(step_id: str = "s1", element_id: str = "label") -> dict[str, obje
     }
 
 
+def relational_step() -> dict[str, object]:
+    return {
+        "id": "s1",
+        "script": "Arrange the working as one readable argument.",
+        "ops": [
+            {"op": "text", "id": "line1", "region": "A1", "content": "First"},
+            {"op": "text", "id": "line2", "region": "A2", "content": "Second"},
+            {"op": "text", "id": "line3", "region": "A3", "content": "Third"},
+        ],
+        "layout": [
+            {
+                "kind": "stack",
+                "ids": ["line1", "line2", "line3"],
+                "direction": "vertical",
+                "align": "start",
+                "gap": 0.03,
+            }
+        ],
+        "checkpoint": None,
+    }
+
+
+def test_relational_layout_accepts_only_current_independent_ops() -> None:
+    accepted = validate_step(relational_step(), LessonValidationState())
+    assert accepted["layout"][0]["kind"] == "stack"
+
+    invalid = relational_step()
+    invalid["layout"] = [
+        {
+            "kind": "place",
+            "id": "line1",
+            "relative_to": "line3",
+            "side": "below",
+            "align": "start",
+            "gap": 0.03,
+        }
+    ]
+    with pytest.raises(StepValidationError, match="place target is not already accepted"):
+        validate_step(invalid, LessonValidationState())
+
+
+def test_relational_layout_rejects_moving_a_dependent_curve() -> None:
+    step = {
+        "id": "s1",
+        "script": "Keep the curve attached to its axes.",
+        "ops": [
+            {
+                "op": "axes",
+                "id": "axes1",
+                "region": "right",
+                "x": {"min": 0, "max": 2, "label": "x"},
+                "y": {"min": 0, "max": 4, "label": "y"},
+            },
+            {"op": "curve", "id": "curve1", "axes_id": "axes1", "expr": "x^2"},
+        ],
+        "layout": [
+            {
+                "kind": "align",
+                "ids": ["axes1", "curve1"],
+                "axis": "horizontal",
+                "alignment": "start",
+            }
+        ],
+        "checkpoint": None,
+    }
+    with pytest.raises(StepValidationError, match="independent operations"):
+        validate_step(step, LessonValidationState())
+
+
 def sse_for_text(text: str, *, completed: bool = True) -> bytes:
     events = [
         {"type": "response.created", "response": {"id": "resp_test"}},
@@ -92,6 +177,768 @@ def completed_repair(step: dict[str, object]) -> httpx.Response:
             ],
         },
     )
+
+
+def resolved_scene(prefix_version: int) -> dict[str, object]:
+    return {
+        "schema_version": "1.0",
+        "request_id": REQUEST_ID,
+        "prefix_version": prefix_version,
+        "elements": [
+            {
+                "id": "label",
+                "kind": "text",
+                "bounds": [0.03, 0.05, 0.2, 0.08],
+                "summary": "slope label",
+                "state": "committed",
+            }
+        ],
+        "findings": [],
+    }
+
+
+def lesson_plan() -> dict[str, object]:
+    return {
+        "kind": "lesson_plan",
+        "visual_structure": "A short left-to-right slope argument",
+        "progression": ["define slope", "draw the curve", "add the tangent"],
+        "checkpoint_step": 2,
+    }
+
+
+def continuation_receipt(
+    prefix: list[dict[str, object]] | None = None,
+    *,
+    repairs_used: int = 0,
+    app_settings: Settings | None = None,
+) -> str:
+    configured = app_settings or settings()
+    assert configured.openai_api_key is not None
+    accepted_prefix = prefix or [valid_step()]
+    metadata = lessons_module._continuation_metadata(configured)
+    return issue_continuation_receipt(
+        signing_key=derive_receipt_key(configured.openai_api_key.get_secret_value()),
+        request_id=REQUEST_ID,
+        client_id=CLIENT_ID,
+        prefix=accepted_prefix,
+        plan=lesson_plan(),
+        topic=TOPIC,
+        student_context="",
+        repairs_used=repairs_used,
+        configuration_sha256=metadata["configuration_sha256"],
+    )
+
+
+def continuation_payload(
+    *,
+    receipt: str | None = None,
+    repairs_used: int = 0,
+    **overrides: object,
+) -> dict[str, object]:
+    value: dict[str, object] = {
+        "request_id": REQUEST_ID,
+        "client_id": CLIENT_ID,
+        "topic": TOPIC,
+        "student_context": "",
+        "prefix_version": 1,
+        "accepted_prefix": [valid_step()],
+        "receipt_prefix": [valid_step()],
+        "plan": lesson_plan(),
+        "resolved_scene": resolved_scene(1),
+        "repairs_used": repairs_used,
+        "continuation_receipt": receipt or continuation_receipt(repairs_used=repairs_used),
+    }
+    value.update(overrides)
+    return value
+
+
+def recovery_finding(
+    *,
+    code: str = "browser_invalid_equation",
+    affected_id: str = "failedeq",
+    op_index: int = 1,
+) -> dict[str, object]:
+    return {
+        "finding_id": "rf_1234abcd",
+        "code": code,
+        "intent": "equation",
+        "status": "pending",
+        "affected_element_ids": [affected_id],
+        "affected_op_indexes": [op_index],
+        "source_step_id": "s2",
+        "neighborhood": {"nearby_element_ids": ["label"], "zone": "A2"},
+    }
+
+
+def browser_filtered_recovery_payload() -> dict[str, object]:
+    first = valid_step()
+    receipt_second = {
+        "id": "s2",
+        "script": "Keep the explanation and restore the missing equation.",
+        "ops": [
+            {"op": "text", "id": "keepme", "region": "A2", "content": "Keep"},
+            {"op": "equation", "id": "failedeq", "region": "B2", "latex": "x=1"},
+        ],
+        "checkpoint": None,
+    }
+    accepted_second = {**receipt_second, "ops": [receipt_second["ops"][0]]}
+    receipt_prefix = [first, receipt_second]
+    accepted_prefix = [first, accepted_second]
+    scene = {
+        "schema_version": "1.0",
+        "request_id": REQUEST_ID,
+        "prefix_version": 2,
+        "elements": [
+            {
+                "id": "label",
+                "kind": "text",
+                "bounds": [0.03, 0.05, 0.2, 0.08],
+                "summary": "slope label",
+                "state": "committed",
+            },
+            {
+                "id": "keepme",
+                "kind": "text",
+                "bounds": [0.03, 0.35, 0.2, 0.08],
+                "summary": "surviving explanation",
+                "state": "committed",
+            },
+        ],
+        "findings": [],
+        "recovery_findings": [recovery_finding()],
+    }
+    return continuation_payload(
+        prefix_version=2,
+        accepted_prefix=accepted_prefix,
+        receipt_prefix=receipt_prefix,
+        resolved_scene=scene,
+        receipt=continuation_receipt(prefix=receipt_prefix),
+    )
+
+
+def test_resolved_stepwise_opening_emits_plan_and_only_two_steps(monkeypatch) -> None:
+    async def lines(*_args: object) -> AsyncIterator[str]:
+        yield json.dumps(lesson_plan())
+        yield json.dumps(valid_step("s1", "label"))
+        yield json.dumps(valid_step("s2", "curveword"))
+        yield json.dumps(valid_step("s3", "tangentword"))
+
+    monkeypatch.setattr(lessons_module, "_stream_model_lines", lines)
+    with client_with_transport(lambda request: httpx.Response(500)) as client:
+        response = client.post(
+            "/lesson",
+            json=lesson_payload(generation_mode="resolved_stepwise"),
+        )
+
+    envelopes = response_lines(response)
+    assert [item["type"] for item in envelopes] == [
+        "lesson.started",
+        "lesson.plan",
+        "lesson.step",
+        "lesson.step",
+        "lesson.done",
+    ]
+    assert envelopes[-1]["continuation_available"] is True
+    assert envelopes[-1]["continuation_receipt"].startswith("v1.")
+
+
+def test_resolved_stepwise_opening_accepts_one_safe_step(monkeypatch) -> None:
+    async def lines(*_args: object) -> AsyncIterator[str]:
+        yield json.dumps(lesson_plan())
+        yield json.dumps(valid_step("s1", "label"))
+
+    monkeypatch.setattr(lessons_module, "_stream_model_lines", lines)
+    with client_with_transport(lambda request: httpx.Response(500)) as client:
+        response = client.post(
+            "/lesson",
+            json=lesson_payload(generation_mode="resolved_stepwise"),
+        )
+
+    envelopes = response_lines(response)
+    assert [item["type"] for item in envelopes] == [
+        "lesson.started",
+        "lesson.plan",
+        "lesson.step",
+        "lesson.done",
+    ]
+    assert envelopes[-1]["accepted_steps"] == 1
+    assert envelopes[-1]["continuation_available"] is True
+    assert envelopes[-1]["continuation_receipt"].startswith("v1.")
+
+
+def test_continuation_replays_prefix_and_returns_one_validated_step() -> None:
+    next_step = valid_step("s2", "nextlabel")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/responses"
+        body = json.loads(request.content)
+        context = json.loads(body["input"][0]["content"])
+        assert context["accepted_prefix"][0]["id"] == "s1"
+        assert context["resolved_board"]["prefix_version"] == 1
+        return completed_repair(next_step)
+
+    with client_with_transport(handler) as client:
+        response = client.post(
+            "/lesson/continue",
+            json={
+                "request_id": REQUEST_ID,
+                "client_id": CLIENT_ID,
+                "topic": TOPIC,
+                "student_context": "",
+                "prefix_version": 1,
+                "accepted_prefix": [valid_step()],
+                "receipt_prefix": [valid_step()],
+                "plan": lesson_plan(),
+                "resolved_scene": resolved_scene(1),
+                "repairs_used": 0,
+                "continuation_receipt": continuation_receipt(),
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["step"] == next_step
+    assert response.json()["done"] is False
+
+
+def test_invalid_continuation_prefix_finishes_cleanly_without_upstream() -> None:
+    called = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return httpx.Response(500)
+
+    with client_with_transport(handler) as client:
+        response = client.post(
+            "/lesson/continue",
+            json={
+                "request_id": REQUEST_ID,
+                "client_id": CLIENT_ID,
+                "topic": TOPIC,
+                "student_context": "",
+                "prefix_version": 2,
+                "accepted_prefix": [valid_step()],
+                "receipt_prefix": [valid_step()],
+                "plan": lesson_plan(),
+                "resolved_scene": resolved_scene(1),
+                "repairs_used": 0,
+                "continuation_receipt": continuation_receipt(),
+            },
+        )
+
+    assert response.json()["done"] is True
+    assert response.json()["reason"] == "prefix_mismatch"
+    assert called is False
+
+
+@pytest.mark.parametrize(
+    "scene_elements",
+    [
+        [],
+        [
+            {
+                "id": "phantom",
+                "kind": "text",
+                "bounds": [0.03, 0.05, 0.2, 0.08],
+                "summary": "not in the accepted prefix",
+                "state": "committed",
+            }
+        ],
+    ],
+)
+def test_continuation_rejects_missing_or_phantom_scene_roots_without_upstream(
+    scene_elements: list[dict[str, object]],
+) -> None:
+    called = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return httpx.Response(500)
+
+    scene = resolved_scene(1)
+    scene["elements"] = scene_elements
+    with client_with_transport(handler) as client:
+        response = client.post(
+            "/lesson/continue",
+            json=continuation_payload(resolved_scene=scene),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["reason"] == "invalid_scene"
+    assert called is False
+
+
+def test_continuation_transport_failure_finishes_accepted_prefix() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("synthetic unavailable", request=request)
+
+    with client_with_transport(handler) as client:
+        response = client.post(
+            "/lesson/continue",
+            json={
+                "request_id": REQUEST_ID,
+                "client_id": CLIENT_ID,
+                "topic": TOPIC,
+                "student_context": "",
+                "prefix_version": 1,
+                "accepted_prefix": [valid_step()],
+                "receipt_prefix": [valid_step()],
+                "plan": lesson_plan(),
+                "resolved_scene": resolved_scene(1),
+                "repairs_used": 0,
+                "continuation_receipt": continuation_receipt(),
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["done"] is True
+    assert response.json()["reason"] == "continuation_unavailable"
+
+
+def test_browser_filtered_drop_is_recovered_with_fresh_ids_and_redacted_context() -> None:
+    fresh = valid_step("s3", "freshidea")
+    captured_context: dict[str, object] | None = None
+    payload = browser_filtered_recovery_payload()
+    configured = settings()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal captured_context
+        captured_context = json.loads(json.loads(request.content)["input"][0]["content"])
+        return completed_repair(fresh)
+
+    with client_with_transport(handler, app_settings=configured) as client:
+        response = client.post("/lesson/continue", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["done"] is False
+    assert response.json()["step"] == fresh
+    assert captured_context is not None
+    recovered = captured_context["resolved_board"]["recovery_findings"][0]  # type: ignore[index]
+    assert recovered == recovery_finding()
+    serialized = json.dumps(captured_context)
+    assert "exception" not in serialized
+    assert "<svg" not in serialized
+    assert "renderer record" not in serialized
+    assert configured.openai_api_key is not None
+    accepted_prefix = payload["accepted_prefix"]
+    assert isinstance(accepted_prefix, list)
+    verify_continuation_receipt(
+        response.json()["continuation_receipt"],
+        signing_key=derive_receipt_key(configured.openai_api_key.get_secret_value()),
+        request_id=REQUEST_ID,
+        client_id=CLIENT_ID,
+        prefix=[*accepted_prefix, fresh],
+        plan=lesson_plan(),
+        topic=TOPIC,
+        student_context="",
+        repairs_used=0,
+        configuration_sha256=response.json()["configuration_sha256"],
+    )
+
+
+def test_fully_browser_dropped_continuation_step_can_recover_from_signed_raw_prefix() -> None:
+    first = valid_step()
+    dropped = {
+        "id": "s2",
+        "script": "This server-accepted idea was fully rejected by the browser.",
+        "ops": [{"op": "equation", "id": "failedeq", "region": "A2", "latex": "x=1"}],
+        "checkpoint": None,
+    }
+    scene = resolved_scene(1)
+    scene["recovery_findings"] = [
+        recovery_finding(
+            code="browser_invalid_equation",
+            affected_id="failedeq",
+            op_index=0,
+        )
+    ]
+    payload = continuation_payload(
+        accepted_prefix=[first],
+        receipt_prefix=[first, dropped],
+        resolved_scene=scene,
+        receipt=continuation_receipt(prefix=[first, dropped]),
+    )
+    fresh = valid_step("s3", "freshidea")
+
+    with client_with_transport(lambda _request: completed_repair(fresh)) as client:
+        response = client.post("/lesson/continue", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["done"] is False
+    assert response.json()["step"] == fresh
+
+
+def test_browser_prefix_filter_without_exact_recovery_coverage_is_rejected() -> None:
+    called = False
+    payload = browser_filtered_recovery_payload()
+    scene = payload["resolved_scene"]
+    assert isinstance(scene, dict)
+    scene["recovery_findings"] = []
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return completed_repair(valid_step("s3", "freshidea"))
+
+    with client_with_transport(handler) as client:
+        response = client.post("/lesson/continue", json=payload)
+
+    assert response.json()["reason"] == "invalid_receipt"
+    assert called is False
+
+
+def test_recovery_cannot_resurrect_failed_id() -> None:
+    resurrected = valid_step("s3", "failedeq")
+
+    with client_with_transport(lambda _request: completed_repair(resurrected)) as client:
+        response = client.post("/lesson/continue", json=browser_filtered_recovery_payload())
+
+    assert response.status_code == 200
+    assert response.json()["done"] is True
+    assert response.json()["reason"] == "recovery_abandoned"
+
+
+@pytest.mark.parametrize("status", ["recovered", "abandoned"])
+def test_settled_recovery_tombstone_still_blocks_resurrection(status: str) -> None:
+    payload = browser_filtered_recovery_payload()
+    scene = payload["resolved_scene"]
+    assert isinstance(scene, dict)
+    findings = scene["recovery_findings"]
+    assert isinstance(findings, list)
+    findings[0]["status"] = status
+    resurrected = valid_step("s3", "failedeq")
+
+    with client_with_transport(lambda _request: completed_repair(resurrected)) as client:
+        response = client.post("/lesson/continue", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["done"] is True
+    assert response.json()["reason"] == "continuation_invalid"
+
+
+def test_recovery_dangling_reference_is_repaired_boundedly_then_abandoned() -> None:
+    dangling = {
+        "id": "s3",
+        "script": "This must not anchor to unavailable visual output.",
+        "ops": [
+            {
+                "op": "text",
+                "id": "freshidea",
+                "anchor": {"el": "failedeq", "side": "below"},
+                "content": "Still unavailable",
+            }
+        ],
+        "checkpoint": None,
+    }
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return completed_repair(dangling)
+
+    with client_with_transport(handler) as client:
+        response = client.post("/lesson/continue", json=browser_filtered_recovery_payload())
+
+    assert response.status_code == 200
+    assert response.json()["done"] is True
+    assert response.json()["reason"] == "recovery_abandoned"
+    assert response.json()["repairs"] == 2
+    assert calls == 3
+
+
+def test_renderer_failed_accepted_root_may_be_reexpressed_but_never_referenced() -> None:
+    first = valid_step()
+    failed = {
+        "id": "s2",
+        "script": "This accepted equation failed only in browser geometry.",
+        "ops": [{"op": "equation", "id": "failedeq", "region": "A2", "latex": "x=1"}],
+        "checkpoint": None,
+    }
+    prefix = [first, failed]
+    scene = {
+        "schema_version": "1.0",
+        "request_id": REQUEST_ID,
+        "prefix_version": 2,
+        "elements": [
+            {
+                "id": "label",
+                "kind": "text",
+                "bounds": [0.03, 0.05, 0.2, 0.08],
+                "summary": "slope label",
+                "state": "committed",
+            }
+        ],
+        "findings": [],
+        "recovery_findings": [
+            recovery_finding(
+                code="renderer_geometry_failed",
+                affected_id="failedeq",
+                op_index=0,
+            )
+        ],
+    }
+    payload = continuation_payload(
+        prefix_version=2,
+        accepted_prefix=prefix,
+        receipt_prefix=prefix,
+        resolved_scene=scene,
+        receipt=continuation_receipt(prefix=prefix),
+    )
+    fresh = valid_step("s3", "freshidea")
+
+    with client_with_transport(lambda _request: completed_repair(fresh)) as client:
+        response = client.post("/lesson/continue", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["done"] is False
+    assert response.json()["step"] == fresh
+
+
+def test_recovery_transport_failure_terminates_cleanly_as_abandoned() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("synthetic unavailable", request=request)
+
+    with client_with_transport(handler) as client:
+        response = client.post("/lesson/continue", json=browser_filtered_recovery_payload())
+
+    assert response.status_code == 200
+    assert response.json()["done"] is True
+    assert response.json()["reason"] == "recovery_abandoned"
+
+
+@pytest.mark.parametrize(
+    "mutation", ["receipt", "prefix", "plan", "topic", "student_context", "repairs"]
+)
+def test_continuation_receipt_rejects_modified_or_downgraded_state(mutation: str) -> None:
+    called = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return httpx.Response(500)
+
+    receipt_repairs = 2 if mutation == "repairs" else 0
+    payload = continuation_payload(
+        receipt=continuation_receipt(repairs_used=receipt_repairs),
+        repairs_used=0,
+    )
+    if mutation == "receipt":
+        receipt = str(payload["continuation_receipt"])
+        version, claims, signature = receipt.split(".")
+        changed_signature = f"{'A' if signature[0] != 'A' else 'B'}{signature[1:]}"
+        payload["continuation_receipt"] = f"{version}.{claims}.{changed_signature}"
+    elif mutation == "prefix":
+        changed = valid_step()
+        changed["script"] = "A modified but otherwise valid explanation."
+        payload["accepted_prefix"] = [changed]
+    elif mutation == "plan":
+        changed_plan = lesson_plan()
+        changed_plan["visual_structure"] = "A modified but still valid visual plan"
+        payload["plan"] = changed_plan
+    elif mutation == "topic":
+        payload["topic"] = "A different but still valid topic"
+    elif mutation == "student_context":
+        payload["student_context"] = "A changed but still valid learner preference."
+
+    with client_with_transport(handler) as client:
+        response = client.post("/lesson/continue", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["reason"] == "invalid_receipt"
+    assert called is False
+
+
+def test_continuation_receipt_rejects_noncanonical_signature_alias_before_dispatch() -> None:
+    called = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return httpx.Response(500)
+
+    payload = continuation_payload()
+    version, claims, signature = str(payload["continuation_receipt"]).split(".")
+    decoded = base64.urlsafe_b64decode(signature + "=" * (-len(signature) % 4))
+    alias = next(
+        candidate
+        for character in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        if (candidate := f"{signature[:-1]}{character}") != signature
+        and base64.urlsafe_b64decode(candidate + "=" * (-len(candidate) % 4)) == decoded
+    )
+    payload["continuation_receipt"] = f"{version}.{claims}.{alias}"
+
+    with client_with_transport(handler) as client:
+        response = client.post("/lesson/continue", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["reason"] == "invalid_receipt"
+    assert called is False
+
+
+@pytest.mark.parametrize(
+    ("identity_field", "changed_value"),
+    [
+        ("lesson_schema_sha256", "0" * 64),
+        ("lesson_plan_schema_sha256", "1" * 64),
+        ("resolved_scene_schema_sha256", "2" * 64),
+        ("resolver_policy_revision", "resolver-density-constructions-v3"),
+    ],
+)
+def test_continuation_receipt_rejects_drawing_contract_identity_drift_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+    identity_field: str,
+    changed_value: str,
+) -> None:
+    called = False
+    payload = continuation_payload()
+    original_identity = lessons_module.drawing_contract_identity()
+
+    def changed_identity() -> dict[str, str]:
+        return {**original_identity, identity_field: changed_value}
+
+    monkeypatch.setattr(lessons_module, "drawing_contract_identity", changed_identity)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return httpx.Response(500)
+
+    with client_with_transport(handler) as client:
+        response = client.post("/lesson/continue", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["reason"] == "invalid_receipt"
+    assert called is False
+
+
+def test_drawing_contract_identity_pins_exact_shared_schema_bytes_and_policy() -> None:
+    identity = drawing_contract_identity()
+    schema_dir = RENDERER_IDENTITY_PROJECT_ROOT / "shared/schema"
+
+    assert identity == {
+        "lesson_schema_sha256": hashlib.sha256(
+            (schema_dir / "lesson.schema.json").read_bytes()
+        ).hexdigest(),
+        "lesson_plan_schema_sha256": hashlib.sha256(
+            (schema_dir / "lesson-plan.schema.json").read_bytes()
+        ).hexdigest(),
+        "resolved_scene_schema_sha256": hashlib.sha256(
+            (schema_dir / "resolved-board-scene.schema.json").read_bytes()
+        ).hexdigest(),
+        "resolver_policy_revision": RESOLVER_POLICY_REVISION,
+    }
+    assert RESOLVER_POLICY_REVISION == "resolver-density-constructions-tangent-v3"
+    assert json.loads(
+        (
+            RENDERER_IDENTITY_PROJECT_ROOT / "shared/fixtures/drawing-runtime-identity.json"
+        ).read_text(encoding="utf-8")
+    ) == {"resolver_policy_revision": RESOLVER_POLICY_REVISION}
+
+
+def test_continuation_receipt_exact_replay_is_rejected_before_second_model_call() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return completed_repair(valid_step("s2", "nextlabel"))
+
+    payload = continuation_payload()
+    with client_with_transport(handler) as client:
+        first = client.post("/lesson/continue", json=payload)
+        replay = client.post("/lesson/continue", json=payload)
+
+    assert first.json()["done"] is False
+    assert replay.json()["reason"] == "receipt_replayed"
+    assert calls == 1
+
+
+def test_continuation_rotates_receipt_with_cumulative_repair_budget() -> None:
+    invalid = valid_step("s2", "nextlabel")
+    invalid["ops"][0]["content"] = ""  # type: ignore[index]
+    repaired = valid_step("s2", "nextlabel")
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return completed_repair(invalid if calls == 1 else repaired)
+
+    configured = settings()
+    with client_with_transport(handler, app_settings=configured) as client:
+        response = client.post(
+            "/lesson/continue",
+            json=continuation_payload(repairs_used=2),
+        )
+
+    body = response.json()
+    assert body["done"] is False
+    assert body["repairs"] == 3
+    assert calls == 2
+    assert configured.openai_api_key is not None
+    verify_continuation_receipt(
+        body["continuation_receipt"],
+        signing_key=derive_receipt_key(configured.openai_api_key.get_secret_value()),
+        request_id=REQUEST_ID,
+        client_id=CLIENT_ID,
+        prefix=[valid_step(), repaired],
+        plan=lesson_plan(),
+        topic=TOPIC,
+        student_context="",
+        repairs_used=3,
+        configuration_sha256=body["configuration_sha256"],
+    )
+
+
+def test_continuation_repair_transport_failure_preserves_dispatched_attempt() -> None:
+    invalid = valid_step("s2", "nextlabel")
+    invalid["ops"][0]["content"] = ""  # type: ignore[index]
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return completed_repair(invalid)
+        raise httpx.ReadTimeout("synthetic repair timeout", request=request)
+
+    with client_with_transport(handler) as client:
+        response = client.post("/lesson/continue", json=continuation_payload())
+
+    assert response.json()["reason"] == "continuation_unavailable"
+    assert response.json()["repairs"] == 1
+    assert calls == 2
+
+
+def test_continuation_response_rejects_unbounded_terminal_reason() -> None:
+    metadata = lessons_module._continuation_metadata(settings())
+    with pytest.raises(ContinuationContractError):
+        validate_continuation_response(
+            {
+                "request_id": REQUEST_ID,
+                "prefix_version": 1,
+                "done": True,
+                "reason": "raw_upstream_message",
+                "repairs": 0,
+                **metadata,
+            }
+        )
+
+
+def test_continuation_body_cap_fits_the_authenticated_honest_maximum() -> None:
+    # At most two opening 16-KiB lines plus three 32-KiB continuation outputs
+    # can enter the 3-5 step plan. Recovery must carry both the browser-accepted
+    # projection and the exact authenticated server prefix, each conservatively
+    # budgeted to that full size, alongside the separately bounded scene/plan.
+    maximum_prefix = (
+        2 * lessons_module.MAX_MODEL_LINE_BYTES + 3 * lessons_module.MAX_REPAIR_OUTPUT_BYTES
+    )
+    honest_maximum = (
+        2 * maximum_prefix + MAX_RESOLVED_SCENE_BYTES + MAX_LESSON_PLAN_BYTES + 8 * 1024
+    )
+    assert honest_maximum < LESSON_CONTINUATION_BODY_MAX_BYTES
 
 
 def response_lines(response: httpx.Response) -> list[dict[str, object]]:
@@ -318,6 +1165,112 @@ def test_physics_primitive_rejects_non_diagram_canvas() -> None:
     }
     with pytest.raises(StepValidationError, match="canvas reference"):
         validate_step(step, state)
+
+
+def test_composite_diagram_validates_and_becomes_a_shared_canvas() -> None:
+    state = LessonValidationState()
+    diagram_step = {
+        "id": "s1",
+        "script": "Build one coherent pendulum diagram from several related marks.",
+        "ops": [
+            {
+                "op": "diagram",
+                "id": "pendulum",
+                "region": "right",
+                "tension": 0.55,
+                "primitives": [
+                    {
+                        "kind": "line",
+                        "points": [[0.2, 0.15], [0.8, 0.15]],
+                        "stroke": "solid",
+                        "label": "support",
+                    },
+                    {
+                        "kind": "smooth",
+                        "points": [[0.5, 0.15], [0.58, 0.42], [0.7, 0.72]],
+                        "stroke": "solid",
+                    },
+                    {
+                        "kind": "ellipse",
+                        "center": [0.7, 0.78],
+                        "radius": [0.08, 0.09],
+                        "stroke": "solid",
+                        "fill": True,
+                        "label": "mass",
+                    },
+                ],
+            }
+        ],
+        "checkpoint": None,
+    }
+    accepted = validate_step(diagram_step, state)
+    assert accepted["ops"][0]["id"] == "pendulum"
+    followup = {
+        "id": "s2",
+        "script": "Add the downward force on the same coordinate canvas.",
+        "ops": [
+            {
+                "op": "arrow",
+                "id": "weight",
+                "canvas_id": "pendulum",
+                "from": [0.7, 0.78],
+                "to": [0.7, 0.95],
+                "stroke": "solid",
+                "label": "mg",
+            }
+        ],
+        "checkpoint": None,
+    }
+    assert validate_step(followup, state)["ops"][0]["canvas_id"] == "pendulum"
+
+
+@pytest.mark.parametrize(
+    "primitive, message",
+    [
+        (
+            {"kind": "line", "points": [[0.2, 0.2], [0.2, 0.2]], "stroke": "solid"},
+            "path has no length",
+        ),
+        (
+            {
+                "kind": "rect",
+                "from": [0.2, 0.2],
+                "to": [0.2, 0.8],
+                "stroke": "solid",
+            },
+            "rectangle has no area",
+        ),
+        (
+            {
+                "kind": "arc",
+                "center": [0.5, 0.5],
+                "radius": [0.2, 0.2],
+                "start_deg": 30,
+                "end_deg": 30.5,
+                "stroke": "solid",
+            },
+            "arc must span at least one degree",
+        ),
+    ],
+)
+def test_composite_diagram_rejects_degenerate_geometry(
+    primitive: dict[str, object], message: str
+) -> None:
+    step = {
+        "id": "s1",
+        "script": "Reject diagram marks that cannot produce meaningful visible ink.",
+        "ops": [
+            {
+                "op": "diagram",
+                "id": "badshape",
+                "region": "right",
+                "primitives": [primitive],
+            }
+        ],
+        "checkpoint": None,
+    }
+    with pytest.raises(StepValidationError, match=message):
+        validate_step(step, LessonValidationState())
 
 
 def test_prior_prompt_versions_remain_selectable() -> None:

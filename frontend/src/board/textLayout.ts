@@ -48,6 +48,19 @@ function wrapBoardText(text: string, maxChars: number): string[] {
     const lines: string[] = [];
     let line = "";
     for (const word of words) {
+      if (word.length > maxChars) {
+        if (line) {
+          lines.push(line);
+          line = "";
+        }
+        const chunks = Array.from(
+          { length: Math.ceil(word.length / maxChars) },
+          (_, index) => word.slice(index * maxChars, (index + 1) * maxChars),
+        );
+        lines.push(...chunks.slice(0, -1));
+        line = chunks.at(-1) ?? "";
+        continue;
+      }
       if (!line || `${line} ${word}`.length <= maxChars) {
         line = line ? `${line} ${word}` : word;
       } else {

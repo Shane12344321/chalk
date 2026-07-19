@@ -7,6 +7,7 @@ import codecs
 import hashlib
 import json
 import logging
+import re
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -14,11 +15,21 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import httpx
-from fastapi import APIRouter, Depends, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import Settings, get_settings
+from app.continuation_contract import (
+    ContinuationContractError,
+    ContinuationReceiptError,
+    canonical_sha256,
+    derive_receipt_key,
+    issue_continuation_receipt,
+    validate_continuation_request,
+    validate_continuation_response,
+    verify_continuation_receipt,
+)
 from app.dependencies import get_openai_http_client
 from app.lesson_sanitizer import SanitizationResult
 from app.lesson_validation import (
@@ -28,6 +39,8 @@ from app.lesson_validation import (
     validate_step_with_sanitization,
 )
 from app.prompt_contract import LESSON_WIRE_CONTRACT_MARKER, expand_prompt_contract
+from app.renderer_identity import drawing_contract_identity
+from app.resolved_scene import validate_lesson_plan, validate_resolved_scene
 from app.sessions import CanonicalUuid4, _safety_identifier
 
 logger = logging.getLogger(__name__)
@@ -65,6 +78,18 @@ type UpstreamReason = Literal[
     "unknown",
 ]
 type FailureOrigin = Literal["generation", "repair"]
+type ContinuationTerminalReason = Literal[
+    "prefix_mismatch",
+    "invalid_prefix",
+    "invalid_scene",
+    "invalid_receipt",
+    "receipt_replayed",
+    "plan_complete",
+    "not_configured",
+    "continuation_unavailable",
+    "continuation_invalid",
+    "recovery_abandoned",
+]
 
 _UPSTREAM_REASON_CODES: dict[str, UpstreamReason] = {
     "max_output_tokens": "max_output_tokens",
@@ -97,6 +122,7 @@ class LessonRequest(BaseModel):
     topic: str = Field(min_length=2, max_length=80, repr=False)
     student_context: str = Field(default="", max_length=500, repr=False)
     board_state: str = Field(default="", max_length=1_000, repr=False)
+    generation_mode: Literal["one_shot", "resolved_stepwise"] = "one_shot"
 
 
 class _GenerationFailure(Exception):
@@ -142,6 +168,7 @@ async def create_lesson(
 ) -> StreamingResponse:
     """Stream only accepted lesson steps; upstream SSE never reaches the browser."""
 
+    continuation_metadata = _continuation_metadata(settings)
     return StreamingResponse(
         _lesson_envelopes(payload, request, settings, client),
         media_type="application/x-ndjson",
@@ -152,8 +179,439 @@ async def create_lesson(
             "X-Chalk-Board-Reasoning-Effort": settings.board_reasoning_effort,
             "X-Chalk-Board-Prompt-SHA256": _prompt_sha256(settings.board_prompt_name),
             "X-Chalk-Repair-Prompt-SHA256": _prompt_sha256("repair.md"),
+            "X-Chalk-Continuation-Prompt-SHA256": continuation_metadata[
+                "continuation_prompt_sha256"
+            ],
+            "X-Chalk-Configuration-SHA256": continuation_metadata["configuration_sha256"],
         },
     )
+
+
+@router.post("/lesson/continue", response_class=JSONResponse)
+async def continue_lesson(
+    payload: dict[str, Any],
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+    client: Annotated[httpx.AsyncClient, Depends(get_openai_http_client)],
+) -> JSONResponse:
+    """Generate one validated future step from a replayed prefix and renderer truth."""
+
+    try:
+        continuation = validate_continuation_request(payload)
+    except ContinuationContractError:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_continuation_contract"},
+        ) from None
+
+    metadata = _continuation_metadata(settings)
+    if continuation["prefix_version"] != len(continuation["accepted_prefix"]):
+        return _continuation_terminal(continuation, "prefix_mismatch", metadata=metadata)
+    try:
+        plan = validate_lesson_plan(continuation["plan"])
+        state = LessonValidationState()
+        accepted_prefix: list[dict[str, Any]] = []
+        for step in continuation["accepted_prefix"]:
+            accepted_prefix.append(validate_step_with_sanitization(step, state).step)
+        receipt_state = LessonValidationState()
+        receipt_prefix: list[dict[str, Any]] = []
+        for step in continuation["receipt_prefix"]:
+            receipt_prefix.append(validate_step_with_sanitization(step, receipt_state).step)
+    except (ValueError, StepValidationError):
+        return _continuation_terminal(continuation, "invalid_prefix", metadata=metadata)
+    try:
+        scene = validate_resolved_scene(
+            continuation["resolved_scene"],
+            request_id=continuation["request_id"],
+            prefix_version=continuation["prefix_version"],
+        )
+        _reconcile_scene_with_prefix(scene, state)
+    except ValueError:
+        return _continuation_terminal(continuation, "invalid_scene", metadata=metadata)
+    try:
+        _validate_browser_prefix_projection(receipt_prefix, accepted_prefix, scene)
+    except ValueError:
+        return _continuation_terminal(continuation, "invalid_receipt", metadata=metadata)
+
+    if not settings.has_openai_api_key:
+        return _continuation_terminal(continuation, "not_configured", metadata=metadata)
+
+    assert settings.openai_api_key is not None
+    signing_key = derive_receipt_key(settings.openai_api_key.get_secret_value())
+    try:
+        verify_continuation_receipt(
+            continuation["continuation_receipt"],
+            signing_key=signing_key,
+            request_id=continuation["request_id"],
+            client_id=continuation["client_id"],
+            prefix=receipt_prefix,
+            plan=plan,
+            topic=continuation["topic"],
+            student_context=continuation["student_context"],
+            repairs_used=continuation["repairs_used"],
+            configuration_sha256=metadata["configuration_sha256"],
+        )
+    except ContinuationReceiptError:
+        return _continuation_terminal(continuation, "invalid_receipt", metadata=metadata)
+
+    replay_guard = request.app.state.continuation_replay_guard
+    if not await replay_guard.consume(continuation["continuation_receipt"]):
+        return _continuation_terminal(continuation, "receipt_replayed", metadata=metadata)
+
+    recovery_pending = any(
+        finding["status"] == "pending" for finding in scene.get("recovery_findings", [])
+    )
+    if (
+        len(accepted_prefix) >= len(plan["progression"]) and not recovery_pending
+    ) or state.accepted_steps >= 8:
+        return _continuation_terminal(continuation, "plan_complete", metadata=metadata)
+
+    repair_budget = _RepairBudget(attempts=continuation["repairs_used"])
+    lesson_payload = LessonRequest(
+        request_id=continuation["request_id"],
+        client_id=continuation["client_id"],
+        topic=continuation["topic"],
+        student_context=continuation["student_context"],
+        board_state="",
+    )
+    try:
+        async with asyncio.timeout(settings.lesson_generation_timeout_seconds):
+            async with request.app.state.lesson_generation_semaphore:
+                candidate = await _request_continuation_step(
+                    lesson_payload,
+                    plan,
+                    accepted_prefix,
+                    scene,
+                    settings,
+                    client,
+                )
+                accepted, _, sanitization = await _accept_or_repair(
+                    candidate,
+                    state,
+                    lesson_payload,
+                    settings,
+                    client,
+                    repair_budget=repair_budget,
+                )
+    except asyncio.CancelledError:
+        raise
+    except (TimeoutError, _GenerationFailure):
+        return _continuation_terminal(
+            continuation,
+            "recovery_abandoned" if recovery_pending else "continuation_unavailable",
+            repairs=repair_budget.attempts,
+            metadata=metadata,
+        )
+    if accepted is None:
+        return _continuation_terminal(
+            continuation,
+            "recovery_abandoned" if recovery_pending else "continuation_invalid",
+            repairs=repair_budget.attempts,
+            metadata=metadata,
+        )
+    unavailable_ids = _unavailable_recovery_ids(scene)
+    if _contains_unavailable_structured_value(accepted, unavailable_ids):
+        return _continuation_terminal(
+            continuation,
+            "recovery_abandoned" if recovery_pending else "continuation_invalid",
+            repairs=repair_budget.attempts,
+            metadata=metadata,
+        )
+    next_prefix = [*accepted_prefix, accepted]
+    next_receipt = issue_continuation_receipt(
+        signing_key=signing_key,
+        request_id=continuation["request_id"],
+        client_id=continuation["client_id"],
+        prefix=next_prefix,
+        plan=plan,
+        topic=continuation["topic"],
+        student_context=continuation["student_context"],
+        repairs_used=repair_budget.attempts,
+        configuration_sha256=metadata["configuration_sha256"],
+    )
+    return _continuation_response(
+        {
+            "request_id": continuation["request_id"],
+            "prefix_version": continuation["prefix_version"],
+            "done": False,
+            "step": accepted,
+            "repairs": repair_budget.attempts,
+            "sanitized_fields": sanitization.correction_count if sanitization else 0,
+            "continuation_receipt": next_receipt,
+            **metadata,
+        }
+    )
+
+
+def _continuation_terminal(
+    payload: dict[str, Any],
+    reason: ContinuationTerminalReason,
+    *,
+    repairs: int | None = None,
+    metadata: dict[str, str],
+) -> JSONResponse:
+    return _continuation_response(
+        {
+            "request_id": payload["request_id"],
+            "prefix_version": payload["prefix_version"],
+            "done": True,
+            "reason": reason,
+            "repairs": payload["repairs_used"] if repairs is None else repairs,
+            **metadata,
+        },
+    )
+
+
+def _continuation_response(value: dict[str, Any]) -> JSONResponse:
+    validated = validate_continuation_response(value)
+    return JSONResponse(
+        validated,
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+def _continuation_metadata(settings: Settings) -> dict[str, str]:
+    metadata = {
+        "board_model": settings.board_model,
+        "board_reasoning_effort": settings.board_reasoning_effort,
+        "board_prompt_sha256": _prompt_sha256(settings.board_prompt_name),
+        "repair_prompt_sha256": _prompt_sha256("repair.md"),
+        "continuation_prompt_sha256": _prompt_sha256("continue.md"),
+    }
+    configuration_identity = {
+        **metadata,
+        **drawing_contract_identity(),
+    }
+    return {
+        **metadata,
+        "configuration_sha256": canonical_sha256(configuration_identity),
+    }
+
+
+def _validate_browser_prefix_projection(
+    receipt_prefix: list[dict[str, Any]],
+    accepted_prefix: list[dict[str, Any]],
+    scene: dict[str, Any],
+) -> None:
+    """Allow only browser-documented filtering of authenticated server output.
+
+    The browser may remove an op or complete step that its stricter runtime could
+    not accept. It may never rewrite a script, operation, checkpoint, relation, or
+    reorder history. Closed recovery findings identify every removed operation.
+    """
+
+    findings = scene.get("recovery_findings", [])
+    receipt_step_ids = {step["id"] for step in receipt_prefix}
+    coverage: dict[str, set[int]] = {}
+    layout_failure_steps: set[str] = set()
+    for finding in findings:
+        source_step_id = finding.get("source_step_id")
+        if source_step_id is None:
+            continue
+        if source_step_id not in receipt_step_ids:
+            raise ValueError("recovery finding source is outside authenticated prefix")
+        coverage.setdefault(source_step_id, set()).update(finding["affected_op_indexes"])
+        if finding["code"] in {
+            "browser_invalid_step",
+            "browser_invalid_op",
+            "browser_unknown_reference",
+        }:
+            layout_failure_steps.add(source_step_id)
+
+    accepted_index = 0
+    for receipt_step in receipt_prefix:
+        accepted_step = (
+            accepted_prefix[accepted_index] if accepted_index < len(accepted_prefix) else None
+        )
+        if accepted_step is None or accepted_step["id"] != receipt_step["id"]:
+            required = set(range(len(receipt_step["ops"])))
+            if not required.issubset(coverage.get(receipt_step["id"], set())):
+                raise ValueError("browser removed an unauthenticated lesson step")
+            continue
+        _validate_projected_step(
+            receipt_step,
+            accepted_step,
+            coverage.get(receipt_step["id"], set()),
+            receipt_step["id"] in layout_failure_steps,
+        )
+        accepted_index += 1
+    if accepted_index != len(accepted_prefix):
+        raise ValueError("browser inserted or reordered an accepted lesson step")
+
+
+def _validate_projected_step(
+    receipt_step: dict[str, Any],
+    accepted_step: dict[str, Any],
+    covered_op_indexes: set[int],
+    layout_failure_documented: bool,
+) -> None:
+    for field in ("id", "script", "checkpoint"):
+        if accepted_step.get(field) != receipt_step.get(field):
+            raise ValueError("browser mutated authenticated lesson history")
+
+    accepted_ops = accepted_step["ops"]
+    accepted_op_index = 0
+    omitted: set[int] = set()
+    for receipt_op_index, receipt_op in enumerate(receipt_step["ops"]):
+        if accepted_op_index < len(accepted_ops) and accepted_ops[accepted_op_index] == receipt_op:
+            accepted_op_index += 1
+        else:
+            omitted.add(receipt_op_index)
+    if accepted_op_index != len(accepted_ops):
+        raise ValueError("browser inserted, mutated, or reordered an operation")
+    if not omitted.issubset(covered_op_indexes):
+        raise ValueError("browser removed an operation without closed recovery evidence")
+
+    receipt_layout = receipt_step.get("layout", [])
+    accepted_layout = accepted_step.get("layout", [])
+    if receipt_layout == accepted_layout:
+        return
+    if not layout_failure_documented or not _is_ordered_subset(accepted_layout, receipt_layout):
+        raise ValueError("browser mutated layout relations without closed recovery evidence")
+
+
+def _is_ordered_subset(subset: list[Any], full: list[Any]) -> bool:
+    cursor = 0
+    for value in full:
+        if cursor < len(subset) and subset[cursor] == value:
+            cursor += 1
+    return cursor == len(subset)
+
+
+def _unavailable_recovery_ids(scene: dict[str, Any]) -> set[str]:
+    return {
+        element_id
+        for finding in scene.get("recovery_findings", [])
+        for element_id in finding["affected_element_ids"]
+    }
+
+
+_RECOVERY_CONTENT_KEYS = {
+    "script",
+    "content",
+    "latex",
+    "label",
+    "meaning",
+    "question",
+    "expected_gist",
+}
+
+
+def _contains_unavailable_structured_value(
+    value: Any,
+    unavailable_ids: set[str],
+    key: str | None = None,
+) -> bool:
+    if isinstance(value, str):
+        return key not in _RECOVERY_CONTENT_KEYS and value in unavailable_ids
+    if isinstance(value, list):
+        return any(
+            _contains_unavailable_structured_value(item, unavailable_ids, key) for item in value
+        )
+    if isinstance(value, dict):
+        return any(
+            _contains_unavailable_structured_value(child, unavailable_ids, child_key)
+            for child_key, child in value.items()
+        )
+    return False
+
+
+def _reconcile_scene_with_prefix(
+    scene: dict[str, Any],
+    state: LessonValidationState,
+) -> None:
+    """Reject missing roots and non-renderer IDs before they reach the model.
+
+    Composite diagram primitives currently use renderer-owned virtual IDs that
+    cannot be mapped back to an individual root by scene schema 1.0. They remain
+    bounded here only when a composite diagram root exists; a later scene schema
+    version must carry the explicit root identity.
+    """
+
+    accepted_ids = set(state.accepted_ids)
+    scene_ids = {element["id"] for element in scene["elements"]}
+    composite_roots = {
+        element_id
+        for element_id, element_type in state.accepted_ids.items()
+        if element_type == "diagram"
+    }
+    unavailable_ids = _unavailable_recovery_ids(scene)
+    required_roots = accepted_ids - composite_roots - unavailable_ids
+    if not required_roots.issubset(scene_ids):
+        raise ValueError("resolved scene omits an accepted non-composite element")
+    for element in scene["elements"]:
+        element_id = element["id"]
+        if element_id in accepted_ids:
+            continue
+        if (
+            composite_roots
+            and element["kind"] == "diagram"
+            and re.fullmatch(r"p[0-9a-z]{1,7}_[0-9]{1,2}", element_id)
+        ):
+            continue
+        raise ValueError("resolved scene contains an element outside the accepted prefix")
+
+
+async def _request_continuation_step(
+    payload: LessonRequest,
+    plan: dict[str, Any],
+    accepted_prefix: list[dict[str, Any]],
+    scene: dict[str, Any],
+    settings: Settings,
+    client: httpx.AsyncClient,
+) -> str:
+    api_key = settings.openai_api_key
+    assert api_key is not None
+    try:
+        response = await client.post(
+            OPENAI_RESPONSES_URL,
+            headers={
+                "Authorization": f"Bearer {api_key.get_secret_value()}",
+                "Content-Type": "application/json",
+                "OpenAI-Safety-Identifier": _safety_identifier(settings, payload.client_id),
+            },
+            json={
+                "model": settings.board_model,
+                "instructions": _prompt("continue.md"),
+                "input": [
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {
+                                "topic": payload.topic,
+                                "student_context": payload.student_context,
+                                "plan": plan,
+                                "accepted_prefix": accepted_prefix,
+                                "resolved_board": scene,
+                                "next_progression_index": min(
+                                    len(accepted_prefix), len(plan["progression"]) - 1
+                                ),
+                                "recovery_required": any(
+                                    finding["status"] == "pending"
+                                    for finding in scene.get("recovery_findings", [])
+                                ),
+                            },
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        ),
+                    }
+                ],
+                "reasoning": {"effort": settings.board_reasoning_effort},
+                "max_output_tokens": 1_600,
+                "store": False,
+            },
+            timeout=httpx.Timeout(settings.lesson_generation_timeout_seconds),
+        )
+    except (httpx.TimeoutException, httpx.RequestError):
+        raise _GenerationFailure("upstream_unavailable") from None
+    if response.is_error:
+        raise _GenerationFailure("upstream_rejected", _http_upstream_reason(response.status_code))
+    if len(response.content) > MAX_REPAIR_OUTPUT_BYTES:
+        raise _GenerationFailure("invalid_stream")
+    try:
+        return _extract_output_text(response.json())
+    except (ValueError, TypeError, json.JSONDecodeError):
+        raise _GenerationFailure("invalid_stream") from None
 
 
 async def _lesson_envelopes(
@@ -187,6 +645,8 @@ async def _lesson_envelopes(
     sanitized_steps = 0
     sanitized_fields = 0
     processed_steps = 0
+    plan: dict[str, Any] | None = None
+    accepted_prefix: list[dict[str, Any]] = []
 
     try:
         async with asyncio.timeout(settings.lesson_generation_timeout_seconds):
@@ -195,6 +655,20 @@ async def _lesson_envelopes(
                     if await request.is_disconnected():
                         logger.info("lesson_generation_cancelled request_id=%s", request_id)
                         return
+                    if payload.generation_mode == "resolved_stepwise" and plan is None:
+                        try:
+                            plan = validate_lesson_plan(json.loads(raw_line))
+                        except (json.JSONDecodeError, ValueError):
+                            yield _error_envelope(request_id, "invalid_stream", repair_attempts=0)
+                            return
+                        yield _encode_envelope(
+                            {
+                                "type": "lesson.plan",
+                                "request_id": request_id,
+                                "plan": plan,
+                            }
+                        )
+                        continue
                     if state.accepted_steps >= 8 or processed_steps >= 8:
                         break
                     processed_steps += 1
@@ -247,6 +721,7 @@ async def _lesson_envelopes(
                             request_id,
                             (time.monotonic() - started_at) * 1_000,
                         )
+                    accepted_prefix.append(accepted)
                     yield _encode_envelope(
                         {
                             "type": "lesson.step",
@@ -254,6 +729,8 @@ async def _lesson_envelopes(
                             "step": accepted,
                         }
                     )
+                    if payload.generation_mode == "resolved_stepwise" and state.accepted_steps >= 2:
+                        break
     except TimeoutError:
         logger.warning("lesson_generation_failed reason=timeout request_id=%s", request_id)
         yield _error_envelope(
@@ -304,6 +781,28 @@ async def _lesson_envelopes(
         sanitized_steps,
         sanitized_fields,
     )
+    continuation_fields: dict[str, Any] = {}
+    if (
+        payload.generation_mode == "resolved_stepwise"
+        and plan is not None
+        and state.accepted_steps < len(plan["progression"])
+    ):
+        assert settings.openai_api_key is not None
+        metadata = _continuation_metadata(settings)
+        continuation_fields = {
+            "continuation_available": True,
+            "continuation_receipt": issue_continuation_receipt(
+                signing_key=derive_receipt_key(settings.openai_api_key.get_secret_value()),
+                request_id=str(request_id),
+                client_id=str(payload.client_id),
+                prefix=accepted_prefix,
+                plan=plan,
+                topic=payload.topic,
+                student_context=payload.student_context,
+                repairs_used=repair_budget.attempts,
+                configuration_sha256=metadata["configuration_sha256"],
+            ),
+        }
     yield _encode_envelope(
         {
             "type": "lesson.done",
@@ -313,6 +812,7 @@ async def _lesson_envelopes(
             "dropped_steps": dropped_steps,
             "sanitized_steps": sanitized_steps,
             "sanitized_fields": sanitized_fields,
+            **continuation_fields,
         }
     )
 
@@ -341,6 +841,15 @@ async def _stream_model_lines(
                         "topic": payload.topic,
                         "student_context": payload.student_context,
                         "visible_board": payload.board_state,
+                        "generation_contract": (
+                            {
+                                "mode": "resolved_stepwise",
+                                "opening_steps": {"minimum": 1, "target": 2, "maximum": 2},
+                                "first_line": "lesson_plan",
+                            }
+                            if payload.generation_mode == "resolved_stepwise"
+                            else {"mode": "one_shot"}
+                        ),
                     },
                     ensure_ascii=False,
                     separators=(",", ":"),
@@ -736,7 +1245,7 @@ def _step_hint(raw_line: str) -> dict[str, str]:
 
 def _prompt(name: str) -> str:
     template = (PROMPT_DIR / name).read_text(encoding="utf-8")
-    if name in {"board_engine.md", "repair.md"}:
+    if name in {"board_engine.md", "repair.md", "continue.md"}:
         return expand_prompt_contract(template)
     if LESSON_WIRE_CONTRACT_MARKER in template:
         raise ValueError("legacy prompt unexpectedly contains a schema contract marker")

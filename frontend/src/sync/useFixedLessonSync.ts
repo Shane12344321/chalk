@@ -319,6 +319,8 @@ export function useFixedLessonSync({
       window.setTimeout(() => {
         dispatch({ type: "CHECKPOINT_FEEDBACK_DRAIN_ELAPSED", ...correlation });
       }, AUDIO_DRAIN_GUARD_MS);
+    } else if (event.type === "checkpoint.feedback_failed") {
+      dispatch({ type: "CHECKPOINT_FAILED", ...correlation });
     }
   }, [clientRef, lesson.steps]);
 

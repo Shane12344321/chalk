@@ -1,0 +1,176 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://chalk.local/schema/lesson-continuation.schema.json",
+  "title": "LessonContinuationContract",
+  "description": "Versioned browser-to-FastAPI continuation request and FastAPI-to-browser response contract.",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/response" }
+  ],
+  "$defs": {
+    "requestId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "receipt": {
+      "description": "Opaque server-authenticated continuation capability. Its payload is not a client API.",
+      "type": "string",
+      "minLength": 96,
+      "maxLength": 1024,
+      "pattern": "^v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]{43}$"
+    },
+    "model": {
+      "enum": ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]
+    },
+    "reasoningEffort": {
+      "enum": ["none", "low"]
+    },
+    "request": {
+      "title": "LessonContinuationRequest",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "client_id",
+        "topic",
+        "student_context",
+        "prefix_version",
+        "accepted_prefix",
+        "receipt_prefix",
+        "plan",
+        "resolved_scene",
+        "repairs_used",
+        "continuation_receipt"
+      ],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "client_id": { "$ref": "#/$defs/requestId" },
+        "topic": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "student_context": { "type": "string", "maxLength": 500 },
+        "prefix_version": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "accepted_prefix": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": { "$ref": "lesson.schema.json#/$defs/step" }
+        },
+        "receipt_prefix": {
+          "description": "Exact server-issued prefix authenticated by the incoming receipt. It may differ from accepted_prefix only by browser-documented dropped steps or ops.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": { "$ref": "lesson.schema.json#/$defs/step" }
+        },
+        "plan": { "$ref": "lesson-plan.schema.json" },
+        "resolved_scene": { "$ref": "resolved-board-scene.schema.json" },
+        "repairs_used": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "continuation_receipt": { "$ref": "#/$defs/receipt" }
+      }
+    },
+    "responseIdentity": {
+      "type": "object",
+      "properties": {
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "prefix_version": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "repairs": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "board_model": { "$ref": "#/$defs/model" },
+        "board_reasoning_effort": { "$ref": "#/$defs/reasoningEffort" },
+        "board_prompt_sha256": { "$ref": "#/$defs/sha256" },
+        "repair_prompt_sha256": { "$ref": "#/$defs/sha256" },
+        "continuation_prompt_sha256": { "$ref": "#/$defs/sha256" },
+        "configuration_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "success": {
+      "title": "LessonContinuationSuccess",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "prefix_version",
+        "done",
+        "step",
+        "repairs",
+        "sanitized_fields",
+        "continuation_receipt",
+        "board_model",
+        "board_reasoning_effort",
+        "board_prompt_sha256",
+        "repair_prompt_sha256",
+        "continuation_prompt_sha256",
+        "configuration_sha256"
+      ],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "prefix_version": { "type": "integer", "minimum": 1, "maximum": 7 },
+        "done": { "const": false },
+        "step": { "$ref": "lesson.schema.json#/$defs/step" },
+        "repairs": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "sanitized_fields": { "type": "integer", "minimum": 0, "maximum": 64 },
+        "continuation_receipt": { "$ref": "#/$defs/receipt" },
+        "board_model": { "$ref": "#/$defs/model" },
+        "board_reasoning_effort": { "$ref": "#/$defs/reasoningEffort" },
+        "board_prompt_sha256": { "$ref": "#/$defs/sha256" },
+        "repair_prompt_sha256": { "$ref": "#/$defs/sha256" },
+        "continuation_prompt_sha256": { "$ref": "#/$defs/sha256" },
+        "configuration_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "terminalReason": {
+      "enum": [
+        "prefix_mismatch",
+        "invalid_prefix",
+        "invalid_scene",
+        "invalid_receipt",
+        "receipt_replayed",
+        "plan_complete",
+        "not_configured",
+        "continuation_unavailable",
+        "continuation_invalid",
+        "recovery_abandoned"
+      ]
+    },
+    "response": {
+      "title": "LessonContinuationResponse",
+      "oneOf": [
+        { "$ref": "#/$defs/success" },
+        { "$ref": "#/$defs/terminal" }
+      ]
+    },
+    "terminal": {
+      "title": "LessonContinuationTerminal",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "prefix_version",
+        "done",
+        "reason",
+        "repairs",
+        "board_model",
+        "board_reasoning_effort",
+        "board_prompt_sha256",
+        "repair_prompt_sha256",
+        "continuation_prompt_sha256",
+        "configuration_sha256"
+      ],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "prefix_version": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "done": { "const": true },
+        "reason": { "$ref": "#/$defs/terminalReason" },
+        "repairs": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "board_model": { "$ref": "#/$defs/model" },
+        "board_reasoning_effort": { "$ref": "#/$defs/reasoningEffort" },
+        "board_prompt_sha256": { "$ref": "#/$defs/sha256" },
+        "repair_prompt_sha256": { "$ref": "#/$defs/sha256" },
+        "continuation_prompt_sha256": { "$ref": "#/$defs/sha256" },
+        "configuration_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

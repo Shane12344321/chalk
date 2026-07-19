@@ -152,6 +152,155 @@
       },
       "corrections": [],
       "correction_count": 0
+    },
+    {
+      "name": "sanitize composite diagram labels and placement points",
+      "input": {
+        "id": "s1",
+        "script": "Draw one composite diagram.",
+        "ops": [
+          {
+            "op": "diagram",
+            "id": "optics",
+            "region": "right",
+            "primitives": [
+              {
+                "kind": " line ",
+                "points": [[-0.02, 0.5], [1.02, 0.5]],
+                "stroke": " solid ",
+                "label": " boundary "
+              },
+              {
+                "kind": "ellipse",
+                "center": [0.5, -0.01],
+                "radius": [0.08, 0.09],
+                "stroke": "solid",
+                "label": " medium "
+              }
+            ]
+          }
+        ],
+        "checkpoint": null
+      },
+      "expected": {
+        "id": "s1",
+        "script": "Draw one composite diagram.",
+        "ops": [
+          {
+            "op": "diagram",
+            "id": "optics",
+            "region": "right",
+            "primitives": [
+              {
+                "kind": "line",
+                "points": [[0, 0.5], [1, 0.5]],
+                "stroke": "solid",
+                "label": "boundary"
+              },
+              {
+                "kind": "ellipse",
+                "center": [0.5, 0],
+                "radius": [0.08, 0.09],
+                "stroke": "solid",
+                "label": "medium"
+              }
+            ]
+          }
+        ],
+        "checkpoint": null
+      },
+      "corrections": ["trimmed_outer_whitespace", "clamped_normalized_point"],
+      "correction_count": 7
+    },
+    {
+      "name": "trim closed construction and nested geometry reference fields",
+      "input": {
+        "id": "s2",
+        "script": "Construct the exact normal.",
+        "ops": [
+          {
+            "op": " line ",
+            "id": " normal ",
+            "construct": {
+              "kind": " perpendicular_through ",
+              "line": " base ",
+              "point": {
+                "kind": " endpoint ",
+                "element_id": " base ",
+                "endpoint": " start "
+              },
+              "length": 0.4
+            },
+            "stroke": " dashed ",
+            "label": " normal ",
+            "meaning": " exact normal "
+          }
+        ],
+        "checkpoint": null
+      },
+      "expected": {
+        "id": "s2",
+        "script": "Construct the exact normal.",
+        "ops": [
+          {
+            "op": "line",
+            "id": "normal",
+            "construct": {
+              "kind": "perpendicular_through",
+              "line": "base",
+              "point": {
+                "kind": "endpoint",
+                "element_id": "base",
+                "endpoint": "start"
+              },
+              "length": 0.4
+            },
+            "stroke": "dashed",
+            "label": "normal",
+            "meaning": "exact normal"
+          }
+        ],
+        "checkpoint": null
+      },
+      "corrections": ["trimmed_outer_whitespace"],
+      "correction_count": 10
+    },
+    {
+      "name": "trim direct intersection reference IDs",
+      "input": {
+        "id": "s2",
+        "script": "Mark the exact crossing.",
+        "ops": [
+          {
+            "op": "point",
+            "id": "crossing",
+            "construct": {
+              "kind": "intersection_of",
+              "a": " firstline ",
+              "b": " secondline "
+            }
+          }
+        ],
+        "checkpoint": null
+      },
+      "expected": {
+        "id": "s2",
+        "script": "Mark the exact crossing.",
+        "ops": [
+          {
+            "op": "point",
+            "id": "crossing",
+            "construct": {
+              "kind": "intersection_of",
+              "a": "firstline",
+              "b": "secondline"
+            }
+          }
+        ],
+        "checkpoint": null
+      },
+      "corrections": ["trimmed_outer_whitespace"],
+      "correction_count": 2
     }
   ]
 }
